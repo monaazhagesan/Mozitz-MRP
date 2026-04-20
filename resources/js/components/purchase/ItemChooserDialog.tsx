@@ -7,6 +7,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import axios from "axios";
+import { toast } from "@/components/ui/use-toast";
 import {
   Table,
   TableBody,
@@ -15,13 +17,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { supabase } from "@/integrations/supabase/client";
 import { Search } from "lucide-react";
 
 interface InventoryItem {
   id: string;
   item_code: string;
   item_name: string;
+  hsn?: string;
+  hsn_code?: string;
   description: string | null;
   item_type: string | null;
   unit_cost: number | null;
@@ -47,37 +50,52 @@ const ItemChooserDialog = ({ open, onOpenChange, onSelect }: ItemChooserDialogPr
   }, [open]);
 
   useEffect(() => {
-    if (searchTerm) {
-      const filtered = items.filter(
-        (item) =>
-          item.item_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (item.description && item.description.toLowerCase().includes(searchTerm.toLowerCase()))
-      );
-      setFilteredItems(filtered);
-    } else {
-      setFilteredItems(items);
-    }
-  }, [searchTerm, items]);
+  if (searchTerm) {
+    const filtered = items.filter(
+      (item) =>
+        item.item_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (item.description && item.description.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+    setFilteredItems(filtered);
+  } else {
+    setFilteredItems(items);
+  }
+}, [searchTerm, items]);
 
-  const fetchItems = async () => {
+ const fetchItems = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from("inventory_stock")
-        .select("id, item_code, item_name, description, item_type, unit_cost")
-        .order("item_code");
+      const response = await axios.get("/api/inventory-stock");
 
-      if (error) throw error;
-      setItems(data || []);
-      setFilteredItems(data || []);
-    } catch (error) {
+      // Map API response to match frontend InventoryItem interface
+      const data = Array.isArray(response.data.items)
+        ? response.data.items.map((item: any) => ({
+            id: item.id,
+            item_code: item.itemCode || "-",   // API field mapping
+            item_name: item.itemName || item.description || "-",
+            hsn_code: item.hsnCode || "",
+            description: item.description || "-",
+            item_type: item.item_type || "Internal",
+            unit_cost: item.purchasePrice ?? 0,
+          }))
+        : [];
+
+      console.log("Fetched items:", data); // debug
+      setItems(data);
+      setFilteredItems(data);
+    } catch (error: any) {
       console.error("Error fetching items:", error);
+      toast({
+        title: "Error Fetching Items",
+        description: error.response?.data?.message || error.message || "Failed to fetch items",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
   };
-
+  
   const handleFind = () => {
     const filtered = items.filter(
       (item) =>
@@ -145,38 +163,38 @@ const ItemChooserDialog = ({ open, onOpenChange, onSelect }: ItemChooserDialogPr
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
-                      Loading items...
-                    </TableCell>
-                  </TableRow>
-                ) : filteredItems.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
-                      No items found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredItems.map((item) => (
-                    <TableRow
-                      key={item.id}
-                      className={`cursor-pointer hover:bg-muted/50 ${
-                        selectedItem?.id === item.id ? "bg-primary text-primary-foreground" : ""
-                      }`}
-                      onClick={() => handleRowClick(item)}
-                      onDoubleClick={() => handleRowDoubleClick(item)}
-                    >
-                      <TableCell className="text-xs py-1.5">{item.item_code}</TableCell>
-                      <TableCell className="text-xs py-1.5">
-                        {item.item_name || item.description || "-"}
-                      </TableCell>
-                      <TableCell className="text-xs py-1.5">
-                        {item.item_type || "Internal"}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
+               {loading ? (
+  <TableRow>
+    <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+      Loading items...
+    </TableCell>
+  </TableRow>
+) : !Array.isArray(filteredItems) || filteredItems.length === 0 ? (
+  <TableRow>
+    <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+      No items found
+    </TableCell>
+  </TableRow>
+) : (
+  filteredItems.map((item) => (
+    <TableRow
+      key={item.id}
+      className={`cursor-pointer hover:bg-muted/50 ${
+        selectedItem?.id === item.id ? "bg-primary text-primary-foreground" : ""
+      }`}
+      onClick={() => handleRowClick(item)}
+      onDoubleClick={() => handleRowDoubleClick(item)}
+    >
+      <TableCell className="text-xs py-1.5">{item.item_code || "-"}</TableCell>
+      <TableCell className="text-xs py-1.5">
+        {item.item_name || item.description || "-"}
+      </TableCell>
+      <TableCell className="text-xs py-1.5">
+        {item.item_type || "Internal"}
+      </TableCell>
+    </TableRow>
+  ))
+)}
               </TableBody>
             </Table>
           </div>

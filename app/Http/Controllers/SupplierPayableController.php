@@ -8,11 +8,12 @@ use Illuminate\Support\Str;
 
 class SupplierPayableController extends Controller
 {
-    public function index()
-    {
-        $data = SupplierPayable::orderBy('transaction_date','desc')->get();
-        return view('supplier_payables.index', compact('data'));
-    }
+   public function index()
+{
+    return response()->json(
+        SupplierPayable::orderBy('transaction_date','desc')->get()
+    );
+}
 
     public function import(Request $request)
     {
@@ -52,5 +53,41 @@ class SupplierPayableController extends Controller
 
         return redirect()->back()->with('success', 'Imported successfully');
     }
+
+     public function store(Request $request)
+    {
+        $data = $request->validate([
+            'vendor' => 'nullable|string|max:255',
+            'reference_type' => 'nullable|string|max:255',
+            'reference_number' => 'nullable|string|max:255',
+            'transaction_date' => 'nullable|date',
+            'debit' => 'nullable|numeric',
+            'credit' => 'nullable|numeric',
+            'balance' => 'nullable|numeric',
+            'status' => 'nullable|string|max:50',
+            'due_date' => 'nullable|date',
+            'notes' => 'nullable|string',
+            'grn_number' => 'nullable|string|max:255',
+            'po_number' => 'nullable|string|max:255',
+            'accepted_quantity' => 'nullable|numeric',
+            'unit_price' => 'nullable|numeric',
+            'tax_amount' => 'nullable|numeric',
+            'total_amount' => 'nullable|numeric',
+            'paid_amount' => 'nullable|numeric',
+            'invoice_number' => 'nullable|string|max:255',
+            'invoice_date' => 'nullable|date',
+            'approved_by' => 'nullable|string|max:255',
+            'approved_at' => 'nullable|date',
+            'payment_status' => 'nullable|string|max:50',
+        ]);
+
+        $payable = SupplierPayable::create($data);
+
+        return response()->json([
+            'success' => true,
+            'data' => $payable
+        ]);
+    }
+   
 }
 

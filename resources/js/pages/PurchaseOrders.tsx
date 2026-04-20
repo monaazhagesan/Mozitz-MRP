@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Plus, Download, Edit, Trash2, Eye, X, MoreHorizontal, Printer } from "lucide-react";
+import axios from "axios";
 import {
   Table,
   TableBody,
@@ -31,7 +32,6 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import ItemChooserDialog from "@/components/purchase/ItemChooserDialog";
 
 interface LineItem {
@@ -40,6 +40,7 @@ interface LineItem {
   itemCode: string;
   description: string;
   hsnSac: string;
+  hsnCode?: string; // --- IGNORE ---
   gstRate: number;
   quantity: number;
   price: number;
@@ -49,6 +50,14 @@ interface LineItem {
   igst: number;
   tax: number;
   totalCost: number;
+  uom?: string;
+  promisedDate?: string;
+  needBy?: string;
+  originalPromise?: string;
+  cess?: number;
+   taxType?: string;
+  placeOfSupply?: string;
+  gstType?: "IGST" | "CGST_SGST";
 }
 
 interface TaxConfig {
@@ -58,6 +67,7 @@ interface TaxConfig {
   addCess: boolean;
   cessPercent: number;
 }
+
 
 const PurchaseOrders = () => {
   const [open, setOpen] = useState(false);
@@ -76,6 +86,10 @@ const PurchaseOrders = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
   const { toast } = useToast();
+  const [shipmentsData, setShipmentsData] = useState<any[]>([]);
+  const [currentPO, setCurrentPO] = useState<any | null>(null);
+  // Track which PO is being edited
+const [editingPO, setEditingPO] = useState<any>(null);
 
   // Tax configuration state
   const [taxConfig, setTaxConfig] = useState<TaxConfig>({
@@ -174,121 +188,188 @@ const PurchaseOrders = () => {
     }
   }, []);
 
-  const fetchVendors = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('vendors' as any)
-        .select('*')
-        .eq('status', 'Active')
-        .order('name');
+ const fetchVendors = async () => {
+  try {
+    console.log("Fetching vendors...");
 
-      if (error) throw error;
-      setVendors(data || []);
-    } catch (error: any) {
-      console.error('Error fetching vendors:', error);
+    const response = await axios.get("/api/vendors", {
+      params: { status: "Active" }
+    });
+
+    console.log("Full API Response:", response);
+    console.log("Response Data:", response.data);
+
+    const data = response.data;
+
+    // Ensure vendors is always an array
+    if (Array.isArray(data)) {
+      console.log("Vendors Array:", data);
+      setVendors(data);
+    } else if (Array.isArray(data?.vendors)) {
+      console.log("Vendors from data.vendors:", data.vendors);
+      setVendors(data.vendors);
+    } else {
+      console.warn("Unexpected vendor response format:", data);
+      setVendors([]);
     }
-  };
+
+  } catch (error: any) {
+    console.error(
+      "Error fetching vendors:",
+      error?.response?.data || error.message
+    );
+  }
+};
+
+
+const updateShipment = (index: number, field: string, value: any) => {
+  const updated = [...shipmentsData];
+  updated[index][field] = value;
+  setShipmentsData(updated);
+};
 
   const loadQuotationAndCreatePO = async (quoteId: string) => {
-    try {
-      const { data: quotation, error } = await supabase
-        .from("vendor_quotations" as any)
-        .select("*")
-        .eq("id", quoteId)
-        .single();
+  try {
+    // Fetch quotation using Axios instead of Supabase
+    const response = await axios.get("/api/vendor_quotations", {
+      params: { id: quoteId },
+    });
 
-      if (error) throw error;
+    const quotation = response.data;
 
-      if (quotation) {
-        const quote = quotation as any;
-        setFormData(prev => ({
-          ...prev,
-          supplier: quote.vendor_name,
-          paymentTerms: quote.terms || "Net 30",
-        }));
-        
-        const lineTotal = quote.quantity * quote.quoted_price;
-        const lineTax = lineTotal * 0.1;
-        const newItem: LineItem = {
-          id: Date.now().toString(),
-          num: 1,
-          itemCode: quote.item_code,
-          description: quote.item_name,
-          hsnSac: "",
-          gstRate: 18,
-          quantity: quote.quantity,
-          price: quote.quoted_price,
-          amount: lineTotal,
-          cgst: 0,
-          sgst: 0,
-          igst: 0,
-          tax: lineTax,
-          totalCost: lineTotal + lineTax,
-        };
-        
-        setLineItems([newItem]);
-        setOpen(true);
+    if (!quotation) {
+      throw new Error("Quotation not found");
+    }
 
-        toast({
-          title: "Quotation Loaded",
-          description: "Complete PO details to create purchase order.",
-        });
-      }
-    } catch (error: any) {
+    // Populate form data
+    setFormData(prev => ({
+      ...prev,
+      supplier: quotation.vendor_name,
+      paymentTerms: quotation.terms || "Net 30",
+    }));
+
+    // Calculate line totals and taxes
+    const lineTotal = quotation.quantity * quotation.quoted_price;
+    const lineTax = lineTotal * 0.1; // 10% tax
+
+    const newItem: LineItem = {
+      id: Date.now().toString(),
+      num: 1,
+      itemCode: quotation.item_code,
+      description: quotation.item_name,
+      hsnSac: quotation.hsn || "",
+      hsnCode: quotation.hsn_code || "", // --- IGNORE ---
+      gstRate: 18,
+      quantity: quotation.quantity,
+      price: quotation.quoted_price,
+      amount: lineTotal,
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      tax: lineTax,
+      totalCost: lineTotal + lineTax,
+    };
+
+    setLineItems([newItem]);
+    setOpen(true);
+
+    toast({
+      title: "Quotation Loaded",
+      description: "Complete PO details to create purchase order.",
+    });
+  } catch (error: any) {
+    toast({
+      title: "Error",
+      description: error.response?.data?.message || error.message,
+      variant: "destructive",
+    });
+  }
+};
+
+
+ const fetchPurchaseOrders = async () => {
+  setLoading(true);
+  try {
+    const res = await axios.get("/api/purchase-orders");
+
+    const orders = Array.isArray(res.data) ? res.data : res.data?.data || [];
+
+    setPurchaseOrders(orders);
+  } catch (err) {
+    if (err.response) {
+      console.error("Server Error:", err.response.data);
+    } else {
+      console.error("Failed to fetch POs:", err);
+    }
+    setPurchaseOrders([]);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const viewPurchaseOrder = async (poNumber: string) => {
+  try {
+    console.log("Fetching PO for number:", poNumber);
+
+    // Fetch the PO by number
+    const response = await axios.get("/api/purchase-orders", {
+      params: { po_number: poNumber },
+    });
+
+    console.log("PO response:", response.data);
+
+    const data = response.data;
+    const po = Array.isArray(data) ? data[0] : data;
+
+    if (!po) {
       toast({
-        title: "Error",
-        description: error.message,
+        title: "PO Not Found",
+        description: `Purchase order ${poNumber} could not be found.`,
         variant: "destructive",
       });
+      return;
     }
-  };
 
-  const fetchPurchaseOrders = async () => {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('purchase_orders')
-        .select(`
-          *,
-          purchase_order_items(*)
-        `)
-        .order('created_at', { ascending: false });
+    console.log("PO found:", po);
 
-      if (error) throw error;
-      setPurchaseOrders(data || []);
-    } catch (error: any) {
-      toast({
-        title: "Error Fetching Purchase Orders",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+    // ✅ Fetch the line items from the separate table
+    const linesResponse = await axios.get("/api/purchase-order-lines", {
+      params: { po_id: po.id },
+    });
 
-  const viewPurchaseOrder = async (poNumber: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('purchase_orders')
-        .select(`
-          *,
-          purchase_order_items(*)
-        `)
-        .eq('po_number', poNumber)
-        .single();
+    console.log("Line items response:", linesResponse.data);
 
-      if (error) throw error;
-      setSelectedPO(data);
-      setViewOpen(true);
-    } catch (error: any) {
-      toast({
-        title: "Error Loading PO",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  };
+    // Some APIs wrap the items under "items", check first
+    const lineItems = linesResponse.data.items || [];
+
+    console.log("Line items array:", lineItems);
+
+    // Format PO with lines and dates
+    const formattedPO = {
+      ...po,
+      po_date: po.po_date ? new Date(po.po_date).toISOString().split("T")[0] : "-",
+      expected_date: po.expected_date
+        ? new Date(po.expected_date).toISOString().split("T")[0]
+        : "-",
+      purchase_order_items: lineItems,
+      subtotal: po.subtotal || 0,
+      tax: po.tax || 0,
+      total: po.total || 0,
+    };
+
+    console.log("Formatted PO:", formattedPO);
+
+    setSelectedPO(formattedPO);
+    setViewOpen(true);
+  } catch (error: any) {
+    console.error("Error loading PO:", error);
+    toast({
+      title: "Error Loading PO",
+      description: error.response?.data?.message || error.message || "Unknown error",
+      variant: "destructive",
+    });
+  }
+};
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -299,43 +380,41 @@ const PurchaseOrders = () => {
     return <Badge variant={variants[status] || "secondary"}>{status}</Badge>;
   };
 
-  const printPDF = async (poNumber: string) => {
-    try {
-      toast({
-        title: "Generating PDF",
-        description: "Please wait while we generate your PDF...",
-      });
+ const printPDF = async (poNumber: string) => {
+  try {
+    toast({
+      title: "Generating PDF",
+      description: "Please wait while we generate your PDF...",
+    });
 
-      const { data, error } = await supabase.functions.invoke('generate-po-pdf', {
-        body: { poNumber }
-      });
+    // Call your API endpoint to generate PDF
+    const response = await axios.post("/api/generate-po-pdf", { poNumber });
+    const data = response.data;
 
-      if (error) throw error;
-
-      // Open PDF in new window for printing
-      const printWindow = window.open('', '_blank');
-      if (printWindow) {
-        printWindow.document.write(data.html);
-        printWindow.document.close();
-        printWindow.focus();
-        setTimeout(() => {
-          printWindow.print();
-        }, 500);
-      }
-
-      toast({
-        title: "PDF Generated",
-        description: "Your PDF is ready for printing.",
-      });
-    } catch (error: any) {
-      console.error("PDF generation error:", error);
-      toast({
-        title: "Error Generating PDF",
-        description: error.message || "Failed to generate PDF",
-        variant: "destructive",
-      });
+    // Open PDF in a new window for printing
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(data.html);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+      }, 500);
     }
-  };
+
+    toast({
+      title: "PDF Generated",
+      description: "Your PDF is ready for printing.",
+    });
+  } catch (error: any) {
+    console.error("PDF generation error:", error);
+    toast({
+      title: "Error Generating PDF",
+      description: error.response?.data?.message || error.message || "Failed to generate PDF",
+      variant: "destructive",
+    });
+  }
+};
 
   const addLineItem = () => {
     const newItem: LineItem = {
@@ -344,6 +423,7 @@ const PurchaseOrders = () => {
       itemCode: "",
       description: "",
       hsnSac: "",
+      hsnCode: "",
       gstRate: 18,
       quantity: 1,
       price: 0,
@@ -412,7 +492,7 @@ const PurchaseOrders = () => {
     setItemChooserOpen(true);
   };
 
-  const handleItemSelect = (item: { item_code: string; item_name: string; description: string | null; unit_cost: number | null }) => {
+  const handleItemSelect = (item: { item_code: string; item_name: string; hsn_code?: string; description: string | null; unit_cost: number | null }) => {
     if (currentLineItemId) {
       setLineItems(lineItems.map(lineItem => {
         if (lineItem.id === currentLineItemId) {
@@ -424,6 +504,7 @@ const PurchaseOrders = () => {
           return {
             ...lineItem,
             itemCode: item.item_code,
+            hsnCode: item.hsn_code ?? "",
             description: item.item_name || item.description || "",
             price: price,
             amount: lineSubtotal,
@@ -457,79 +538,205 @@ const PurchaseOrders = () => {
     return { subtotal, tax: totalTax, totalCgst, totalSgst, totalIgst, totalCost, discountAmount, grandTotal };
   };
 
-  const handleSubmit = async () => {
-    if (lineItems.length === 0) {
-      toast({
-        title: "Validation Error",
-        description: "Please add at least one line item",
-        variant: "destructive",
+const handleSubmit = async () => {
+  if (lineItems.length === 0) {
+    toast({
+      title: "Validation Error",
+      description: "Please add at least one line item",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  if (!formData.supplier) {
+    toast({
+      title: "Validation Error",
+      description: "Please select a supplier",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  if (!formData.contact || !/^\d{10}$/.test(formData.contact)) {
+    toast({
+      title: "Validation Error",
+      description: "Please enter a valid 10-digit contact number",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  const totals = calculateTotals();
+
+  try {
+    let poData;
+
+    if (editingPO?.id) {
+      // ---------------------------
+      // ✅ Update existing PO
+      // ---------------------------
+      const updateResponse = await axios.put(`/api/purchase-orders/${editingPO.id}`, {
+        po_number: formData.poNumber,
+        operating_unit: formData.operatingUnit,
+        po_rev: formData.poRev || 0,
+        type: formData.type || "Standard Purchase Order",
+        vendor: formData.supplier,
+        site: formData.site || null,
+        currency: formData.currency || "INR",
+        contact: formData.contact || null,
+        ship_to: formData.shipTo,
+        bill_to: formData.billTo || formData.shipTo,
+        expected_date: formData.expectedDate || null,
+        status: formData.status || "Awaiting Approval",
+        subtotal: totals.subtotal,
+        tax: totals.tax,
+        total: totals.grandTotal,
+        description: formData.description || null,
+        payment_terms: formData.paymentTerms || null,
+        notes: formData.notes || null,
+        line_items_count: lineItems.length,
       });
-      return;
+
+      poData = updateResponse.data;
+
+      // ---------------------------
+      // Update line items
+      // Here we can PUT or PATCH each line by ID or delete all old lines & insert new
+      // For simplicity, delete old lines and insert new
+      await axios.delete(`/api/purchase-order-lines/by-po/${editingPO.id}`); // delete all lines
+    } else {
+      // ---------------------------
+      // ✅ Create new PO
+      // ---------------------------
+      const createResponse = await axios.post("/api/purchase-orders", {
+        po_number: formData.poNumber,
+        operating_unit: formData.operatingUnit,
+        po_rev: formData.poRev || 0,
+        type: formData.type || "Standard Purchase Order",
+        vendor: formData.supplier,
+        site: formData.site || null,
+        currency: formData.currency || "INR",
+        contact: formData.contact || null,
+        ship_to: formData.shipTo,
+        bill_to: formData.billTo || formData.shipTo,
+        expected_date: formData.expectedDate || null,
+        status: formData.status || "Awaiting Approval",
+        subtotal: totals.subtotal,
+        tax: totals.tax,
+        total: totals.grandTotal,
+        description: formData.description || null,
+        payment_terms: formData.paymentTerms || null,
+        notes: formData.notes || null,
+        line_items_count: lineItems.length,
+      });
+
+      poData = createResponse.data;
     }
 
-    if (!formData.supplier) {
-      toast({
-        title: "Validation Error",
-        description: "Please select a supplier",
-        variant: "destructive",
-      });
-      return;
-    }
+    // ---------------------------
+    // Insert line items
+    // ---------------------------
+    const poId = editingPO ? editingPO.id : poData.id;
+    const linesToInsert = lineItems.map((item, index) => ({
+     po_id: poId,
+      line_num: index + 1,
+      item_code: item.itemCode,
+      hsn_code: item.hsnCode,
+      description: item.description || null,
+      quantity: item.quantity,
+      unit_price: item.price,
+      amount: item.quantity * item.price,
+      total: item.quantity * item.price + (item.tax || 0),
+      uom: item.uom || "Each",
+    }));
 
-    const totals = calculateTotals();
+    await axios.post("/api/purchase-order-lines", { items: linesToInsert });
 
-    try {
-      const { data: poData, error: poError } = await supabase
-        .from('purchase_orders')
-        .insert({
-          po_number: formData.poNumber,
-          vendor: formData.supplier,
-          po_date: new Date().toISOString(),
-          delivery_date: null,
-          payment_terms: formData.paymentTerms,
-          shipping_address: formData.shipTo,
-          status: 'Awaiting Approval',
-          subtotal: totals.subtotal,
-          tax: totals.tax,
-          total: totals.grandTotal,
-          notes: formData.notes,
-        })
-        .select()
-        .single();
+    // ---------------------------
+    // Insert taxes (same as before)
+    // ---------------------------
+    const taxesToInsert = lineItems.map((item, index) => {
+      const lineSubtotal = item.quantity * item.price;
+      let cgst = 0, sgst = 0, igst = 0, cess = 0;
 
-      if (poError) throw poError;
+      if (taxConfig.taxType === "GST (India)" && taxConfig.gstType === "CGST_SGST") {
+        const gstAmount = lineSubtotal * (taxConfig.gstPercent / 100);
+        cgst = gstAmount / 2;
+        sgst = gstAmount / 2;
+      } else if (taxConfig.taxType === "GST (India)" && taxConfig.gstType === "IGST") {
+        igst = lineSubtotal * (taxConfig.gstPercent / 100);
+      }
 
-      const itemsToInsert = lineItems.map(item => ({
+      cess = taxConfig.addCess ? (lineSubtotal * taxConfig.cessPercent) / 100 : 0;
+
+      return {
         po_id: poData.id,
-        item_code: item.itemCode,
-        description: item.description,
-        quantity: item.quantity,
-        unit_price: item.price,
-        total: item.quantity * item.price,
+        line_num: index + 1,
+        tax_type: taxConfig.taxType || "None",
+        place_of_supply: taxConfig.taxType === "GST (India)" ? taxConfig.placeOfSupply : null,
+        cgst,
+        sgst,
+        igst,
+        cess,
+        tax_total: cgst + sgst + igst + cess,
+      };
+    });
+
+    await axios.post("/api/purchase-order-taxes", { taxes: taxesToInsert });
+
+    // ---------------------------
+    // Insert shipments
+    // ---------------------------
+    if (shipmentsData?.length > 0) {
+      // Optional: delete old shipments if editing
+      if (editingPO?.id) {
+        await axios.delete(`/api/purchase-order-shipments/${poData.id}`);
+      }
+
+      const shipmentsToInsert = shipmentsData.map((s) => ({
+        po_id: poData.id,
+        line_num: s.lineNum,
+        org: s.org || null,
+        ship_to: s.shipTo,
+        quantity: s.quantity,
+        uom: s.uom || "Each",
+        promised_date: s.promisedDate || null,
+        need_by: s.needBy || null,
+        original_promise: s.originalPromise || null,
       }));
 
-      const { error: itemsError } = await supabase
-        .from('purchase_order_items')
-        .insert(itemsToInsert);
-
-      if (itemsError) throw itemsError;
-
-      toast({
-        title: "Purchase Order Created",
-        description: `${formData.poNumber} has been created successfully.`,
-      });
-
-      resetForm();
-      setOpen(false);
-      fetchPurchaseOrders();
-    } catch (error: any) {
-      toast({
-        title: "Error Creating PO",
-        description: error.message,
-        variant: "destructive",
-      });
+      await axios.post("/api/purchase-order-shipments", { shipments: shipmentsToInsert });
     }
-  };
+
+    // ---------------------------
+    // Success
+    // ---------------------------
+    toast({
+      title: editingPO ? "Purchase Order Updated" : "Purchase Order Created",
+      description: `${formData.poNumber} has been successfully ${editingPO ? "updated" : "created"}.`,
+    });
+
+    resetForm();
+    setOpen(false);
+    setEditingPO(null); // reset editing state
+    fetchPurchaseOrders();
+
+  } catch (error) {
+    let message = "Failed to save PO";
+
+    if (axios.isAxiosError(error)) {
+      message = error.response?.data?.message || error.message || message;
+    }
+
+    console.error("Error saving PO:", error);
+
+    toast({
+      title: "Error",
+      description: message,
+      variant: "destructive",
+    });
+  }
+};
 
   const resetForm = () => {
     setFormData({
@@ -569,6 +776,7 @@ const PurchaseOrders = () => {
         itemCode: "",
         description: "",
         hsnSac: "",
+        hsnCode: "",
         gstRate: 18,
         quantity: 1,
         price: 0,
@@ -579,25 +787,107 @@ const PurchaseOrders = () => {
         tax: 0,
         totalCost: 0,
       },
-      {
-        id: (Date.now() + 1).toString(),
-        num: 2,
-        itemCode: "",
-        description: "",
-        hsnSac: "",
-        gstRate: 18,
-        quantity: 1,
-        price: 0,
-        amount: 0,
-        cgst: 0,
-        sgst: 0,
-        igst: 0,
-        tax: 0,
-        totalCost: 0,
-      },
+      
     ]);
     setActiveTab("lines");
   };
+
+
+ const handleEdit = (poNumber: string) => {
+  const poDetails = purchaseOrders.find(po => po.po_number === poNumber);
+
+  if (!poDetails) {
+    toast({
+      title: "Error",
+      description: "Purchase order not found.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  // 🔹 Debug: Check if the PO is found
+  console.log("PO Details found:", poDetails);
+
+  // Merge existing formData with the PO details
+  setFormData(prev => {
+    const newFormData = {
+      ...prev,
+      operatingUnit: poDetails.operating_unit || "",
+      poNumber: poDetails.po_number,
+      poRev: poDetails.po_rev || 0,
+      type: poDetails.type || "Standard Purchase Order",
+      supplier: poDetails.vendor || "",
+      site: poDetails.site || "",
+      currency: poDetails.currency || "INR",
+      contact: poDetails.contact || "",
+      shipTo: poDetails.ship_to || "",
+      billTo: poDetails.bill_to || poDetails.ship_to || "",
+      expectedDate: poDetails.expected_date || "",
+      status: poDetails.status || "Awaiting Approval",
+      subtotal: poDetails.subtotal || 0,
+      tax: poDetails.tax || 0,
+      total: poDetails.total || 0,
+      description: poDetails.description || "",
+      paymentTerms: poDetails.payment_terms || "",
+      notes: poDetails.notes || "",
+      discountType: poDetails.discount_type || "flat",
+      discountValue: poDetails.discount_value || 0,
+      lineItemsCount: poDetails.line_items_count || 0,
+    };
+    console.log("Form data set:", newFormData); // 🔹 Debug formData
+    return newFormData;
+  });
+
+  // Populate line items safely
+  const mappedLineItems = (poDetails.lines || []).map((item: any, index: number) => ({
+  id: item.id || index,
+  itemCode: item.item_code || "",
+  hsnCode: item.hsn_code || "",
+  description: item.description || "",
+  quantity: Number(item.quantity) || 0,
+  price: Number(item.unit_price) || 0,
+  amount: Number(item.amount) || Number(item.quantity) * Number(item.unit_price) || 0,
+  total: Number(item.total) || Number(item.quantity) * Number(item.unit_price) || 0,
+  tax: Number(item.tax) || 0,
+  uom: item.uom || "Each",
+  lineNum: index + 1,
+}));
+
+console.log("Mapped Line Items:", mappedLineItems); // 🔹 Debug
+setLineItems(mappedLineItems);
+
+
+const mappedShipments = (poDetails.shipments || []).map((s: any, index: number) => ({
+  lineNum: s.line_num || index + 1,
+  org: s.org || "",
+  shipTo: s.ship_to || "",
+  quantity: Number(s.quantity) || 0,
+  uom: s.uom || "Each",
+  promisedDate: s.promised_date || "",
+  needBy: s.need_by || "",
+  originalPromise: s.original_promise || "",
+}));
+console.log("Mapped Shipments:", mappedShipments);
+setShipmentsData(mappedShipments);
+
+  // Debug tax config
+  const newTaxConfig = {
+    taxType: poDetails.tax_type || "None",
+    gstType: poDetails.gst_type || "CGST_SGST",
+    placeOfSupply: poDetails.place_of_supply || "",
+    addCess: poDetails.add_cess || false,
+    cessPercent: poDetails.cess_percent || 0,
+  };
+  console.log("Tax config set:", newTaxConfig); // 🔹 Debug tax
+  setTaxConfig(newTaxConfig);
+
+  // Mark editing PO
+  setEditingPO(poDetails);
+  console.log("Editing PO set:", poDetails); // 🔹 Debug editing PO
+
+  // Open the dialog
+  setOpen(true);
+};
 
   const totals = calculateTotals();
 
@@ -715,12 +1005,13 @@ const PurchaseOrders = () => {
                     <SelectTrigger className="h-8 text-sm border-gray-400">
                       <SelectValue placeholder="Select supplier" />
                     </SelectTrigger>
-                    <SelectContent>
-                      {vendors.map((vendor) => (
-                        <SelectItem key={vendor.id} value={vendor.name}>
-                          {vendor.name}
-                        </SelectItem>
-                      ))}
+                   <SelectContent>
+                      {Array.isArray(vendors) &&
+                        vendors.map((vendor: any) => (
+                          <SelectItem key={vendor.id} value={String(vendor.vendor_name)}>
+                            {vendor.vendor_name}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -781,13 +1072,19 @@ const PurchaseOrders = () => {
                 </div>
                 <div className="col-span-2 flex items-center gap-2">
                   <Label className="text-sm whitespace-nowrap w-20">Expected Date</Label>
-                  <Input 
-                    type="date"
-                    value={formData.expectedDate} 
-                    onChange={(e) => setFormData(prev => ({ ...prev, expectedDate: e.target.value }))}
-                    className="h-8 text-sm border-gray-400"
-                  />
-                </div>
+                  <Input
+  type="date"
+  value={formData.expectedDate || ""}
+  onChange={(e) =>
+    setFormData((prev) => ({
+      ...prev,
+      expectedDate: e.target.value,
+    }))
+  }
+  onClick={(e: any) => e.currentTarget.showPicker?.()}
+  className="h-8 text-sm border-gray-400 cursor-pointer"
+/>
+                </div> 
                 <div className="col-span-4" />
 
                 {/* Row 5 */}
@@ -913,8 +1210,8 @@ const PurchaseOrders = () => {
                             {taxConfig.taxType === "GST (India)" && (
                               <TableCell className="p-2 border-r border-gray-300">
                                 <Input 
-                                  value={item.hsnSac}
-                                  onChange={(e) => updateLineItem(item.id, 'hsnSac', e.target.value)}
+                                  value={item.hsnCode || ""}
+                                  onChange={(e) => updateLineItem(item.id, 'hsnCode', e.target.value)}
                                   className="h-8 text-sm border-gray-400"
                                   placeholder="HSN/SAC"
                                 />
@@ -969,7 +1266,7 @@ const PurchaseOrders = () => {
                             <TableCell className="p-2 border-r border-gray-300">
                               <Input 
                                 type="number"
-                                value={item.amount.toFixed(2)}
+                                value={Number(item.amount || 0).toFixed(2)}
                                 readOnly
                                 className="h-8 text-sm border-gray-400 bg-gray-100"
                               />
@@ -1019,7 +1316,7 @@ const PurchaseOrders = () => {
                             <TableCell className="p-2 border-r border-gray-300">
                               <Input 
                                 type="number"
-                                value={item.totalCost.toFixed(2)}
+                               value={Number(item.totalCost || 0).toFixed(2)}
                                 readOnly
                                 className="h-8 text-sm border-gray-400 bg-gray-100"
                               />
@@ -1235,12 +1532,27 @@ const PurchaseOrders = () => {
                   variant="outline" 
                   size="sm" 
                   className="h-8 text-sm bg-[#6699cc] text-white hover:bg-[#5588bb]"
-                  onClick={() => {
-                    if (lineItems.length > 0) {
-                      setSelectedLineItem(lineItems[0]);
-                    }
-                    setShipmentsOpen(true);
-                  }}
+                 onClick={() => {
+
+  const shipments = lineItems.map((item, index) => ({
+    lineNum: index + 1,
+    org: "V1",
+    shipTo: formData.shipTo,
+    quantity: item.quantity,
+    uom: "Each",
+    promisedDate: "",
+    needBy: formData.expectedDate || "",
+    originalPromise: "",
+  }));
+
+  setShipmentsData(shipments);
+
+  if (lineItems.length > 0) {
+    setSelectedLineItem(lineItems[0]);
+  }
+
+  setShipmentsOpen(true);
+}}
                 >
                   Shipments
                 </Button>
@@ -1387,7 +1699,7 @@ const PurchaseOrders = () => {
               >
                 Cancel
               </Button>
-              <Button 
+            <Button 
                 onClick={() => {
                   // Recalculate all line items with new tax config
                   setLineItems(lineItems.map(item => {
@@ -1496,7 +1808,10 @@ const PurchaseOrders = () => {
                           />
                         </TableCell>
                         <TableCell className="p-1 border-r border-gray-300">
-                          <Select defaultValue={formData.shipTo}>
+                         <Select
+  value={shipmentsData[index]?.shipTo || ""}
+  onValueChange={(v) => updateShipment(index, "shipTo", v)}
+>
                             <SelectTrigger className="h-7 text-sm bg-[#ffffc8] border-gray-400">
                               <SelectValue />
                             </SelectTrigger>
@@ -1508,7 +1823,10 @@ const PurchaseOrders = () => {
                           </Select>
                         </TableCell>
                         <TableCell className="p-1 border-r border-gray-300">
-                          <Select defaultValue="Each">
+                          <Select
+  value={shipmentsData[index]?.uom || "Each"}
+  onValueChange={(v) => updateShipment(index, "uom", v)}
+>
                             <SelectTrigger className="h-7 text-sm border-gray-400">
                               <SelectValue />
                             </SelectTrigger>
@@ -1521,31 +1839,42 @@ const PurchaseOrders = () => {
                           </Select>
                         </TableCell>
                         <TableCell className="p-1 border-r border-gray-300">
-                          <Input 
-                            type="number"
-                            defaultValue={item.quantity}
-                            className="h-7 text-sm bg-[#ffffc8] border-gray-400"
-                            min={1}
-                          />
+                         <Input
+  type="number"
+  value={shipmentsData[index]?.quantity || ""}
+  onChange={(e) =>
+    updateShipment(index, "quantity", Number(e.target.value))
+  }
+/>
                         </TableCell>
                         <TableCell className="p-1 border-r border-gray-300">
-                          <Input 
-                            type="date"
-                            className="h-7 text-sm border-gray-400"
-                          />
+                          <Input
+  type="date"
+  value={shipmentsData[index]?.promisedDate }
+  onChange={(e) =>
+    updateShipment(index, "promisedDate", e.target.value)
+  }
+/>
                         </TableCell>
                         <TableCell className="p-1 border-r border-gray-300">
-                          <Input 
-                            type="date"
-                            defaultValue={formData.expectedDate}
-                            className="h-7 text-sm border-gray-400"
-                          />
+                          <Input
+  type="date"
+  value={shipmentsData[index]?.needBy || ""}
+  onChange={(e) =>
+    updateShipment(index, "needBy", e.target.value)
+  }
+  className="h-7 text-sm border-gray-400"
+/>
                         </TableCell>
                         <TableCell className="p-1">
-                          <Input 
-                            type="date"
-                            className="h-7 text-sm border-gray-400"
-                          />
+                          <Input
+  type="date"
+  value={shipmentsData[index]?.originalPromise || ""}
+  onChange={(e) =>
+    updateShipment(index, "originalPromise", e.target.value)
+  }
+  className="h-7 text-sm border-gray-400"
+/>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1593,18 +1922,18 @@ const PurchaseOrders = () => {
 
               {/* Bottom Buttons */}
               <div className="mt-4 flex justify-center gap-4">
-                <Button 
-                  variant="outline" 
-                  className="h-8 text-sm px-8 bg-[#6699cc] text-white hover:bg-[#5588bb]"
-                >
-                  Receiving Controls
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="h-8 text-sm px-8 bg-[#6699cc] text-white hover:bg-[#5588bb]"
-                >
-                  Distributions
-                </Button>
+               <Button
+  onClick={() => {
+    toast({
+      title: "Shipments Saved",
+      description: "Shipment details have been stored.",
+    });
+
+    setShipmentsOpen(false);
+  }}
+>
+  Save
+</Button>
               </div>
             </div>
           </DialogContent>
@@ -1672,11 +2001,17 @@ const PurchaseOrders = () => {
                       <TableRow key={po.po_number}>
                         <TableCell className="font-medium">{po.po_number}</TableCell>
                         <TableCell>{po.vendor}</TableCell>
-                        <TableCell>{new Date(po.po_date).toISOString().split('T')[0]}</TableCell>
+                        <TableCell>
+                        {po.expected_date ? new Date(po.expected_date).toISOString().split('T')[0] : 'N/A'}
+                      </TableCell>
                         <TableCell>{getStatusBadge(po.status)}</TableCell>
-                        <TableCell>{itemCount}</TableCell>
-                        <TableCell>${totalAmount.toFixed(2)}</TableCell>
-                        <TableCell className="text-right">
+                        <TableCell>{po.line_items_count ?? 0}</TableCell>
+                      <TableCell>
+                            {po.total != null
+                              ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(po.total)
+                              : '₹0.00'}
+                          </TableCell>                    
+                              <TableCell className="text-right">
                           <div className="flex gap-2 justify-end">
                             {po.status === "Approved" && (
                               <Button 
@@ -1695,9 +2030,13 @@ const PurchaseOrders = () => {
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="sm">
-                              <Edit className="h-4 w-4" />
-                            </Button>
+                            <Button 
+  variant="ghost" 
+  size="sm"
+  onClick={() => handleEdit(po.po_number)}
+>
+  <Edit className="h-4 w-4" />
+</Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1814,7 +2153,7 @@ const PurchaseOrders = () => {
                   </div>
                   <div className="col-span-2">
                     <p className="text-sm text-muted-foreground">Shipping Address</p>
-                    <p className="font-semibold">{selectedPO.shipping_address || 'N/A'}</p>
+                    <p className="font-semibold">{selectedPO.ship_to || 'N/A'}</p>
                   </div>
                 </div>
 
@@ -1831,17 +2170,30 @@ const PurchaseOrders = () => {
                           <TableHead className="text-right">Total</TableHead>
                         </TableRow>
                       </TableHeader>
-                      <TableBody>
-                        {selectedPO.purchase_order_items?.map((item: any) => (
-                          <TableRow key={item.id}>
-                            <TableCell className="font-medium">{item.item_code}</TableCell>
-                            <TableCell>{item.description}</TableCell>
-                            <TableCell className="text-right">{item.quantity}</TableCell>
-                            <TableCell className="text-right">${Number(item.unit_price).toFixed(2)}</TableCell>
-                            <TableCell className="text-right font-medium">${Number(item.total).toFixed(2)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
+                     <TableBody>
+  {Array.isArray(selectedPO.purchase_order_items) &&
+  selectedPO.purchase_order_items.length > 0 ? (
+    selectedPO.purchase_order_items.map((item: any) => (
+      <TableRow key={item.id}>
+        <TableCell className="font-medium">{item.item_code || "-"}</TableCell>
+        <TableCell>{item.description || "-"}</TableCell>
+        <TableCell className="text-right">{item.quantity ?? 0}</TableCell>
+        <TableCell className="text-right">
+          ${item.unit_price != null ? Number(item.unit_price).toFixed(2) : "0.00"}
+        </TableCell>
+        <TableCell className="text-right font-medium">
+          ${item.total != null ? Number(item.total).toFixed(2) : "0.00"}
+        </TableCell>
+      </TableRow>
+    ))
+  ) : (
+    <TableRow>
+      <TableCell colSpan={5} className="text-center text-muted-foreground py-4">
+        No line items found
+      </TableCell>
+    </TableRow>
+  )}
+</TableBody>
                     </Table>
                   </div>
                 </div>

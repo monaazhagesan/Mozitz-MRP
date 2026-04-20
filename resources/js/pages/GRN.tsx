@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Plus, Download, Eye, CheckCircle, XCircle, Printer, Filter, X, ChevronLeft, ChevronRight } from "lucide-react";
+import axios from "axios";
 import {
   Table,
   TableBody,
@@ -35,7 +36,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useState, useEffect, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import GRNPrintReceipt from "@/components/grn/GRNPrintReceipt";
 import { FindGRNDialog, GRNFilters } from "@/components/grn/FindGRNDialog";
 
@@ -104,59 +104,72 @@ const GRN = () => {
   const [filterPoNumber, setFilterPoNumber] = useState("");
   const [findGRNOpen, setFindGRNOpen] = useState(false);
 
+
+  const safeExistingGRNs = Array.isArray(existingGRNs) ? existingGRNs : [];
+
+
   // Get unique vendors for filter dropdown
   const uniqueVendors = useMemo(() => {
-    const vendors = existingGRNs.map(grn => grn.vendor);
-    return [...new Set(vendors)].sort();
-  }, [existingGRNs]);
+  const vendors = safeExistingGRNs.map(grn => grn.vendor).filter(Boolean); // remove undefined/null
+  return [...new Set(vendors)].sort();
+}, [safeExistingGRNs]);
 
-  // Filtered GRNs
-  const filteredGRNs = useMemo(() => {
-    return existingGRNs.filter(grn => {
-      // Search query filter
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        const matchesSearch = 
-          grn.grn_number?.toLowerCase().includes(query) ||
-          grn.po_number?.toLowerCase().includes(query) ||
-          grn.vendor?.toLowerCase().includes(query);
-        if (!matchesSearch) return false;
-      }
+ // Filter GRNs based on search and filters
+const filteredGRNs = useMemo(() => {
+  return safeExistingGRNs.filter(grn => {
+    // Search query filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesSearch =
+        grn.grn_number?.toLowerCase().includes(query) ||
+        grn.po_number?.toLowerCase().includes(query) ||
+        grn.vendor?.toLowerCase().includes(query);
+      if (!matchesSearch) return false;
+    }
 
-      // GRN range filter
-      if (filterGrnFrom || filterGrnTo) {
-        const grnNum = grn.grn_number?.toLowerCase() || "";
-        if (filterGrnFrom && grnNum < filterGrnFrom.toLowerCase()) return false;
-        if (filterGrnTo && grnNum > filterGrnTo.toLowerCase()) return false;
-      }
+    // GRN range filter
+    if (filterGrnFrom || filterGrnTo) {
+      const grnNum = grn.grn_number?.toLowerCase() || "";
+      if (filterGrnFrom && grnNum < filterGrnFrom.toLowerCase()) return false;
+      if (filterGrnTo && grnNum > filterGrnTo.toLowerCase()) return false;
+    }
 
-      // PO Number filter
-      if (filterPoNumber) {
-        const poNum = grn.po_number?.toLowerCase() || "";
-        if (!poNum.includes(filterPoNumber.toLowerCase())) return false;
-      }
+    // PO Number filter
+    if (filterPoNumber) {
+      const poNum = grn.po_number?.toLowerCase() || "";
+      if (!poNum.includes(filterPoNumber.toLowerCase())) return false;
+    }
 
-      // Vendor filter
-      if (filterVendor && filterVendor !== "all" && grn.vendor !== filterVendor) {
-        return false;
-      }
+    // Vendor filter
+    if (filterVendor && filterVendor !== "all" && grn.vendor !== filterVendor) {
+      return false;
+    }
 
-      // Date range filter
-      const receiptDate = new Date(grn.receipt_date);
-      if (filterDateFrom) {
-        const fromDate = new Date(filterDateFrom);
-        fromDate.setHours(0, 0, 0, 0);
-        if (receiptDate < fromDate) return false;
-      }
-      if (filterDateTo) {
-        const toDate = new Date(filterDateTo);
-        toDate.setHours(23, 59, 59, 999);
-        if (receiptDate > toDate) return false;
-      }
+    // Date range filter
+    const receiptDate = new Date(grn.receipt_date);
+    if (filterDateFrom) {
+      const fromDate = new Date(filterDateFrom);
+      fromDate.setHours(0, 0, 0, 0);
+      if (receiptDate < fromDate) return false;
+    }
+    if (filterDateTo) {
+      const toDate = new Date(filterDateTo);
+      toDate.setHours(23, 59, 59, 999);
+      if (receiptDate > toDate) return false;
+    }
 
-      return true;
-    });
-  }, [existingGRNs, searchQuery, filterVendor, filterDateFrom, filterDateTo, filterGrnFrom, filterGrnTo, filterPoNumber]);
+    return true;
+  });
+}, [
+  safeExistingGRNs,
+  searchQuery,
+  filterVendor,
+  filterDateFrom,
+  filterDateTo,
+  filterGrnFrom,
+  filterGrnTo,
+  filterPoNumber,
+]);
 
   const hasActiveFilters = filterVendor !== "all" || filterDateFrom || filterDateTo || filterGrnFrom || filterGrnTo || filterPoNumber;
 
@@ -202,130 +215,140 @@ const GRN = () => {
     fetchGRNs();
   }, []);
 
-  const fetchGRNs = async () => {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('grn')
-        .select(`
-          *,
-          grn_items(*)
-        `)
-        .order('created_at', { ascending: false });
+ const fetchGRNs = async () => {
+  try {
+    setLoading(true);
 
-      if (error) throw error;
-      setExistingGRNs(data || []);
-    } catch (error: any) {
-      toast({
-        title: "Error Fetching GRNs",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+    const response = await axios.get("/api/grn");
 
-  const handleFind = async () => {
-    if (!searchPONumber.trim()) {
+    const data = response.data;
+
+    console.log("Fetched GRNs:", data); // <-- log the response
+
+    setExistingGRNs(data || []);
+  } catch (error: any) {
+    console.error("Error fetching GRNs:", error); // <-- log the error
+    toast({
+      title: "Error Fetching GRNs",
+      description: error.message,
+      variant: "destructive",
+    });
+  } finally {
+    setLoading(false);
+  }
+};
+
+const handleFind = async () => {
+  if (!searchPONumber.trim()) {
+    toast({
+      title: "Validation Error",
+      description: "Please enter a PO Number to search",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  setIsSearching(true);
+  setHasSearched(true);
+
+  try {
+    // You can filter by multiple statuses or remove the filter
+    const statusFilter = ["Approved", "Sent", "Partial", "Awaiting Approval"]; 
+
+    console.log("Searching PO Number:", searchPONumber);
+    console.log("Using status filter:", statusFilter);
+
+    const response = await axios.get("/api/purchase-orders", {
+      params: {
+        po_number: searchPONumber.trim(),
+        status: statusFilter, // Send as array if API supports it
+      },
+    });
+
+    console.log("Raw API response:", response.data);
+
+    const poData = response.data.find(
+      (po: any) => po.po_number === searchPONumber.trim()
+    );
+
+    if (!poData) {
+      setSupplierDetails(null);
+      setPOLines([]);
       toast({
-        title: "Validation Error",
-        description: "Please enter a PO Number to search",
+        title: "No PO Found",
+        description: `No purchase order found with number: ${searchPONumber}`,
         variant: "destructive",
       });
       return;
     }
 
-    setIsSearching(true);
-    setHasSearched(true);
+    // Supplier details
+    setSupplierDetails({
+      poNumber: poData.po_number,
+      vendor: poData.vendor,
+      supplierSite: poData.shipping_address || poData.site || "Main Site",
+      orderType: poData.type || "Standard",
+      dueDate: poData.delivery_date
+        ? new Date(poData.delivery_date).toLocaleDateString()
+        : "N/A",
+    });
 
-    try {
-      // Fetch PO with items - only include open POs
-      const statusFilter = ['Approved', 'Sent', 'Partial'];
+    // Use the correct property for PO items
+    const poItems = poData.purchase_order_items || poData.lines || [];
 
-      const { data: poData, error } = await supabase
-        .from('purchase_orders')
-        .select(`
-          *,
-          purchase_order_items(*)
-        `)
-        .eq('po_number', searchPONumber.trim())
-        .in('status', statusFilter)
-        .single();
+    const lines: POLineItem[] = poItems
+      .filter((item: any) => Number(item.quantity) - Number(item.received_quantity || 0) > 0)
+      .map((item: any) => ({
+        id: item.id,
+        itemCode: item.item_code || item.itemCode,
+        description: item.description || "",
+        poQuantity: Number(item.quantity),
+        receivedQuantity: Number(item.received_quantity || 0),
+        pendingQuantity: Number(item.quantity) - Number(item.received_quantity || 0),
+        unitPrice: Number(item.unit_price || 0),
+        uom: "Each",
+        destinationType: "Inventory",
+        rev: "A",
+        selected: false,
+        receiveQty: 0,
+        acceptedQty: 0,
+        rejectedQty: 0,
+        rejectionReason: "",
+      }));
 
-      if (error || !poData) {
-        setSupplierDetails(null);
-        setPOLines([]);
-        toast({
-          title: "No PO Found",
-          description: `No pending purchase order found with number: ${searchPONumber}`,
-          variant: "destructive",
-        });
-        return;
-      }
+    console.log("Pending PO lines:", lines);
 
-      // Set supplier details
-      setSupplierDetails({
-        poNumber: poData.po_number,
-        vendor: poData.vendor,
-        supplierSite: poData.shipping_address || "Main Site",
-        orderType: "Standard",
-        dueDate: poData.delivery_date ? new Date(poData.delivery_date).toLocaleDateString() : "N/A",
-      });
+    setPOLines(lines);
 
-      // Map PO items to lines with pending quantities
-      const lines: POLineItem[] = poData.purchase_order_items
-        ?.filter((item: any) => {
-          const pending = Number(item.quantity) - Number(item.received_quantity || 0);
-          return pending > 0;
-        })
-        .map((item: any, index: number) => ({
-          id: item.id,
-          itemCode: item.item_code,
-          description: item.description,
-          poQuantity: Number(item.quantity),
-          receivedQuantity: Number(item.received_quantity || 0),
-          pendingQuantity: Number(item.quantity) - Number(item.received_quantity || 0),
-          unitPrice: Number(item.unit_price),
-          uom: "Each",
-          destinationType: "Inventory",
-          rev: "A",
-          selected: false,
-          receiveQty: 0,
-          acceptedQty: 0,
-          rejectedQty: 0,
-          rejectionReason: "",
-        })) || [];
-
-      setPOLines(lines);
-
-      if (lines.length === 0) {
-        toast({
-          title: "No Pending Lines",
-          description: "All items in this PO have been fully received",
-        });
-      }
-    } catch (error: any) {
+    if (lines.length === 0) {
       toast({
-        title: "Search Error",
-        description: error.message,
-        variant: "destructive",
+        title: "No Pending Lines",
+        description: "All items in this PO have been fully received",
       });
-    } finally {
-      setIsSearching(false);
     }
-  };
+  } catch (error: any) {
+    console.error("Error fetching PO:", error);
+    toast({
+      title: "Search Error",
+      description: error.response?.data?.message || error.message,
+      variant: "destructive",
+    });
+  } finally {
+    setIsSearching(false);
+  }
+};
 
-  const handleClear = () => {
-    setSearchPONumber("");
-    setSupplierDetails(null);
-    setPOLines([]);
-    setHasSearched(false);
-    setNotes("");
-    setReceiptNumber(null);
-    setShowReceiptMode(false);
-    setIsSubmitting(false);
-  };
+const handleClear = () => {
+  setSearchPONumber("");
+  setSupplierDetails(null);
+  setPOLines([]);
+  setHasSearched(false);
+  setNotes("");
+  setReceiptNumber(null);
+  setShowReceiptMode(false);
+  setIsSubmitting(false);
+};
+
 
   const handleReceipt = () => {
     // Generate receipt number automatically
@@ -396,150 +419,132 @@ const GRN = () => {
     return "Pending";
   };
 
-  const handleCreateReceipt = async () => {
-    // Prevent multiple submissions
-    if (isSubmitting) {
-      return;
-    }
 
-    const selectedLines = poLines.filter(l => l.receiveQty > 0);
-    
-    if (selectedLines.length === 0) {
-      toast({
-        title: "Validation Error",
-        description: "Please enter received quantity for at least one line",
-        variant: "destructive",
-      });
-      return;
-    }
+const handleCreateReceipt = async () => {
+  if (isSubmitting) return; // prevent double submission
 
-    if (!supplierDetails) return;
+  // 1️⃣ Filter lines with received qty > 0
+  const selectedLines = poLines.filter(l => l.receiveQty > 0);
 
-    // Use existing receipt number or generate new one
-    const grnNumber = receiptNumber || `GRN-${Date.now().toString().slice(-8)}`;
-    
-    // Update state if we generated a new one
-    if (!receiptNumber) {
-      setReceiptNumber(grnNumber);
-      setShowReceiptMode(true);
-    }
+  if (selectedLines.length === 0) {
+    toast({
+      title: "Validation Error",
+      description: "Please enter received quantity for at least one line",
+      variant: "destructive",
+    });
+    return;
+  }
 
+  if (!supplierDetails) return;
+
+  setIsSubmitting(true);
+
+  try {
     const qcStatus = calculateQCStatus(selectedLines);
 
-    setIsSubmitting(true);
+    const grnNumberToUse = receiptNumber || `GRN-${Date.now().toString().slice(-8)}`;
 
-    try {
-      // Check if GRN already exists (prevent duplicates)
-      const { data: existingGRN } = await supabase
-        .from('grn')
-        .select('id')
-        .eq('grn_number', grnNumber)
-        .maybeSingle();
+    // 2️⃣ Create GRN on backend
+    const grnRes = await axios.post("/api/grn", {
+      grn_number: grnNumberToUse,
+      po_number: supplierDetails.poNumber,
+      vendor: supplierDetails.vendor,
+      receipt_date: receiptDate,
+      qc_status: qcStatus,
+      notes: notes,
+    });
 
-      if (existingGRN) {
-        toast({
-          title: "Duplicate Receipt",
-          description: `Receipt ${grnNumber} already exists`,
-          variant: "destructive",
+    const grnData = grnRes.data;
+    console.log("Created GRN:", grnData);
+
+    // 3️⃣ Insert GRN items individually
+   for (const item of selectedLines) {
+  const payload = {
+    grn_id: grnData.id,                       // must exist
+    item_code: item.itemCode,                 // match backend
+    description: item.description || null,
+    po_quantity: Number(item.pendingQuantity),
+    received_quantity: Number(item.receiveQty),
+    accepted_quantity: Number(item.acceptedQty),
+    rejected_quantity: Number(item.rejectedQty),
+    balance_quantity: Number(item.pendingQuantity - item.receiveQty),
+    unit_price: Number(item.unitPrice),
+    total_amount: Number(item.acceptedQty * item.unitPrice),
+    rejection_reason: item.rejectionReason || null,
+  };
+
+  console.log("Posting GRN item:", payload); // <-- check payload before sending
+
+  try {
+    await axios.post("/api/grn-items", payload, {
+      headers: { "Content-Type": "application/json" }, // ensure JSON
+    });
+  } catch (err: any) {
+    console.error("Failed GRN item:", payload.item_code, err.response?.data || err.message);
+  }
+}
+
+   // 4️⃣ Update inventory and stock transactions
+    for (const item of selectedLines.filter(l => l.acceptedQty > 0)) {
+      try {
+        const stockRes = await axios.get("/api/inventory-stock", {
+          params: { item_code: item.itemCode },
         });
-        setIsSubmitting(false);
-        return;
-      }
 
-      // 1. Insert GRN header
-      const { data: grnData, error: grnError } = await supabase
-        .from('grn')
-        .insert({
-          grn_number: grnNumber,
-          po_number: supplierDetails.poNumber,
-          vendor: supplierDetails.vendor,
-          receipt_date: receiptDate,
-          qc_status: qcStatus,
-          notes: notes,
-        })
-        .select()
-        .single();
+        const existingStock = stockRes.data.items?.find(
+          (i: any) => i.itemCode === item.itemCode
+        );
 
-      if (grnError) throw grnError;
-
-      // 2. Insert GRN items
-      const itemsToInsert = selectedLines.map(item => ({
-        grn_id: grnData.id,
-        item_code: item.itemCode,
-        description: item.description,
-        po_quantity: item.pendingQuantity,
-        received_quantity: item.receiveQty,
-        accepted_quantity: item.acceptedQty,
-        rejected_quantity: item.rejectedQty,
-        unit_price: item.unitPrice,
-        rejection_reason: item.rejectionReason || null,
-        total_amount: item.acceptedQty * item.unitPrice,
-        balance_quantity: item.pendingQuantity - item.receiveQty,
-      }));
-
-      await supabase.from('grn_items').insert(itemsToInsert);
-
-      // 3. Update PO items received quantities
-      for (const item of selectedLines) {
-        await supabase
-          .from('purchase_order_items')
-          .update({
-            received_quantity: item.receivedQuantity + item.receiveQty
-          })
-          .eq('id', item.id);
-      }
-
-      // 4. Update inventory stock
-      for (const item of selectedLines.filter(l => l.acceptedQty > 0)) {
-        const { data: existingStock } = await supabase
-          .from('inventory_stock')
-          .select('*')
-          .eq('item_code', item.itemCode)
-          .maybeSingle();
-
-        if (existingStock) {
-          await supabase
-            .from('inventory_stock')
-            .update({
-              quantity_on_hand: Number(existingStock.quantity_on_hand) + item.acceptedQty,
-              unit_cost: item.unitPrice,
-              last_transaction_date: new Date().toISOString(),
-            })
-            .eq('item_code', item.itemCode);
+       if (existingStock) {
+  await axios.put(`/api/inventory-stock/${existingStock.id}`, {
+    item_code: existingStock.itemCode,
+    item_name: existingStock.itemName, // REQUIRED
+    item_type: existingStock.itemType ,
+    location: existingStock.location,   // REQUIRED
+    quantity_on_hand: Number(existingStock.quantityOnHand) + item.acceptedQty,
+    unit_cost: item.unitPrice,
+    last_transaction_date: new Date().toISOString().slice(0, 19).replace('T', ' '),
+  });
         } else {
-          await supabase.from('inventory_stock').insert({
-            item_code: item.itemCode,
-            item_name: item.description,
-            description: item.description,
-            quantity_on_hand: item.acceptedQty,
-            unit_cost: item.unitPrice,
-            last_transaction_date: new Date().toISOString(),
-          });
+          await axios.post("/api/inventory-stock", {
+    item_code: item.itemCode,
+    item_name: item.description,
+    description: item.description,
+    location: "Default Location", // REQUIRED
+    quantity_on_hand: item.acceptedQty,
+    unit_cost: item.unitPrice,
+    item_type: item.itemType,
+    last_transaction_date: new Date().toISOString().slice(0, 19).replace('T', ' '),
+  });
         }
 
         // Stock transaction log
-        await supabase.from('stock_transactions').insert({
+        await axios.post("/api/stock-transactions", {
           item_code: item.itemCode,
-          transaction_type: 'GRN_IN',
-          reference_type: 'GRN',
-          reference_number: grnNumber,
+          transaction_type: "GRN_IN",
+          reference_type: "GRN",
+          reference_number: grnNumberToUse,
           quantity: item.acceptedQty,
           unit_cost: item.unitPrice,
           notes: `Received via GRN from PO ${supplierDetails.poNumber}`,
         });
+      } catch (err: any) {
+        console.error("Failed inventory update for item:", item.itemCode, err.response?.data || err.message);
       }
+    }
 
-      // 5. Create supplier payable
-      const totalPayable = selectedLines
-        .filter(l => l.acceptedQty > 0)
-        .reduce((sum, item) => sum + (item.acceptedQty * item.unitPrice), 0);
+    // 5️⃣ Create supplier payable
+    const totalPayable = selectedLines
+      .filter(l => l.acceptedQty > 0)
+      .reduce((sum, item) => sum + item.acceptedQty * item.unitPrice, 0);
 
-      if (totalPayable > 0) {
-        await supabase.from('supplier_payables').insert({
+    if (totalPayable > 0) {
+      try {
+        await axios.post("/api/supplier-payables", {
           vendor: supplierDetails.vendor,
-          reference_type: 'GRN',
-          reference_number: grnNumber,
-          grn_number: grnNumber,
+          reference_type: "GRN",
+          reference_number: grnNumberToUse,
+          grn_number: grnNumberToUse,
           po_number: supplierDetails.poNumber,
           transaction_date: receiptDate,
           total_amount: totalPayable,
@@ -547,53 +552,68 @@ const GRN = () => {
           credit: totalPayable,
           debit: 0,
           balance: totalPayable,
-          status: 'Pending',
-          payment_status: 'Unpaid',
+          status: "Pending",
+          payment_status: "Unpaid",
           notes: `GRN for PO ${supplierDetails.poNumber}`,
         });
+      } catch (err: any) {
+        console.error("Failed to create supplier payable:", err.response?.data || err.message);
       }
+    } 
 
-      // 6. Update PO status
-      const { data: poData } = await supabase
-        .from('purchase_orders')
-        .select('id')
-        .eq('po_number', supplierDetails.poNumber)
-        .single();
+    // 6️⃣ Update PO status
+  const updatePOStatus = async (poNumber: string) => {
+  try {
+    const poRes = await axios.get(
+      `/api/purchase-orders/by-number/${encodeURIComponent(poNumber)}`
+    );
+    const poData = poRes.data;
 
-      if (poData) {
-        const { data: allPoItems } = await supabase
-          .from('purchase_order_items')
-          .select('quantity, received_quantity')
-          .eq('po_id', poData.id);
-
-        const allFullyReceived = allPoItems?.every(item => 
-          Number(item.received_quantity || 0) >= Number(item.quantity)
-        );
-
-        await supabase
-          .from('purchase_orders')
-          .update({ status: allFullyReceived ? 'Completed' : 'Partial' })
-          .eq('id', poData.id);
-      }
-
-      toast({
-        title: "Receipt Created Successfully",
-        description: `${grnNumber} created. Inventory updated, payables recorded.`,
-      });
-
-      handleClear();
-      setOpen(false);
-      fetchGRNs();
-    } catch (error: any) {
-      toast({
-        title: "Error Creating Receipt",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
+    if (!poData?.id) {
+      console.error("PO data missing ID", poData);
+      return;
     }
-  };
+
+    const allFullyReceived = (poData.lines || []).every(
+      (line: any) => Number(line.received_quantity || 0) >= Number(line.quantity)
+    );
+    const newStatus = allFullyReceived ? "Completed" : "Partial";
+
+    if (poData.status !== newStatus) {
+      // ✅ Call the dedicated status endpoint
+      await axios.patch(`/api/purchase-orders/${poData.id}/status`, {
+        status: newStatus,
+      });
+    }
+  } catch (err: any) {
+    console.error("Failed to update PO status:", err.response?.data || err.message);
+  }
+};
+    await updatePOStatus(supplierDetails.poNumber);
+
+    // 7️⃣ Success toast
+    toast({
+      title: "Receipt Created Successfully",
+      description: `${grnNumberToUse} created. Inventory updated, payables recorded.`,
+    });
+
+    // 8️⃣ Reset frontend state & hide form
+    handleClear();
+    setOpen(false);
+    setReceiptNumber("");
+    setShowReceiptMode(false);
+    fetchGRNs();
+
+  } catch (error: any) {
+    toast({
+      title: "Error Creating Receipt",
+      description: error.response?.data?.message || error.message,
+      variant: "destructive",
+    });
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   const handleViewGRN = (grn: any) => {
     setSelectedGRN(grn);
@@ -1170,11 +1190,15 @@ const GRN = () => {
                     <p className="text-sm text-muted-foreground">Created At</p>
                     <p className="font-medium">{new Date(selectedGRN.created_at).toLocaleString()}</p>
                   </div>
-                  <div>
+                 <div>
                     <p className="text-sm text-muted-foreground">Total Amount</p>
                     <p className="font-medium">
-                      ${selectedGRN.grn_items?.reduce((sum: number, item: any) => 
-                        sum + (Number(item.total_amount) || 0), 0).toFixed(2)}
+                      ${(
+                        selectedGRN?.items?.reduce(
+                          (sum: number, item: any) => sum + Number(item?.total_amount || 0),
+                          0
+                        ) || 0
+                      ).toFixed(2)}
                     </p>
                   </div>
                 </div>
@@ -1198,22 +1222,22 @@ const GRN = () => {
                           <TableHead>Rejection Reason</TableHead>
                         </TableRow>
                       </TableHeader>
-                      <TableBody>
-                        {selectedGRN.grn_items?.map((item: any) => (
-                          <TableRow key={item.id}>
-                            <TableCell className="font-medium">{item.item_code}</TableCell>
-                            <TableCell>{item.description || '-'}</TableCell>
-                            <TableCell className="text-right">{Number(item.po_quantity).toFixed(0)}</TableCell>
-                            <TableCell className="text-right">{Number(item.received_quantity).toFixed(0)}</TableCell>
-                            <TableCell className="text-right">{Number(item.accepted_quantity).toFixed(0)}</TableCell>
-                            <TableCell className="text-right">{Number(item.rejected_quantity).toFixed(0)}</TableCell>
-                            <TableCell className="text-right">{Number(item.balance_quantity || 0).toFixed(0)}</TableCell>
-                            <TableCell className="text-right">${Number(item.unit_price).toFixed(2)}</TableCell>
-                            <TableCell className="text-right">${Number(item.total_amount || 0).toFixed(2)}</TableCell>
-                            <TableCell>{item.rejection_reason || '-'}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
+                     <TableBody>
+  {selectedGRN?.items?.map((item: any) => (
+    <TableRow key={item.id}>
+      <TableCell className="font-medium">{item.item_code}</TableCell>
+      <TableCell>{item.description || '-'}</TableCell>
+      <TableCell className="text-right">{Number(item.po_quantity).toFixed(0)}</TableCell>
+      <TableCell className="text-right">{Number(item.received_quantity).toFixed(0)}</TableCell>
+      <TableCell className="text-right">{Number(item.accepted_quantity).toFixed(0)}</TableCell>
+      <TableCell className="text-right">{Number(item.rejected_quantity).toFixed(0)}</TableCell>
+      <TableCell className="text-right">{Number(item.balance_quantity || 0).toFixed(0)}</TableCell>
+      <TableCell className="text-right">${Number(item.unit_price).toFixed(2)}</TableCell>
+      <TableCell className="text-right">${Number(item.total_amount || 0).toFixed(2)}</TableCell>
+      <TableCell>{item.rejection_reason || '-'}</TableCell>
+    </TableRow>
+  ))}
+</TableBody>
                     </Table>
                   </div>
                 </div>
@@ -1269,8 +1293,10 @@ const GRN = () => {
                 </TableRow>
               ) : (
                 paginatedGRNs.map((grn) => {
-                  const totalAmount = grn.grn_items?.reduce((sum: number, item: any) => 
-                    sum + (Number(item.total_amount) || 0), 0) || 0;
+                  const totalAmount = grn.items?.reduce(
+  (sum: number, item: any) => sum + Number(item.total_amount || 0),
+  0
+) || 0;
                   
                   return (
                     <TableRow key={grn.id}>

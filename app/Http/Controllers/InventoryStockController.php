@@ -6,6 +6,8 @@ use App\Models\InventoryStock;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
+
 
 class InventoryStockController extends Controller
 {
@@ -14,23 +16,28 @@ class InventoryStockController extends Controller
 {
     $query = InventoryStock::query();
 
-    // Optional search
+    // ✅ FIX: proper grouped search
     if ($request->has('search')) {
         $search = $request->query('search');
-        $query->where('item_name', 'like', "%{$search}%")
+
+        $query->where(function ($q) use ($search) {
+            $q->where('item_name', 'like', "%{$search}%")
               ->orWhere('item_code', 'like', "%{$search}%");
+        });
     }
 
-    // Fetch items
     $items = $query->get()->map(function ($item) {
+
         $quantityOnHand = (float) ($item->quantity_on_hand ?? 0);
-        $committedQuantity = (float) ($item->committed_quantity ?? 0);
+        $allocated = (float) ($item->allocated_quantity ?? 0);
+        $committed = (float) ($item->committed_quantity ?? 0);
+
         $unitCost = (float) ($item->unit_cost ?? 0);
         $sellingPrice = (float) ($item->selling_price ?? 0);
 
-        $availableQuantity = (float) ($item->available_quantity ?? ($quantityOnHand - $committedQuantity));
+        // ✅ FIX: ALWAYS compute fresh (do NOT trust DB field)
+        $availableQuantity = $quantityOnHand - $allocated - $committed;
 
-        // Potential = Available + Expected - Committed (example, adjust if your frontend calculates differently)
         $expectedQuantity = (float) ($item->expected_quantity ?? 0);
         $potential = $availableQuantity + $expectedQuantity;
 
@@ -39,26 +46,39 @@ class InventoryStockController extends Controller
             'itemCode' => $item->item_code,
             'itemName' => $item->item_name,
             'sku' => $item->sku,
-            'item_type' => $item->item_type,
+            'item_type' => $item->item_type ?? 'Product',
+
             'uom' => $item->uom ?? '',
             'defaultSupplier' => $item->default_supplier ?? '-',
+
             'purchasePrice' => $unitCost,
             'defaultSalesPrice' => $sellingPrice,
             'sellingPrice' => $sellingPrice,
+
             'quantityOnHand' => $quantityOnHand,
-            'committedQuantity' => $committedQuantity,
+            'allocatedQuantity' => $allocated,
+            'committedQuantity' => $committed,
+
             'availableQuantity' => $availableQuantity,
             'expectedQuantity' => $expectedQuantity,
             'potentialQuantity' => $potential,
-            'reorderPoint' => $item->reorder_point ?? 0,
-            'usabilityMake' => $item->usability_make,
-            'usabilityBuy' => $item->usability_buy,
-            'usabilitySell' => $item->usability_sell,
+
+            'reorderPoint' => (float) ($item->reorder_point ?? 0),
+            'safety_stock' => (float) ($item->safety_stock ?? 0),
+            'lead_time_days' => (int) ($item->lead_time_days ?? 0),
+
+            // ✅ SAFE BOOLEAN OUTPUT
+            'usabilityMake' => (bool) $item->usability_make,
+            'usabilityBuy' => (bool) $item->usability_buy,
+            'usabilitySell' => (bool) $item->usability_sell,
+
             'location' => $item->location ?? '-',
-            'grnRequired' => $item->grn_required,
-            'locationTracking' => $item->location_tracking,
+            'grnRequired' => (bool) $item->grn_required,
+            'locationTracking' => (bool) $item->location_tracking,
+
             'hsnCode' => $item->hsn_code,
-            'taxRate' => $item->tax_rate,
+            'taxRate' => (float) ($item->tax_rate ?? 0),
+
             'lastTransactionDate' => $item->last_transaction_date,
             'description' => $item->description ?? '',
             'categories' => $item->categories ?? '',
@@ -69,7 +89,6 @@ class InventoryStockController extends Controller
         'items' => $items,
     ]);
 }
-
     // Get single inventory item
     public function show($id)
     {
@@ -78,59 +97,60 @@ class InventoryStockController extends Controller
     }
 
     // Create inventory item
-   public function store(Request $request)
+  public function store(Request $request)
 {
-    Log::info('Store payload:', $request->all());
-
     try {
-        // 1️⃣ Ensure required defaults for Product
-        $request->merge([
-            'sku' => $request->sku ?? null,
-            'selling_price' => $request->selling_price ?? 0,
-            'tax_rate' => $request->tax_rate ?? 0,
-            'categories' => $request->categories ?? '',
-        ]);
 
-        // 2️⃣ Validate after merging defaults
         $data = $this->validateData($request);
-        Log::info('Validated data:', $data);
 
-        // 3️⃣ Auto-generate item_code if not provided
+        // Defaults
+        $data['item_type'] = $data['item_type'] ?? 'Product';
+        $data['sku'] = $data['sku'] ?? null;
+        $data['location'] = $data['location'] ?? '-';
+
+        $data['selling_price'] = (float) ($data['selling_price'] ?? 0);
+        $data['unit_cost'] = (float) ($data['unit_cost'] ?? 0);
+        $data['tax_rate'] = (float) ($data['tax_rate'] ?? 0);
+
+        $data['quantity_on_hand'] = (float) ($data['quantity_on_hand'] ?? 0);
+        $data['allocated_quantity'] = (float) ($data['allocated_quantity'] ?? 0);
+        $data['committed_quantity'] = (float) ($data['committed_quantity'] ?? 0);
+
+        // ✅ AUTO ITEM CODE
         if (empty($data['item_code'])) {
-            $prefixMap = ['Product' => 'PRD', 'Component' => 'MAT'];
-            $prefix = $prefixMap[$data['item_type']] ?? 'IT';
 
-            $lastItem = InventoryStock::where('item_type', $data['item_type'])
-                            ->orderBy('id', 'desc')
-                            ->first();
+            $prefix = match ($data['item_type']) {
+                'Product' => 'PRD',
+                'Component' => 'MAT',
+                default => 'IT'
+            };
+
+            $last = InventoryStock::orderBy('id', 'desc')->first();
 
             $lastNumber = 0;
-            if ($lastItem && preg_match('/-(\d+)$/', $lastItem->item_code, $matches)) {
-                $lastNumber = (int) $matches[1];
+            if ($last && preg_match('/-(\d+)$/', $last->item_code, $m)) {
+                $lastNumber = (int) $m[1];
             }
 
-            $nextNumber = $lastNumber + 1;
-            $data['item_code'] = $prefix . '-' . str_pad($nextNumber, 4, '0', STR_PAD_LEFT);
+            $data['item_code'] = $prefix . '-' . str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
         }
 
-        // 4️⃣ Ensure numeric fields are numbers
-        $data['quantity_on_hand'] = isset($data['quantity_on_hand']) ? (float) $data['quantity_on_hand'] : 0;
-        $data['allocated_quantity'] = isset($data['allocated_quantity']) ? (float) $data['allocated_quantity'] : 0;
-        $data['committed_quantity'] = isset($data['committed_quantity']) ? (float) $data['committed_quantity'] : 0;
-        $data['unit_cost'] = isset($data['unit_cost']) ? (float) $data['unit_cost'] : 0;
-        $data['selling_price'] = isset($data['selling_price']) ? (float) $data['selling_price'] : 0;
-        $data['available_quantity'] = $data['available_quantity'] ?? ($data['quantity_on_hand'] - $data['allocated_quantity'] - $data['committed_quantity']);
+        // ❌ DO NOT STORE calculated fields
+        unset($data['available_quantity']);
 
-        // 5️⃣ Force booleans
-        $booleanFields = [
-            'auto_reorder', 'grn_required', 'usability_make', 
-            'usability_buy', 'usability_sell', 'location_tracking', 'auto_generate_serial'
-        ];
-        foreach ($booleanFields as $field) {
-            $data[$field] = isset($data[$field]) ? (bool) $data[$field] : false;
+        // ✅ BOOLEAN FIX
+        foreach ([
+            'auto_reorder',
+            'grn_required',
+            'usability_make',
+            'usability_buy',
+            'usability_sell',
+            'location_tracking',
+            'auto_generate_serial'
+        ] as $field) {
+            $data[$field] = filter_var($request->input($field), FILTER_VALIDATE_BOOLEAN);
         }
 
-        // 6️⃣ Create the inventory item
         $item = InventoryStock::create($data);
 
         return response()->json($item, 201);
@@ -140,59 +160,81 @@ class InventoryStockController extends Controller
             'message' => 'Validation Failed',
             'errors' => $e->errors()
         ], 422);
+
     } catch (\Exception $e) {
         return response()->json([
-            'status' => 'error',
-            'message' => 'Something went wrong',
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString(),
+            'message' => 'Server Error',
+            'error' => $e->getMessage()
         ], 500);
     }
 }
     // Update inventory item
-      public function update(Request $request, $id)
-    {
-        $item = InventoryStock::findOrFail($id);
+     public function update(Request $request, $id)
+{
+    $item = InventoryStock::findOrFail($id);
 
-        try {
-            $data = $this->validateData($request);
+    try {
 
-            // Ensure numeric fields are numbers, never empty strings
-            $data['quantity_on_hand'] = isset($data['quantity_on_hand']) ? (float) $data['quantity_on_hand'] : $item->quantity_on_hand;
-            $data['allocated_quantity'] = isset($data['allocated_quantity']) ? (float) $data['allocated_quantity'] : $item->allocated_quantity;
-            $data['committed_quantity'] = isset($data['committed_quantity']) ? (float) $data['committed_quantity'] : $item->committed_quantity;
-            $data['unit_cost'] = isset($data['unit_cost']) ? (float) $data['unit_cost'] : $item->unit_cost;
-            $data['selling_price'] = isset($data['selling_price']) ? (float) $data['selling_price'] : $item->selling_price;
+        $data = $this->validateData($request);
 
-            // Calculate available_quantity
-            $data['available_quantity'] = $data['available_quantity'] ?? ($data['quantity_on_hand'] - $data['allocated_quantity'] - $data['committed_quantity']);
-
-            // Force booleans
-            $data['auto_reorder'] = isset($data['auto_reorder']) ? (bool) $data['auto_reorder'] : $item->auto_reorder;
-            $data['grn_required'] = isset($data['grn_required']) ? (bool) $data['grn_required'] : $item->grn_required;
-            $data['usability_make'] = isset($data['usability_make']) ? (bool) $data['usability_make'] : $item->usability_make;
-            $data['usability_buy'] = isset($data['usability_buy']) ? (bool) $data['usability_buy'] : $item->usability_buy;
-            $data['usability_sell'] = isset($data['usability_sell']) ? (bool) $data['usability_sell'] : $item->usability_sell;
-            $data['location_tracking'] = isset($data['location_tracking']) ? (bool) $data['location_tracking'] : $item->location_tracking;
-            $data['auto_generate_serial'] = isset($data['auto_generate_serial']) ? (bool) $data['auto_generate_serial'] : $item->auto_generate_serial;
-
-            $item->update($data);
-
-            return response()->json($item, 200);
-
-        } catch (ValidationException $e) {
-            return response()->json([
-                'message' => 'Validation Failed',
-                'errors' => $e->errors()
-            ], 422);
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Error updating item',
-                'error' => $e->getMessage()
-            ], 500);
+        // fallback values
+        foreach ([
+            'quantity_on_hand',
+            'allocated_quantity',
+            'committed_quantity',
+            'unit_cost',
+            'selling_price'
+        ] as $field) {
+            $data[$field] = isset($data[$field])
+                ? (float) $data[$field]
+                : (float) $item->$field;
         }
-    }
 
+        // recalc
+        $data['available_quantity'] =
+            $data['quantity_on_hand']
+            - $data['allocated_quantity']
+            - $data['committed_quantity'];
+
+        // booleans
+        foreach ([
+            'auto_reorder',
+            'grn_required',
+            'usability_make',
+            'usability_buy',
+            'usability_sell',
+            'location_tracking',
+            'auto_generate_serial'
+        ] as $field) {
+            $data[$field] = filter_var(
+                $request->input($field),
+                FILTER_VALIDATE_BOOLEAN
+            );
+        }
+
+        if (!empty($data['last_transaction_date'])) {
+            $data['last_transaction_date'] =
+                Carbon::parse($data['last_transaction_date'])
+                    ->format('Y-m-d H:i:s');
+        }
+
+        $item->update($data);
+
+        return response()->json($item, 200);
+
+    } catch (ValidationException $e) {
+        return response()->json([
+            'message' => 'Validation Failed',
+            'errors' => $e->errors()
+        ], 422);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'message' => 'Update failed',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+}
     // Delete inventory item
     public function destroy($id)
     {
@@ -212,15 +254,15 @@ class InventoryStockController extends Controller
             'item_name' => 'required|string|max:100',
             'sku' => 'nullable|string|max:50',
             'description' => 'nullable|string|max:500',
-            'item_type' => 'required|string|in:Product,Component',
+            'item_type' => 'nullable|string|in:Product,Component,Material,N/A',
             'quantity_on_hand' => 'nullable|numeric|min:0',
             'allocated_quantity' => 'nullable|numeric|min:0',
-            'available_quantity' => 'nullable|numeric|min:0',
+            
             'unit_cost' => 'nullable|numeric|min:0',
             'selling_price' => 'nullable|numeric|min:0',
             'hsn_code' => 'nullable|string|max:20',
             'tax_rate' => 'nullable|numeric|min:0|max:100',
-            'location' => 'required|string|max:100',
+            'location' => 'nullable|string|max:100',
             'reorder_point' => 'nullable|numeric|min:0',
             'last_transaction_date' => 'nullable|date',
             'committed_quantity' => 'nullable|numeric|min:0',
@@ -242,5 +284,9 @@ class InventoryStockController extends Controller
             'safety_stock' => 'nullable|integer|min:0',
         ]);
     }
+    private function toBool($request, $field)
+{
+    return filter_var($request->input($field), FILTER_VALIDATE_BOOLEAN);
+}
     
 }

@@ -7,31 +7,38 @@ use Illuminate\Http\Request;
 
 class GRNItemController extends Controller
 {
-    public function index($grn_id)
+    public function index(Request $request)
     {
-        return GRNItem::where('grn_id', $grn_id)->get();
+        $itemCode = $request->query('item_code');
+
+        $query = GRNItem::with('grn');
+
+        if ($itemCode) {
+            $query->where('item_code', $itemCode);
+        }
+
+        return response()->json($query->get());
     }
 
-    public function store(Request $request)
-    {
-        $data = $request->validate([
-            'id' => 'required|string',
-            'grn_id' => 'required|string|exists:grns,id',
-            'item_code' => 'required|string',
-            'description' => 'nullable|string',
-            'po_quantity' => 'nullable|numeric',
-            'received_quantity' => 'nullable|numeric',
-            'accepted_quantity' => 'nullable|numeric',
-            'rejected_quantity' => 'nullable|numeric',
-            'balance_quantity' => 'nullable|numeric',
-            'unit_price' => 'nullable|numeric',
-            'total_amount' => 'nullable|numeric',
-            'rejection_reason' => 'nullable|string',
-            'created_at' => 'nullable|date',
-        ]);
 
-        return GRNItem::create($data);
-    }
+  public function store(Request $request)
+{
+    $data = $request->validate([
+        'grn_id' => 'required|exists:grns,id', // must exist
+        'item_code' => 'required|string',
+        'description' => 'nullable|string',
+        'po_quantity' => 'required|numeric',
+        'received_quantity' => 'required|numeric',
+        'accepted_quantity' => 'required|numeric',
+        'rejected_quantity' => 'required|numeric',
+        'balance_quantity' => 'required|numeric',
+        'unit_price' => 'required|numeric',
+        'total_amount' => 'required|numeric',
+        'rejection_reason' => 'nullable|string',
+    ]);
+
+    return GRNItem::create($data);
+}
 
     public function destroy($id)
     {

@@ -7,8 +7,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/integrations/supabase/client";
 import { GRNSearchResultsDialog } from "./GRNSearchResultsDialog";
+import axios from "axios";
+
 
 interface FindGRNDialogProps {
   open: boolean;
@@ -62,48 +63,54 @@ export function FindGRNDialog({ open, onOpenChange, vendors, onViewGRN, onPrintG
     setFilters(initialFilters);
   };
 
-  const handleFind = async () => {
-    setIsSearching(true);
-    
-    try {
-      let query = supabase
-        .from('grn')
-        .select(`*, grn_items(*)`)
-        .order('created_at', { ascending: false });
+ const handleFind = async () => {
+  setIsSearching(true);
 
-      // Apply filters
-      if (filters.grnFrom) {
-        query = query.gte('grn_number', filters.grnFrom);
-      }
-      if (filters.grnTo) {
-        query = query.lte('grn_number', filters.grnTo);
-      }
-      if (filters.dateFrom) {
-        query = query.gte('receipt_date', filters.dateFrom);
-      }
-      if (filters.dateTo) {
-        query = query.lte('receipt_date', filters.dateTo);
-      }
-      if (filters.supplier) {
-        query = query.ilike('vendor', `%${filters.supplier}%`);
-      }
-      if (filters.poNumber) {
-        query = query.ilike('po_number', `%${filters.poNumber}%`);
-      }
+  try {
 
-      const { data, error } = await query;
+    const params: any = {};
 
-      if (error) throw error;
-
-      setSearchResults(data || []);
-      setResultsOpen(true);
-      onOpenChange(false);
-    } catch (error: any) {
-      console.error("Search error:", error);
-    } finally {
-      setIsSearching(false);
+    // Apply filters
+    if (filters.grnFrom) {
+      params.grnFrom = filters.grnFrom;
     }
-  };
+
+    if (filters.grnTo) {
+      params.grnTo = filters.grnTo;
+    }
+
+    if (filters.dateFrom) {
+      params.dateFrom = filters.dateFrom;
+    }
+
+    if (filters.dateTo) {
+      params.dateTo = filters.dateTo;
+    }
+
+    if (filters.supplier) {
+      params.supplier = filters.supplier;
+    }
+
+    if (filters.poNumber) {
+      params.poNumber = filters.poNumber;
+    }
+
+    const response = await axios.get("/api/grn", {
+      params
+    });
+
+    const data = response.data;
+
+    setSearchResults(data || []);
+    setResultsOpen(true);
+    onOpenChange(false);
+
+  } catch (error: any) {
+    console.error("Search error:", error);
+  } finally {
+    setIsSearching(false);
+  }
+};
 
   const updateFilter = (key: keyof GRNFilters, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }));

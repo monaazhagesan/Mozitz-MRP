@@ -261,12 +261,13 @@ if (
 
 // Company name duplicate check (optional field)
 if (newVendor.name?.trim()) {
-  if (
-    vendorsData.some(
-      (vendor) =>
-        vendor.company?.trim().toLowerCase() === newVendor.name.trim().toLowerCase()
-    )
-  ) {
+  const newCompany = newVendor.name.trim().toLowerCase();
+  const companyExists = vendorsData.some(vendor => {
+    const company = (vendor.company || vendor.vendor_name || "").trim().toLowerCase();
+    return company === newCompany;
+  });
+
+  if (companyExists) {
     toast({
       title: "Duplicate Company Name",
       description: "This company name already exists for another vendor.",
@@ -497,6 +498,7 @@ const handleUpdateVendor = async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         company: vendorData.name,
+        vendor_name: vendorData.vendor_name,
         contact_person: vendorData.contact,
         email: vendorData.email,
         phone: vendorData.phone,
@@ -577,8 +579,8 @@ const handleUpdateVendor = async () => {
 
   const handleExport = () => {
     const csvContent = [
-      ["Vendor ID", "Company", "Contact Person", "Email", "Phone", "Total Orders", "Rating", "Status", "Vendor name"],
-      ...vendorsData.map(v => [v.vendor_id, v.company, v.contact_person, v.email, v.phone, v.orders_count, v.rating, v.status, v.vendor_name])
+      ["Vendor ID", "Vendor", "Contact Person", "Email", "Phone", "Total Orders", "Rating", "Status", "Vendor name"],
+      ...vendorsData.map(v => [v.vendor_id, v.vendor_name, v.contact_person, v.email, v.phone, v.orders_count, v.rating, v.status, v.vendor_name])
     ].map(row => row.join(",")).join("\n");
 
     const blob = new Blob([csvContent], { type: "text/csv" });
@@ -1072,7 +1074,7 @@ const handleUpdateVendor = async () => {
                 {vendorsData.map((vendor) => (
                   <TableRow key={vendor.id}>
                     <TableCell className="font-medium">{vendor.vendor_id}</TableCell>
-                    <TableCell className="font-semibold">{vendor.company}</TableCell>
+                    <TableCell className="font-semibold">{vendor.vendor_name}</TableCell>
                     <TableCell>{vendor.contact_person}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">

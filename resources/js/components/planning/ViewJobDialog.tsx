@@ -40,20 +40,27 @@ export const ViewJobDialog = ({ open, onOpenChange, job }: ViewJobDialogProps) =
   const moveQuantities = job?.moveQuantities || {};
   const rejectionTransactions = job?.rejectionTransactions || [];
 
-  // Calculate quantities data from BOM items
-  const bomQuantities = bomItems.map((item: any) => ({
-    component: item.component,
-    uom: item.uom || "EA",
-    basisType: "Item",
-    perAssembly: item.quantity / (parseFloat(job?.quantity) || 1),
-    inverseUsage: ((parseFloat(job?.quantity) || 1) / item.quantity).toFixed(4),
-    yield: 100,
-    required: item.quantity,
-    issued: item.issuedQty || 0,
-    open: item.quantity - (item.issuedQty || 0),
-    onHand: item.onHand || 0,
-  }));
+  // Issued quantities map (synced from Material Issues module)
+  const issuedQuantities: Record<string, number> = job?.issuedQuantities || {};
 
+  // Calculate quantities data from BOM items
+  const bomQuantities = bomItems.map((item: any) => {
+    const itemCode = item.itemCode || item.item_code || item.component;
+    const issued = issuedQuantities[itemCode] ?? item.issuedQty ?? 0;
+    return {
+      component: item.component,
+      uom: item.uom || "EA",
+      basisType: "Item",
+      perAssembly: item.quantity / (parseFloat(job?.quantity) || 1),
+      inverseUsage: ((parseFloat(job?.quantity) || 1) / item.quantity).toFixed(4),
+      yield: 100,
+      required: item.quantity,
+      issued,
+      open: Math.max(0, item.quantity - issued),
+      onHand: item.onHand || 0,
+    };
+  });
+  
   // Get operation sequences for move quantities display
   const operationSequences = operations.length > 0 
     ? operations.map((op: any) => op.sequence || op.operationSeq)

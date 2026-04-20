@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Plus, Download, Eye, X, Undo2, AlertTriangle, Printer } from "lucide-react";
+import axios from "axios";
 import {
   Table,
   TableBody,
@@ -30,7 +31,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 
 interface DebitLineItem {
   id: string;
@@ -77,6 +77,7 @@ const POReturn = () => {
     grnNumber: "",
     poNumber: "",
     vendor: "",
+    totalAmount: 0,           // <-- add this
     returnDate: new Date().toISOString().split('T')[0],
     status: "Draft",
     notes: "",
@@ -96,186 +97,186 @@ const POReturn = () => {
     }));
   };
 
-  const fetchPOReturns = async () => {
-    try {
-      setLoading(true);
-      // Fetch actual PO returns from the database
-      const { data, error } = await supabase
-        .from('po_returns')
-        .select('*')
-        .order('created_at', { ascending: false });
+ const fetchPOReturns = async () => {
+  try {
+    setLoading(true);
 
-      if (error) throw error;
-      setPOReturns(data || []);
-    } catch (error: any) {
-      toast({
-        title: "Error Fetching Debit Notes",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
+    // Fetch actual PO returns from your API
+    const response = await axios.get('/api/po-returns'); // replace with real endpoint
+    const data = response.data;
+
+    // Ensure it's always an array
+    setPOReturns(Array.isArray(data) ? data : []);
+  } catch (error: any) {
+    toast({
+      title: "Error Fetching Debit Notes",
+      description: error.response?.data?.message || error.message,
+      variant: "destructive",
+    });
+    setPOReturns([]); // fallback to empty array
+  } finally {
+    setLoading(false);
+  }
+};
+
+ const fetchGRNOptions = async () => {
+  try {
+    console.log('Fetching GRN options...');
+    const response = await axios.get('/api/grn'); // replace with actual endpoint
+    console.log('Raw response:', response);
+
+    let data = response.data;
+    console.log('Data before sorting:', data);
+
+    // Ensure data is an array
+    if (!Array.isArray(data)) {
+      console.warn('GRN data is not an array:', data);
+      data = [];
     }
-  };
 
-  const fetchGRNOptions = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('grn')
-        .select('id, grn_number, po_number, vendor, receipt_date')
-        .order('created_at', { ascending: false });
+    // Optional: sort by created_at descending
+    data = data.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-      if (error) throw error;
-      setGrnOptions(data || []);
-    } catch (error: any) {
-      console.error('Error fetching GRN options:', error);
-    }
-  };
+    console.log('Data after sorting:', data);
+
+    setGrnOptions(data);
+  } catch (error: any) {
+    console.error('Error fetching GRN options:', error.response?.data?.message || error.message);
+  }
+};
 
   const checkGRNDebitStatus = async (grnNumber: string): Promise<{ debitedItems: Record<string, number> }> => {
-    try {
-      // Get all existing debit notes for this GRN
-      const { data: existingDebits, error } = await supabase
-        .from('po_returns')
-        .select(`
-          id,
-          grn_number,
-          status,
-          po_return_items (
-            grn_item_id,
-            return_quantity
-          )
-        `)
-        .eq('grn_number', grnNumber)
-        .neq('status', 'Cancelled');
+  try {
+    const response = await axios.get('/api/po_returns', {
+      params: {
+        grn_number: grnNumber,
+        exclude_status: 'Cancelled',
+      },
+    });
 
-      if (error) throw error;
+    // Adjust based on actual API response structure
+    const existingDebits = response.data?.po_returns || [];
 
-      // Calculate total debited quantity per GRN item
-      const debitedItems: Record<string, number> = {};
-      (existingDebits || []).forEach(ret => {
-        ((ret as any).po_return_items || []).forEach((item: any) => {
-          debitedItems[item.grn_item_id] = (debitedItems[item.grn_item_id] || 0) + Number(item.return_quantity);
-        });
+    const debitedItems: Record<string, number> = {};
+    existingDebits.forEach((ret: any) => {
+      (ret.po_return_items || []).forEach((item: any) => {
+        debitedItems[item.grn_item_id] = (debitedItems[item.grn_item_id] || 0) + Number(item.return_quantity);
       });
+    });
 
-      return { debitedItems };
-    } catch (error) {
-      console.error('Error checking GRN debit status:', error);
-      return { debitedItems: {} };
-    }
-  };
+    return { debitedItems };
+  } catch (error: any) {
+    console.error('Error checking GRN debit status:', error.response?.data?.message || error.message);
+    return { debitedItems: {} };
+  }
+};
 
-  const handleGRNSelect = async (grnNumber: string) => {
-    if (!grnNumber) return;
-    setGrnFullyDebited(false);
 
-    try {
-      // Fetch GRN with items
-      const { data: grnData, error: grnError } = await supabase
-        .from('grn')
-        .select(`*, grn_items(*)`)
-        .eq('grn_number', grnNumber)
-        .maybeSingle();
+const handleGRNSelect = async (grnNumber: string) => {
+  if (!grnNumber) return;
+  console.log("Selected GRN Number:", grnNumber);
 
-      if (grnError) throw grnError;
-      if (!grnData) {
-        toast({
-          title: "GRN Not Found",
-          description: "The selected GRN could not be found",
-          variant: "destructive",
-        });
-        return;
-      }
+  try {
+    // 1️⃣ Fetch GRN
+    const response = await axios.get("/api/grn", { params: { grn_number: grnNumber } });
+    const grnArray = response.data;
+    console.log("GRN DATA:", grnArray);
 
-      // Check existing debit notes for this GRN
-      const { debitedItems } = await checkGRNDebitStatus(grnNumber);
-
-      // Fetch PO items for rates
-      const { data: poData, error: poError } = await supabase
-        .from('purchase_orders')
-        .select(`*, purchase_order_items(*)`)
-        .eq('po_number', grnData.po_number)
-        .maybeSingle();
-
-      if (poError) throw poError;
-
-      // Update form data
-      setFormData(prev => ({
-        ...prev,
-        grnNumber: grnNumber,
-        poNumber: grnData.po_number,
-        vendor: grnData.vendor,
-      }));
-
-      // Map GRN items to debit lines with already debited quantities
-      const debitLines: DebitLineItem[] = (grnData.grn_items || [])
-        .filter((item: any) => item.rejected_quantity > 0)
-        .map((item: any, index: number) => {
-          // Find matching PO item for rate and tax (read-only from PO)
-          const poItem = poData?.purchase_order_items?.find(
-            (poi: any) => poi.item_code === item.item_code
-          );
-          const poRate = poItem?.unit_price || item.unit_price || 0;
-          // Get tax from PO if available, default to 18% GST
-          const taxPercent = 18; // This should ideally come from PO line item
-          
-          const rejectedQty = Number(item.rejected_quantity) || 0;
-          const alreadyDebitedQty = debitedItems[item.id] || 0;
-          const debitableQty = Math.max(0, rejectedQty - alreadyDebitedQty);
-          const debitQty = debitableQty; // Default to max debitable
-          
-          const lineAmount = debitQty * poRate;
-          const taxAmount = lineAmount * (taxPercent / 100);
-          const lineTotal = lineAmount + taxAmount;
-
-          return {
-            id: crypto.randomUUID(),
-            grnItemId: item.id,
-            num: index + 1,
-            itemCode: item.item_code,
-            description: item.description,
-            grnQuantity: item.received_quantity || 0,
-            rejectedQuantity: rejectedQty,
-            alreadyDebitedQty: alreadyDebitedQty,
-            debitableQty: debitableQty,
-            debitQuantity: debitQty,
-            poRate: poRate,
-            taxPercent: taxPercent,
-            taxAmount: taxAmount,
-            lineTotal: lineTotal,
-            rejectionReason: item.rejection_reason || "",
-          };
-        });
-
-      // Check if all items are fully debited
-      const allFullyDebited = debitLines.every(item => item.debitableQty === 0);
-      
-      if (allFullyDebited && debitLines.length > 0) {
-        setGrnFullyDebited(true);
-        toast({
-          title: "Debit Note Already Created",
-          description: "Debit note already created for this GRN. All rejected quantities have been fully debited.",
-          variant: "destructive",
-        });
-      }
-
-      setLineItems(debitLines);
-
-      if (debitLines.length === 0) {
-        toast({
-          title: "No Rejected Items",
-          description: "This GRN has no rejected items to return",
-        });
-      }
-    } catch (error: any) {
+    // 2️⃣ Find selected GRN
+    const grnData = grnArray.find((g: any) => g.grn_number === grnNumber);
+    if (!grnData) {
       toast({
-        title: "Error Loading GRN",
-        description: error.message,
+        title: "GRN not found",
+        description: "Selected GRN not found in response",
         variant: "destructive",
       });
+      return;
     }
-  };
+
+    // 3️⃣ Extract values
+    const vendor = grnData.vendor || "";
+    const poNumber = grnData.po_number || "";
+
+    const grnTotal = (grnData.items || []).reduce(
+      (sum: number, item: any) => sum + Number(item.total_amount || 0),
+      0
+    );
+
+    setFormData((prev) => ({
+      ...prev,
+      grnNumber,
+      poNumber,
+      vendor,
+      totalAmount: grnTotal,
+    }));
+
+    // 4️⃣ Fetch PO data
+    const poResponse = await axios.get("/api/po", { params: { po_number: poNumber } });
+    const poData = poResponse.data;
+    console.log("PO DATA:", poData);
+
+    // 5️⃣ Process GRN items
+    const grnItems = grnData.items || [];
+    console.log("GRN Items:", grnItems);
+
+    const { debitedItems } = await checkGRNDebitStatus(grnNumber);
+    console.log("Already debited items:", debitedItems);
+
+    // 6️⃣ Map GRN items to debit lines
+    const debitLines: DebitLineItem[] = grnItems
+      .filter((item: any) => Number(item.rejected_quantity) > 0)
+      .map((item: any, index: number) => {
+        const poItem = poData.purchase_order_items?.find(
+          (poi: any) => poi.item_code === item.item_code
+        );
+        const poRate = Number(poItem?.unit_price || item.unit_price || 0);
+        const rejectedQty = Number(item.rejected_quantity) || 0;
+        const alreadyDebitedQty = debitedItems[item.id] || 0;
+        const debitableQty = Math.max(0, rejectedQty - alreadyDebitedQty);
+
+        const taxPercent = 18;
+        const lineAmount = debitableQty * poRate;
+        const taxAmount = lineAmount * (taxPercent / 100);
+        const lineTotal = lineAmount + taxAmount;
+
+        return {
+          id: crypto.randomUUID(),
+          grnItemId: item.id,
+          num: index + 1,
+          itemCode: item.item_code,
+          description: item.description,
+          grnQuantity: Number(item.received_quantity) || 0,
+          rejectedQuantity: rejectedQty,
+          alreadyDebitedQty,
+          debitableQty,
+          debitQuantity: debitableQty,
+          poRate,
+          taxPercent,
+          taxAmount,
+          lineTotal,
+          rejectionReason: item.rejection_reason || "",
+        };
+      });
+
+    console.log("Debit Lines to set:", debitLines);
+
+    setLineItems(debitLines);
+
+    if (debitLines.length === 0) {
+      toast({
+        title: "No Rejected Items",
+        description: "This GRN has no rejected items to return",
+      });
+    }
+  } catch (error: any) {
+    console.error("Error loading GRN:", error);
+    toast({
+      title: "Error Loading GRN",
+      description: error.response?.data?.message || error.message,
+      variant: "destructive",
+    });
+  }
+};
 
   const updateDebitQuantity = (id: string, newQty: number) => {
     setLineItems(items => items.map(item => {
@@ -322,160 +323,152 @@ const POReturn = () => {
     return { subtotal, totalTax, grandTotal };
   };
 
-  const handleSubmit = async () => {
-    // Validation: Check if GRN is fully debited
-    if (grnFullyDebited) {
-      toast({
-        title: "Validation Error",
-        description: "Debit note already created for this GRN. All rejected quantities have been fully debited.",
-        variant: "destructive",
-      });
-      return;
-    }
 
-    // Validation: Check if any items to debit
-    const itemsToDebit = lineItems.filter(item => item.debitQuantity > 0);
-    if (itemsToDebit.length === 0) {
-      toast({
-        title: "Validation Error",
-        description: "Please enter debit quantities for at least one item",
-        variant: "destructive",
-      });
-      return;
-    }
+const handleSubmit = async () => {
+  // Validation: Check if GRN is fully debited
+  if (grnFullyDebited) {
+    toast({
+      title: "Validation Error",
+      description: "Debit note already created for this GRN. All rejected quantities have been fully debited.",
+      variant: "destructive",
+    });
+    return;
+  }
 
-    if (!formData.grnNumber) {
-      toast({
-        title: "Validation Error",
-        description: "Please select a GRN Receipt Number",
-        variant: "destructive",
-      });
-      return;
-    }
+  // Validation: Check if any items to debit
+  const itemsToDebit = lineItems.filter(item => item.debitQuantity > 0);
+  if (itemsToDebit.length === 0) {
+    toast({
+      title: "Validation Error",
+      description: "Please enter debit quantities for at least one item",
+      variant: "destructive",
+    });
+    return;
+  }
 
-    // Validation: Check for items exceeding debitable quantity
-    const invalidItems = lineItems.filter(item => item.debitQuantity > item.debitableQty);
-    if (invalidItems.length > 0) {
-      toast({
-        title: "Validation Error",
-        description: "Debit quantity cannot exceed remaining debitable quantity",
-        variant: "destructive",
-      });
-      return;
-    }
+  if (!formData.grnNumber) {
+    toast({
+      title: "Validation Error",
+      description: "Please select a GRN Receipt Number",
+      variant: "destructive",
+    });
+    return;
+  }
 
-    // Validation: Check for items exceeding rejected quantity
-    const exceedsRejected = lineItems.filter(item => item.debitQuantity > item.rejectedQuantity);
-    if (exceedsRejected.length > 0) {
-      toast({
-        title: "Validation Error",
-        description: "Debit quantity cannot exceed rejected quantity",
-        variant: "destructive",
-      });
-      return;
-    }
+  // Validation: Check for items exceeding debitable quantity
+  const invalidItems = lineItems.filter(item => item.debitQuantity > item.debitableQty);
+  if (invalidItems.length > 0) {
+    toast({
+      title: "Validation Error",
+      description: "Debit quantity cannot exceed remaining debitable quantity",
+      variant: "destructive",
+    });
+    return;
+  }
 
-    // Validation: Debit Reason is mandatory
-    if (!formData.reason.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Debit Reason is mandatory. Please enter a reason for the debit note.",
-        variant: "destructive",
-      });
-      return;
-    }
+  // Validation: Check for items exceeding rejected quantity
+  const exceedsRejected = lineItems.filter(item => item.debitQuantity > item.rejectedQuantity);
+  if (exceedsRejected.length > 0) {
+    toast({
+      title: "Validation Error",
+      description: "Debit quantity cannot exceed rejected quantity",
+      variant: "destructive",
+    });
+    return;
+  }
 
-    const totals = calculateTotals();
+  // Validation: Debit Reason is mandatory
+  if (!formData.reason.trim()) {
+    toast({
+      title: "Validation Error",
+      description: "Debit Reason is mandatory. Please enter a reason for the debit note.",
+      variant: "destructive",
+    });
+    return;
+  }
 
-    try {
-      // Create PO Return record in database
-      const { data: returnData, error: returnError } = await supabase
-        .from('po_returns')
-        .insert({
-          return_number: formData.returnNumber,
-          grn_number: formData.grnNumber,
-          po_number: formData.poNumber,
-          vendor: formData.vendor,
-          return_date: formData.returnDate,
-          status: 'Submitted',
-          reason: formData.reason || null,
-          notes: formData.notes || null,
-          subtotal: totals.subtotal,
-          tax: totals.totalTax,
-          total: totals.grandTotal,
-        })
-        .select()
-        .single();
+  const totals = calculateTotals();
 
-      if (returnError) throw returnError;
+  try {
+    // Create PO Return record
+    const returnResponse = await axios.post('/api/po-returns', {
+      return_number: formData.returnNumber,
+      grn_number: formData.grnNumber,
+      po_number: formData.poNumber,
+      vendor: formData.vendor,
+      return_date: formData.returnDate,
+      status: 'Submitted',
+      reason: formData.reason || null,
+      notes: formData.notes || null,
+      subtotal: totals.subtotal,
+      tax: totals.totalTax,
+      total: totals.grandTotal,
+    });
 
-      // Create debit note line items
-      const debitItems = itemsToDebit.map(item => ({
-        return_id: returnData.id,
-        grn_item_id: item.grnItemId,
+    const returnData = returnResponse.data;
+
+    // Create debit note line items
+    const debitItems = itemsToDebit.map(item => ({
+      return_id: returnData.id,
+      grn_item_id: item.grnItemId,
+      item_code: item.itemCode,
+      description: item.description,
+      return_quantity: item.debitQuantity,
+      max_returnable_quantity: item.debitableQty,
+      unit_price: item.poRate,
+      tax_percent: item.taxPercent,
+      tax_amount: item.taxAmount,
+      total_amount: item.lineTotal,
+    }));
+
+    await axios.post('/po-return-items', debitItems);
+
+    // Update inventory and log transactions
+    for (const item of itemsToDebit) {
+  // Fetch existing stock
+  const stockRes = await axios.get(`/api/inventory-stock`, { params: { item_code: item.itemCode } });
+  const existingStock = stockRes.data.items?.[0]; // make sure to access the items array
+
+  if (existingStock?.id) {
+    // Update stock
+    await axios.put(`/api/inventory-stock/${existingStock.id}`, {
+      quantity_on_hand: Math.max(0, Number(existingStock.quantityOnHand) - item.debitQuantity),
+      last_transaction_date: new Date().toISOString(),
+      item_name: existingStock.itemName,          // REQUIRED for validation
+      location: existingStock.location || '-',    // REQUIRED for validation
+    });
+  }
+
+      // Log stock transaction
+      await axios.post('/api/stock-transactions', {
         item_code: item.itemCode,
-        description: item.description,
-        return_quantity: item.debitQuantity,
-        max_returnable_quantity: item.debitableQty,
-        unit_price: item.poRate,
-        tax_percent: item.taxPercent,
-        tax_amount: item.taxAmount,
-        total_amount: item.lineTotal,
-      }));
-
-      const { error: itemsError } = await supabase
-        .from('po_return_items')
-        .insert(debitItems);
-
-      if (itemsError) throw itemsError;
-
-      // Update inventory and log transactions
-      for (const item of itemsToDebit) {
-        // Reduce inventory
-        const { data: existingStock } = await supabase
-          .from('inventory_stock')
-          .select('*')
-          .eq('item_code', item.itemCode)
-          .maybeSingle();
-
-        if (existingStock) {
-          await supabase
-            .from('inventory_stock')
-            .update({
-              quantity_on_hand: Math.max(0, Number(existingStock.quantity_on_hand) - item.debitQuantity),
-              last_transaction_date: new Date().toISOString(),
-            })
-            .eq('item_code', item.itemCode);
-        }
-
-        // Log stock transaction
-        await supabase.from('stock_transactions').insert({
-          item_code: item.itemCode,
-          transaction_type: 'DEBIT_NOTE',
-          reference_type: 'Debit Note',
-          reference_number: formData.returnNumber,
-          quantity: -item.debitQuantity,
-          unit_cost: item.poRate,
-          notes: `Debit Note ${formData.returnNumber} from GRN ${formData.grnNumber}`,
-        });
-      }
-
-      toast({
-        title: "Debit Note Created",
-        description: `${formData.returnNumber} has been created. Total: ₹${totals.grandTotal.toFixed(2)}`,
-      });
-
-      resetForm();
-      setOpen(false);
-      fetchPOReturns();
-    } catch (error: any) {
-      toast({
-        title: "Error Creating Debit Note",
-        description: error.message,
-        variant: "destructive",
+        transaction_type: 'DEBIT_NOTE',
+        reference_type: 'Debit Note',
+        reference_number: formData.returnNumber,
+        quantity: -item.debitQuantity,
+        unit_cost: item.poRate,
+        notes: `Debit Note ${formData.returnNumber} from GRN ${formData.grnNumber}`,
       });
     }
-  };
+
+    toast({
+      title: "Debit Note Created",
+      description: `${formData.returnNumber} has been created. Total: ₹${totals.grandTotal.toFixed(2)}`,
+    });
+
+    resetForm();
+    setOpen(false);
+    fetchPOReturns();
+  } catch (error: any) {
+    toast({
+      title: "Error Creating Debit Note",
+      description: error.response?.data?.message || error.message,
+      variant: "destructive",
+    });
+  }
+};
+
+
 
   const resetForm = () => {
     setFormData({
@@ -483,6 +476,7 @@ const POReturn = () => {
       grnNumber: "",
       poNumber: "",
       vendor: "",
+       totalAmount: 0, 
       returnDate: new Date().toISOString().split('T')[0],
       status: "Draft",
       notes: "",
@@ -493,21 +487,23 @@ const POReturn = () => {
     setGrnFullyDebited(false);
   };
 
-  const handleViewReturn = async (poReturn: any) => {
-    setSelectedReturn(poReturn);
-    
-    // Fetch return items
-    const { data: items, error } = await supabase
-      .from('po_return_items')
-      .select('*')
-      .eq('return_id', poReturn.id);
+ const handleViewReturn = async (poReturn: any) => {
+  setSelectedReturn(poReturn);
 
-    if (!error) {
-      setSelectedReturnItems(items || []);
-    }
-    
-    setViewOpen(true);
-  };
+  try {
+    // Fetch return items
+    const response = await axios.get('/po-return-items', {
+      params: { return_id: poReturn.id },
+    });
+
+    setSelectedReturnItems(response.data || []);
+  } catch (error: any) {
+    console.error('Error fetching return items:', error.response?.data?.message || error.message);
+    setSelectedReturnItems([]);
+  }
+
+  setViewOpen(true);
+};
 
    const handlePrintDebitNote = (debitNote: any, items: any[]) => {
     const printWindow = window.open('', '_blank');
@@ -621,13 +617,29 @@ const POReturn = () => {
     printWindow.onload = () => { printWindow.print(); };
   };
 
-  const handlePrintFromList = async (ret: any) => {
-    const { data: items } = await supabase
-      .from('po_return_items')
-      .select('*')
-      .eq('return_id', ret.id);
-    handlePrintDebitNote(ret, items || []);
-  };
+ const handlePrintFromList = async (ret: any) => {
+  try {
+    const response = await axios.get('/api/po-return-items', {
+      params: { return_id: ret.id },
+    });
+
+    const raw = response.data;
+
+    const items = Array.isArray(raw)
+      ? raw
+      : Array.isArray(raw?.items)
+      ? raw.items
+      : [];
+
+    handlePrintDebitNote(ret, items);
+  } catch (error: any) {
+    console.error(
+      'Error fetching return items:',
+      error.response?.data?.message || error.message
+    );
+    handlePrintDebitNote(ret, []);
+  }
+};
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -747,7 +759,7 @@ const POReturn = () => {
                 <div className="col-span-3 flex items-center gap-2">
                   <Label className="text-sm whitespace-nowrap w-12">Total</Label>
                   <Input 
-                    value={`₹ ${totals.grandTotal.toFixed(2)}`} 
+                   value={`₹ ${Number(formData.totalAmount || 0).toFixed(2)}`}
                     readOnly 
                     className="h-8 text-sm bg-gray-100 border-gray-400 font-semibold"
                   />
@@ -975,8 +987,9 @@ const POReturn = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {selectedReturnItems.map((item: any) => (
-                        <TableRow key={item.id}>
+{Array.isArray(selectedReturnItems) &&
+  selectedReturnItems.map((item: any) => (
+                            <TableRow key={item.id}>
                           <TableCell className="font-medium">{item.item_code}</TableCell>
                           <TableCell>{item.description}</TableCell>
                           <TableCell className="text-right">{item.return_quantity}</TableCell>
@@ -1054,52 +1067,56 @@ const POReturn = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {loading ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8">
-                        Loading...
-                      </TableCell>
-                    </TableRow>
-                  ) : poReturns.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                        No debit notes found
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    poReturns.map((ret) => (
-                      <TableRow key={ret.id}>
-                        <TableCell className="font-medium">{ret.return_number}</TableCell>
-                        <TableCell>{ret.grn_number}</TableCell>
-                        <TableCell>{ret.po_number}</TableCell>
-                        <TableCell>{ret.vendor}</TableCell>
-                        <TableCell>{new Date(ret.return_date).toLocaleDateString()}</TableCell>
-                        <TableCell className="text-right font-medium">₹{Number(ret.total || 0).toFixed(2)}</TableCell>
-                        <TableCell>{getStatusBadge(ret.status)}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              onClick={() => handleViewReturn(ret)}
-                              title="View"
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="sm"
-                              onClick={() => handlePrintFromList(ret)}
-                              title="Print Debit Note"
-                            >
-                              <Printer className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
+  {loading ? (
+    <TableRow>
+      <TableCell colSpan={8} className="text-center py-8">
+        Loading...
+      </TableCell>
+    </TableRow>
+  ) : poReturns.length === 0 ? (
+    <TableRow>
+      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+        No debit notes found
+      </TableCell>
+    </TableRow>
+  ) : (
+    poReturns.map((ret: any) => (
+      <TableRow key={ret.id}>
+        <TableCell className="font-medium">{ret.return_number || '-'}</TableCell>
+        <TableCell>{ret.grn_number || '-'}</TableCell>
+        <TableCell>{ret.po_number || '-'}</TableCell>
+        <TableCell>{ret.vendor || '-'}</TableCell>
+        <TableCell>
+          {ret.return_date ? new Date(ret.return_date).toLocaleDateString() : '-'}
+        </TableCell>
+        <TableCell className="text-right font-medium">
+          ₹{Number(ret.total ?? 0).toFixed(2)}
+        </TableCell>
+        <TableCell>{getStatusBadge(ret.status)}</TableCell>
+        <TableCell className="text-right">
+          <div className="flex justify-end gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleViewReturn(ret)}
+              title="View"
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handlePrintFromList(ret)}
+              title="Print Debit Note"
+            >
+              <Printer className="h-4 w-4" />
+            </Button>
+          </div>
+        </TableCell>
+      </TableRow>
+    ))
+  )}
+</TableBody>
               </Table>
             </div>
           </CardContent>

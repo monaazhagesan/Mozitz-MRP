@@ -35,31 +35,31 @@ const ItemTransactionsTab = ({ itemCode }: ItemTransactionsTabProps) => {
   try {
     const allTransactions: Transaction[] = [];
 
-    // 1. Fetch stock transactions for this item via API
-    const stockRes = await axios.get("/api/stock_transactions", { params: { item_code: itemCode } });
-    const stockTransactions = stockRes.data; // assume API returns array of transactions
+    // 1. Stock transactions
+    const stockRes = await axios.get("/api/stock-transactions", { params: { item_code: itemCode } });
+    const stockTransactions = stockRes.data;
 
-    if (stockTransactions && Array.isArray(stockTransactions)) {
+    if (Array.isArray(stockTransactions)) {
       stockTransactions.forEach((tx: any) => {
         allTransactions.push({
           id: tx.id,
           date: tx.transaction_date || tx.created_at || "",
           reference: tx.reference_number || "-",
           customerName: tx.notes || tx.reference_type || "-",
-          quantitySold: Math.abs(tx.quantity),
-          price: tx.unit_cost || 0,
-          total: Math.abs(tx.quantity || 0) * (tx.unit_cost || 0),
+          quantitySold: Math.abs(Number(tx.quantity) || 0),
+          price: Number(tx.unit_cost) || 0,
+          total: Math.abs(Number(tx.quantity) || 0) * (Number(tx.unit_cost) || 0),
           status: getStatusFromTransactionType(tx.transaction_type),
           type: mapTransactionType(tx.transaction_type, tx.reference_type),
         });
       });
     }
 
-    // 2. Fetch GRN items (purchase receipts) via API
-    const grnRes = await axios.get("/api/grn_items", { params: { item_code: itemCode } });
+    // 2. GRN items
+    const grnRes = await axios.get("/api/grn-items", { params: { item_code: itemCode } });
     const grnItems = grnRes.data;
 
-    if (grnItems && Array.isArray(grnItems)) {
+    if (Array.isArray(grnItems)) {
       grnItems.forEach((item: any) => {
         if (item.grn) {
           const exists = allTransactions.some((t) => t.reference === item.grn.grn_number);
@@ -68,10 +68,10 @@ const ItemTransactionsTab = ({ itemCode }: ItemTransactionsTabProps) => {
               id: item.id,
               date: item.grn.receipt_date || item.created_at,
               reference: item.grn.grn_number,
-              customerName: item.grn.vendor || "Vendor",
-              quantitySold: item.received_quantity,
-              price: item.unit_price || 0,
-              total: item.total_amount || item.received_quantity * item.unit_price,
+              customerName: item.grn.vendor_name || "Vendor",
+              quantitySold: Number(item.received_quantity) || 0,
+              price: Number(item.unit_price) || 0,
+              total: Number(item.total_amount) || (Number(item.received_quantity) * Number(item.unit_price)),
               status: mapGRNStatus(item.grn.qc_status),
               type: "Purchase Receipt",
             });
@@ -80,7 +80,7 @@ const ItemTransactionsTab = ({ itemCode }: ItemTransactionsTabProps) => {
       });
     }
 
-    // 3. Fetch sales orders from localStorage
+    // 3. Local storage sales orders
     const savedOrders = localStorage.getItem("orders");
     if (savedOrders) {
       try {
@@ -95,9 +95,9 @@ const ItemTransactionsTab = ({ itemCode }: ItemTransactionsTabProps) => {
                   date: order.orderDate || new Date().toISOString(),
                   reference: order.id,
                   customerName: order.customer || "Customer",
-                  quantitySold: item.quantityOrdered || 0,
-                  price: item.rate || 0,
-                  total: item.totalAmount || 0,
+                  quantitySold: Number(item.quantityOrdered) || 0,
+                  price: Number(item.rate) || 0,
+                  total: Number(item.totalAmount) || (Number(item.quantityOrdered) * Number(item.rate)),
                   status: mapOrderStatus(order.status, order.deliveryStatus),
                   type: "Sales Order",
                 });
@@ -110,7 +110,7 @@ const ItemTransactionsTab = ({ itemCode }: ItemTransactionsTabProps) => {
       }
     }
 
-    // Sort all transactions by date (most recent first)
+    // Sort descending by date
     allTransactions.sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );

@@ -34,6 +34,8 @@ interface IssueItem {
   itemCode: string;
   itemName: string;
   requiredQty: number;
+  previouslyIssued: number;
+  pendingQty: number;
   issuedQty: number;
   uom: string;
   availableStock?: number;
@@ -235,37 +237,49 @@ useEffect(() => {
     }
   };
 
-  // Fetch available stock for items
+  // Fetch available stock for items (floored at 0; negative = over-allocated)
 
 const fetchAvailableStock = async (items: IssueItem[]): Promise<IssueItem[]> => {
-  try {
-    const itemsWithStock = await Promise.all(
-      items.map(async (item) => {
-        // Call your backend API to get stock for this item
-        const response = await axios.get(`/api/inventory_stock`, {
+  const itemsWithStock = await Promise.all(
+    items.map(async (item) => {
+      try {
+        const response = await axios.get("/api/inventory_stock", {
           params: { item_code: item.itemCode },
         });
 
-        const stockItem = response.data; // Expected: { available_quantity, quantity_on_hand }
+        const stockItem = response.data;
+
+        const onHand = Number(stockItem?.quantity_on_hand ?? 0);
+        const avail =
+          stockItem?.available_quantity != null
+            ? Number(stockItem.available_quantity)
+            : onHand;
+
+        // Issuance is constrained by physical on-hand stock, not by allocations.
+        // Floor at 0 so over-allocated items don't show negative numbers.
+        const issuableStock = Math.max(
+          0,
+          Math.min(onHand, Number.isFinite(avail) ? avail : onHand)
+        );
 
         return {
           ...item,
-          availableStock: stockItem?.available_quantity ?? stockItem?.quantity_on_hand ?? 0,
+          availableStock: Math.max(0, onHand),
           balanceQty: item.requiredQty,
         };
-      })
-    );
+      } catch (error) {
+        console.error(`Error fetching stock for ${item.itemCode}`, error);
 
-    return itemsWithStock;
-  } catch (error) {
-    console.error("Error fetching available stock:", error);
-    // Return items with zero stock in case of error
-    return items.map((item) => ({
-      ...item,
-      availableStock: 0,
-      balanceQty: item.requiredQty,
-    }));
-  }
+        return {
+          ...item,
+          availableStock: 0,
+          balanceQty: item.requiredQty,
+        };
+      }
+    })
+  );
+
+  return itemsWithStock;
 };
 
   // Lookup Job by Job No (text input)
@@ -371,98 +385,184 @@ const fetchAvailableStock = async (items: IssueItem[]): Promise<IssueItem[]> => 
     await loadOrderItems(order);
   };
 
-  // Load job materials from job_allocations table (primary source for job required quantities)
- const loadJobMaterials = async (job: Job) => {
+  // Build map of previously-issued qty per item for a given reference (job/order)
+  const buildPreviouslyIssuedMap = (refNo: string, type: "job" | "order"): Record<string, number> => {
+    const map: Record<string, number> = {};
+    issues
+      .filter((iss) => iss.issueType === type && iss.referenceNo === refNo && iss.status !== "Cancelled")
+      .forEach((iss) => {
+        iss.items.forEach((it) => {
+          map[it.itemCode] = (map[it.itemCode] || 0) + (Number(it.issuedQty) || 0);
+        });
+      });
+    return map;
+  };
+
+ // Load job materials. Priority:
+  // 1) BOM from bom_headers using job.itemCode (qty × jobQty) — source of truth
+  // 2) Local job.bomComponents (saved on the job)
+  // 3) job_allocations (legacy fallback)
+
+
+const loadJobMaterials = async (job: Job) => {
   let items: IssueItem[] = [];
+
   const jobNumber = job.jobNumber || job.id;
-  console.log("loadJobMaterials - jobNumber:", jobNumber, "job:", job);
+  const jobQty = Number(job.quantity) || 1;
+  const prevIssued = buildPreviouslyIssuedMap(jobNumber, "job");
+
+  console.log("loadJobMaterials - jobNumber:", jobNumber, "itemCode:", job.itemCode, "qty:", jobQty);
 
   try {
-    // 1️⃣ Fetch job allocations first
-    const allocRes = await axios.get("/api/job_allocations", {
-      params: { job_number: jobNumber, status: ["allocated", "released"] },
-    });
-    const jobAllocations = allocRes.data; // [{ item_code, allocated_quantity, status }, ...]
-
-    console.log("loadJobMaterials - jobAllocations:", jobAllocations);
-
-    if (jobAllocations && jobAllocations.length > 0) {
-      // Aggregate allocations by item_code
-      const aggregated: Record<string, number> = {};
-      jobAllocations.forEach((alloc: any) => {
-        aggregated[alloc.item_code] = (aggregated[alloc.item_code] || 0) + (alloc.allocated_quantity || 0);
+    // 1) BOM from backend using job itemCode
+    if (job.itemCode) {
+      const bomRes = await axios.get("/api/bom/header", {
+        params: {
+          item_code: job.itemCode,
+          status: "Active",
+        },
       });
 
-      const itemCodes = Object.keys(aggregated);
+      const bomData = bomRes.data;
 
-      // Fetch inventory item details
-      const invRes = await axios.get("/api/inventory_items", {
-        params: { item_codes: itemCodes },
-      });
-      const inventoryItems = invRes.data; // [{ item_code, item_name }, ...]
+      if (bomData?.length > 0) {
+        const latestBom = bomData[0];
 
-      const itemNameMap = new Map(inventoryItems.map((i: any) => [i.item_code, i.item_name]));
-
-      items = itemCodes.map((itemCode, index) => ({
-        id: `item-${index}`,
-        itemCode,
-        itemName: itemNameMap.get(itemCode) || itemCode,
-        requiredQty: aggregated[itemCode],
-        issuedQty: 0,
-        uom: "EA",
-      }));
-    } else {
-      // 2️⃣ Fallback to BOM components if no allocations
-      const bomComponents = job.bomComponents || [];
-      console.log("loadJobMaterials - fallback to bomComponents:", bomComponents);
-
-      if (bomComponents.length > 0) {
-        items = bomComponents.map((comp: any, index: number) => ({
-          id: `item-${index}`,
-          itemCode: comp.component || comp.itemCode || comp.item_code || "",
-          itemName: comp.description || comp.itemName || comp.item_name || "",
-          requiredQty: (parseFloat(comp.quantity) || 1) * (job.quantity || 1),
-          issuedQty: 0,
-          uom: comp.uom || "EA",
-        }));
-      } else if (job.itemCode) {
-        // 3️⃣ Fetch BOM from database if BOM components are empty
-        const bomHeaderRes = await axios.get("/api/bom_headers", {
-          params: { item_code: job.itemCode, status: "Active", limit: 1, order: "desc" },
+        const compRes = await axios.get("/api/bom/components", {
+          params: { bom_id: latestBom.id },
         });
-        const bomData = bomHeaderRes.data;
 
-        console.log("loadJobMaterials - bomData from DB:", bomData);
+        const components = compRes.data;
 
-        if (bomData && bomData.length > 0) {
-          const bomId = bomData[0].id;
-          const compRes = await axios.get("/api/bom_components", { params: { bom_id: bomId } });
-          const components = compRes.data;
+        if (components?.length > 0) {
+          items = components.map((comp: any, index: number) => {
+            const required = (Number(comp.quantity) || 0) * jobQty;
+            const prev = prevIssued[comp.component] || 0;
 
-          console.log("loadJobMaterials - components from DB:", components);
-
-          if (components && components.length > 0) {
-            items = components.map((comp: any, index: number) => ({
+            return {
               id: `item-${index}`,
               itemCode: comp.component,
               itemName: comp.description,
-              requiredQty: comp.quantity * (job.quantity || 1),
+              requiredQty: required,
+              previouslyIssued: prev,
+              pendingQty: Math.max(0, required - prev),
               issuedQty: 0,
               uom: comp.uom,
-            }));
-          }
+            };
+          });
         }
       }
     }
 
-    // 4️⃣ Fetch available stock for all items
-    const itemsWithStock = await fetchAvailableStock(items); // This should also be Axios-based
+    // 2) Fallback to local BOM
+    if (items.length === 0) {
+      const bomComponents = job.bomComponents || [];
+
+      if (bomComponents.length > 0) {
+        items = bomComponents.map((comp: any, index: number) => {
+          const itemCode =
+            comp.component || comp.itemCode || comp.item_code || "";
+
+          const perUnit =
+            parseFloat(comp.quantity ?? comp.qty ?? 1) || 1;
+
+          const required = perUnit * jobQty;
+          const prev = prevIssued[itemCode] || 0;
+
+          return {
+            id: `item-${index}`,
+            itemCode,
+            itemName:
+              comp.description ||
+              comp.itemName ||
+              comp.item_name ||
+              "",
+            requiredQty: required,
+            previouslyIssued: prev,
+            pendingQty: Math.max(0, required - prev),
+            issuedQty: 0,
+            uom: comp.uom || "EA",
+          };
+        });
+      }
+    }
+
+    // 3) Final fallback: job allocations
+    if (items.length === 0) {
+      const allocRes = await axios.get("/api/job-allocations", {
+        params: {
+          job_number: jobNumber,
+          status: ["allocated", "released"],
+        },
+      });
+
+      const jobAllocations = allocRes.data;
+
+      if (jobAllocations?.length > 0) {
+        const aggregated: Record<string, number> = {};
+
+        jobAllocations.forEach((alloc: any) => {
+          aggregated[alloc.item_code] =
+            (aggregated[alloc.item_code] || 0) +
+            (alloc.allocated_quantity || 0);
+        });
+
+        const itemCodes = Object.keys(aggregated);
+
+        // fetch item names
+        const invRes = await axios.get("/api/inventory-items", {
+          params: { item_codes: itemCodes },
+        });
+
+        const inventoryItems = invRes.data;
+
+        const itemNameMap = new Map(
+          inventoryItems?.map((i: any) => [i.item_code, i.item_name]) || []
+        );
+
+        items = itemCodes.map((itemCode, index) => {
+          const required = aggregated[itemCode];
+          const prev = prevIssued[itemCode] || 0;
+
+          return {
+            id: `item-${index}`,
+            itemCode,
+            itemName: itemNameMap.get(itemCode) || itemCode,
+            requiredQty: required,
+            previouslyIssued: prev,
+            pendingQty: Math.max(0, required - prev),
+            issuedQty: 0,
+            uom: "EA",
+          };
+        });
+      }
+    }
+
+    // No data found
+    if (items.length === 0) {
+      toast({
+        title: "No BOM found",
+        description: `No active BOM or allocations found for ${
+          job.itemCode || jobNumber
+        }. Please verify the job has a BOM.`,
+        variant: "destructive",
+      });
+    }
+
+    // Attach stock
+    const itemsWithStock = await fetchAvailableStock(items);
+
     console.log("loadJobMaterials - final items:", itemsWithStock);
     setIssueItems(itemsWithStock);
-  } catch (error: any) {
+
+  } catch (error) {
     console.error("Error loading job materials:", error);
-    setReferenceError("Failed to load job materials");
-    setIssueItems([]);
+
+    toast({
+      title: "Error",
+      description: "Failed to load job materials.",
+      variant: "destructive",
+    });
   }
 };
 
@@ -470,17 +570,23 @@ const fetchAvailableStock = async (items: IssueItem[]): Promise<IssueItem[]> => 
     let items: IssueItem[] = [];
     
     const orderItems = Array.isArray((order as any).items) ? (order as any).items : [];
+    const orderNo = getOrderNumber(order);
+    const prevIssued = buildPreviouslyIssuedMap(orderNo, "order");
 
     if (orderItems.length > 0) {
       items = orderItems.map((item: any, index: number) => {
         const qtyRaw = item.quantityOrdered ?? item.quantity ?? item.qty ?? 0;
         const requiredQty = typeof qtyRaw === "number" ? qtyRaw : parseFloat(qtyRaw) || 0;
+        const itemCode = item.itemCode || item.item_code || item.code || "";
+        const prev = prevIssued[itemCode] || 0;
 
         return {
           id: `item-${index}`,
-          itemCode: item.itemCode || item.item_code || item.code || "",
+          itemCode,
           itemName: item.itemName || item.item_name || item.name || "",
           requiredQty,
+          previouslyIssued: prev,
+          pendingQty: Math.max(0, requiredQty - prev),
           issuedQty: 0,
           uom: item.uom || item.unit || "EA",
         };
@@ -523,20 +629,18 @@ const fetchAvailableStock = async (items: IssueItem[]): Promise<IssueItem[]> => 
         if (item.id !== itemId) return item;
         
         const availableStock = item.availableStock ?? 0;
-        const balanceQty = item.balanceQty ?? item.requiredQty;
+        const pendingQty = item.pendingQty ?? item.requiredQty;
         let error = "";
         
-        // Validation: Issue Qty cannot exceed available stock
-        if (qty > availableStock) {
+       if (qty < 0) {
+          error = "Quantity cannot be negative";
+        } else if (availableStock <= 0 && qty > 0) {
+          error = "Insufficient stock — cannot issue";
+        } else if (qty > availableStock) {
           error = `Exceeds available stock (${availableStock})`;
-        }
-        // Validation: Issue Qty cannot exceed balance/required qty
-        else if (qty > balanceQty) {
-          error = `Exceeds balance qty (${balanceQty})`;
-        }
-        // Validation: Cannot result in negative stock
-        else if (availableStock - qty < 0) {
-          error = "Would result in negative stock";
+        
+         } else if (qty > pendingQty) {
+          error = `Exceeds pending qty (${pendingQty})`;
         }
         
         return { 
@@ -587,6 +691,7 @@ const fetchAvailableStock = async (items: IssueItem[]): Promise<IssueItem[]> => 
     // Check for validation errors
   // Step 1: Check for items with validation errors
 const itemsWithErrors = itemsToIssue.filter((item) => item.error);
+
 if (itemsWithErrors.length > 0) {
   toast({
     title: "Validation Error",
@@ -596,17 +701,24 @@ if (itemsWithErrors.length > 0) {
   return;
 }
 
-// Step 2: Re-validate stock availability via Axios
+// Step 1: Re-validate stock availability
 for (const item of itemsToIssue) {
   try {
-    const { data: stockItem } = await axios.get(`/inventory_stock/${item.itemCode}`);
+    const res = await axios.get(
+      `/api/inventory-stock/${item.itemCode}`
+    );
 
-    const availableStock = stockItem?.available_quantity ?? stockItem?.quantity_on_hand ?? 0;
+    const stockItem = res.data;
 
-    if (item.issuedQty > availableStock) {
+    const onHand = Math.max(
+      0,
+      Number(stockItem?.quantity_on_hand ?? 0)
+    );
+
+    if (item.issuedQty > onHand) {
       toast({
         title: "Stock Error",
-        description: `Insufficient stock for ${item.itemCode}. Available: ${availableStock}`,
+        description: `Insufficient stock for ${item.itemCode}. Available: ${onHand}`,
         variant: "destructive",
       });
       return;
@@ -621,7 +733,30 @@ for (const item of itemsToIssue) {
   }
 }
 
-// Step 3: Prepare new Issue record
+// Step 2: Get current user (IMPORTANT FIX)
+const getCurrentUser = async () => {
+  try {
+    const res = await axios.get("/api/user", {
+      withCredentials: true,
+    });
+
+    return {
+      userEmail: res.data?.email || "Unknown User",
+      userId: res.data?.id || null,
+    };
+  } catch (error) {
+    console.error("Error fetching user:", error);
+
+    return {
+      userEmail: "Unknown User",
+      userId: null,
+    };
+  }
+};
+
+const { userEmail, userId } = await getCurrentUser();
+
+// Step 3: Prepare Issue record
 const newIssue: Issue = {
   id: crypto.randomUUID(),
   issueNo: generateIssueNo(),
@@ -635,42 +770,65 @@ const newIssue: Issue = {
     issueType === "job"
       ? (selectedReference as Job).itemName
       : getOrderCustomerName(selectedReference as Order),
-  issuedBy: "Current User",
-  warehouse: "Main Warehouse",
+
+  issuedBy: userEmail,
+  warehouse,
   remarks,
   status: "Issued",
   items: itemsToIssue,
   createdAt: new Date().toISOString(),
 };
 
-// Step 4: Update inventory stock and create transactions
+// Step 4: Update stock + transactions
 for (const item of itemsToIssue) {
   try {
-    // Get stock
-    const { data: stockItem } = await axios.get(`/inventory_stock/${item.itemCode}`);
-    if (!stockItem) continue;
-
-    const newOnHand = Math.max(0, (stockItem.quantity_on_hand || 0) - item.issuedQty);
-    const newAvailable = Math.max(
-      0,
-      newOnHand - (stockItem.allocated_quantity || 0) - (stockItem.committed_quantity || 0)
+    const res = await axios.get(
+      `/api/inventory-stock/${item.itemCode}`
     );
 
-    // Update stock via PUT/PATCH
-    await axios.patch(`/inventory_stock/${item.itemCode}`, {
-      quantity_on_hand: newOnHand,
-      available_quantity: newAvailable,
-      last_transaction_date: new Date().toISOString(),
-    });
+    const stockItem = res.data;
+    if (!stockItem) continue;
 
-    // Create stock transaction
-    await axios.post("/stock_transactions", {
+    const onHand = Number(stockItem.quantity_on_hand || 0);
+    const allocated = Number(stockItem.allocated_quantity || 0);
+    const committed = Number(stockItem.committed_quantity || 0);
+
+    const newOnHand = Math.max(0, onHand - item.issuedQty);
+
+    const newAllocated =
+      issueType === "job"
+        ? Math.max(0, allocated - item.issuedQty)
+        : allocated;
+
+    const newAvailable = Math.max(
+      0,
+      newOnHand - newAllocated - committed
+    );
+
+    // Update stock
+    await axios.patch(
+      `/api/inventory-stock/${item.itemCode}`,
+      {
+        quantity_on_hand: newOnHand,
+        allocated_quantity: newAllocated,
+        available_quantity: newAvailable,
+        last_transaction_date: new Date().toISOString(),
+      }
+    );
+
+    // Stock transaction log
+    await axios.post("/api/stock-transactions", {
       item_code: item.itemCode,
       transaction_type: "Issue",
       quantity: -item.issuedQty,
-      reference_type: issueType === "job" ? "Job Issue" : "Order Issue",
+      reference_type:
+        issueType === "job" ? "Job Issue" : "Order Issue",
       reference_number: newIssue.referenceNo,
-      notes: `Issued to ${issueType}: ${newIssue.referenceNo}`,
+      notes: `Issued ${item.issuedQty} ${item.uom} to ${issueType} ${
+        newIssue.referenceNo
+      } by ${userEmail}${
+        userId ? ` (${userId})` : ""
+      }. Issue#: ${newIssue.issueNo}`,
       unit_cost: stockItem.unit_cost ?? 0,
     });
   } catch (error: any) {
@@ -682,6 +840,33 @@ for (const item of itemsToIssue) {
     return;
   }
 }
+
+// Sync issued quantities back to job card (localStorage jobs)
+    if (issueType === "job") {
+      try {
+        const savedJobs = localStorage.getItem("jobs");
+        if (savedJobs) {
+          const parsedJobs = JSON.parse(savedJobs);
+          if (Array.isArray(parsedJobs)) {
+            const refNo = newIssue.referenceNo;
+            const updated = parsedJobs.map((j: any) => {
+              const jNo = getJobNumber(j);
+              if (jNo !== refNo) return j;
+              const issuedMap: Record<string, number> = { ...(j.issuedQuantities || {}) };
+              itemsToIssue.forEach((it) => {
+                issuedMap[it.itemCode] = (issuedMap[it.itemCode] || 0) + it.issuedQty;
+              });
+              return { ...j, issuedQuantities: issuedMap, lastIssueAt: new Date().toISOString() };
+            });
+            localStorage.setItem("jobs", JSON.stringify(updated));
+            setJobs(updated.map(normalizeJob));
+            window.dispatchEvent(new Event("storage"));
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to sync issued qty to job card", e);
+      }
+    }
 
     // Save issue to localStorage
     const updatedIssues = [...issues, newIssue];
@@ -966,37 +1151,57 @@ for (const item of itemsToIssue) {
                             <TableHead>UOM</TableHead>
                             <TableHead className="text-right">Available</TableHead>
                             <TableHead className="text-right">Required</TableHead>
+                            <TableHead className="text-right">Issued</TableHead>
+                            <TableHead className="text-right">Pending</TableHead>
                             <TableHead className="text-right">Issue Qty</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {issueItems.map((item) => (
-                            <TableRow key={item.id} className={item.error ? "bg-destructive/10" : ""}>
-                              <TableCell className="font-mono">{item.itemCode}</TableCell>
-                              <TableCell>{item.itemName}</TableCell>
-                              <TableCell>{item.uom}</TableCell>
-                              <TableCell className="text-right">
-                                <span className={item.availableStock === 0 ? "text-destructive font-medium" : ""}>
-                                  {item.availableStock ?? 0}
-                                </span>
-                              </TableCell>
-                              <TableCell className="text-right">{item.requiredQty}</TableCell>
-                              <TableCell className="text-right">
-                                <div className="flex flex-col items-end gap-1">
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    value={item.issuedQty}
-                                    onChange={(e) => handleIssueQtyChange(item.id, parseFloat(e.target.value) || 0)}
-                                    className={`w-24 text-right ${item.error ? "border-destructive" : ""}`}
-                                  />
-                                  {item.error && (
-                                    <span className="text-xs text-destructive">{item.error}</span>
-                                  )}
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
+                         {issueItems.map((item) => {
+                            const insufficient = (item.availableStock ?? 0) <= 0;
+                            const fullyIssued = (item.pendingQty ?? 0) <= 0;
+                            return (
+                              <TableRow key={item.id} className={item.error ? "bg-destructive/10" : ""}>
+                                <TableCell className="font-mono">{item.itemCode}</TableCell>
+                                <TableCell>{item.itemName}</TableCell>
+                                <TableCell>{item.uom}</TableCell>
+                                <TableCell className="text-right">
+                                  <span className={insufficient ? "text-destructive font-medium" : ""}>
+                                    {item.availableStock ?? 0}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="text-right">{item.requiredQty}</TableCell>
+                                <TableCell className="text-right text-muted-foreground">
+                                  {item.previouslyIssued ?? 0}
+                                </TableCell>
+                                <TableCell className="text-right font-medium">
+                                  {item.pendingQty ?? 0}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex flex-col items-end gap-1">
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      max={Math.min(item.pendingQty ?? 0, item.availableStock ?? 0)}
+                                      value={item.issuedQty}
+                                      disabled={fullyIssued || insufficient}
+                                      onChange={(e) => handleIssueQtyChange(item.id, parseFloat(e.target.value) || 0)}
+                                      className={`w-24 text-right ${item.error ? "border-destructive" : ""}`}
+                                    />
+                                    {item.error && (
+                                      <span className="text-xs text-destructive">{item.error}</span>
+                                    )}
+                                    {fullyIssued && !item.error && (
+                                      <span className="text-xs text-muted-foreground">Fully issued</span>
+                                    )}
+                                    {insufficient && !fullyIssued && !item.error && (
+                                      <span className="text-xs text-destructive">No stock</span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
                         </TableBody>
                       </Table>
                     </ScrollArea>

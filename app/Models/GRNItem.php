@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str; // ✅ import Str
 
 class GRNItem extends Model
 {
@@ -30,5 +31,16 @@ class GRNItem extends Model
     public function grn()
     {
         return $this->belongsTo(GRN::class, 'grn_id');
+    }
+
+     protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($model) {
+            if (empty($model->{$model->getKeyName()})) {
+                $model->{$model->getKeyName()} = (string) Str::uuid();
+            }
+        });
     }
 }

@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Play, FileText, ShoppingCart, AlertTriangle, CheckCircle, Zap, Loader2, TrendingUp, Clock, Layers, Shield, Calendar, Hammer } from "lucide-react";
+import { Play, FileText, ShoppingCart, AlertTriangle, CheckCircle, Zap, Loader2, TrendingUp, Clock, Layers, Calendar, Hammer, AlertCircle } from "lucide-react";
 import { format, addDays } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import ForecastingTab from "@/components/mrp/ForecastingTab";
@@ -19,24 +19,19 @@ interface MRPItem {
   item_code: string;
   item_name: string;
   item_type: string | null;
-  // Inventory data
   on_hand: number;
   allocated: number;
-  committed: number;
-  available: number;
-  reorder_point: number;
-  safety_stock: number;
-  lead_time_days: number;
-  // Job requirements (from BOM explosion)
-  bom_requirement: number;
-  // Open PO quantities
-  open_po_qty: number;
-  // Net requirement calculation
+  available: number; // can be negative
+  bom_req: number;
+  open_po: number;
+  safety_stock: number | null;
+  reorder_point: number | null;
+  lead_time_days: number | null;
   net_requirement: number;
-  // Order date based on lead time
-  order_by_date: Date | null;
-  // Suggestion
-  suggestion: "sufficient" | "rfq" | "po" | "reorder" | "safety" | "make";
+  shortage_qty: number;
+  suggestion: "Sufficient" | "Below Reorder" | "Deficit";
+  order_suggestion: { quantity: number; expected_arrival: Date | null } | null;
+  flags: string[];
   default_supplier: string | null;
 }
 
@@ -261,67 +256,51 @@ export default function MRPRun() {
           .map((r: any) => r.item_code)
       );
 
-      // 7. Process each inventory item for MRP calculation
+      // 7. Process each inventory item per MRP spec
+      const today = new Date();
       const processedItems: MRPItem[] = inventory.map((item: InventoryItem) => {
-        const onHand = item.quantity_on_hand || 0;
-        // Use confirmed order allocations instead of inventory_stock.allocated_quantity
-        const allocated = confirmedOrderAllocations.get(item.item_code) || 0;
-        const committed = item.committed_quantity || 0;
-        const available = onHand - allocated - committed;
-        const reorderPoint = item.reorder_point || 0;
-        const safetyStock = (item as any).safety_stock || 0;
-        const leadTimeDays = (item as any).lead_time_days || 0;
-        
-        // BOM requirement from open jobs
-        const bomRequirement = componentRequirements.get(item.item_code) || 0;
-        const openPoQty = openPoMap.get(item.item_code) || 0;
-        
-        // Shortage Qty = On Hand - Allocated
-        const shortageQty = onHand - allocated;
-        
-        // Net Requirement = On Hand - Shortage Qty + Open PO
-        // This simplifies to: Allocated + Open PO
-        // Available = On Hand - Allocated
-        const availableForMrp = onHand - allocated;
-        
-        // Net Requirement = Shortage Qty - Available - Open PO + Safety Stock
-        // If negative, set to 0
-        const rawNetReq = shortageQty - availableForMrp - openPoQty + safetyStock;
-        const netRequirement = rawNetReq < 0 ? 0 : rawNetReq;
-        
-        // Calculate order-by date based on lead time
-        let orderByDate: Date | null = null;
-        if (netRequirement > 0 && leadTimeDays > 0) {
-          orderByDate = addDays(new Date(), -leadTimeDays);
+        const onHand = Math.round(item.quantity_on_hand || 0);
+        const allocated = Math.round(confirmedOrderAllocations.get(item.item_code) || 0);
+        const reorderPoint = item.reorder_point != null ? Math.round(item.reorder_point) : null;
+        const safetyStockRaw = (item as any).safety_stock;
+        const safetyStock = safetyStockRaw != null ? Math.round(safetyStockRaw) : null;
+        const leadTimeRaw = (item as any).lead_time_days;
+        const leadTimeDays = leadTimeRaw != null && leadTimeRaw > 0 ? Math.round(leadTimeRaw) : null;
+        const bomReq = Math.round(componentRequirements.get(item.item_code) || 0);
+        const openPo = Math.round(openPoMap.get(item.item_code) || 0);
+
+        // 1. AVAILABLE (can be negative)
+        const available = onHand - allocated;
+
+        // 2. NET_REQUIREMENT
+        const safetyForCalc = safetyStock ?? 0;
+        const netRequirement = Math.max(0, (bomReq + safetyForCalc) - (available + openPo));
+
+        // 3. SHORTAGE_QTY
+        const shortageQty = available;
+
+        // 4. SUGGESTION (priority: Deficit > Below Reorder > Sufficient)
+        let suggestion: "Sufficient" | "Below Reorder" | "Deficit" = "Sufficient";
+        if (available < 0) {
+          suggestion = "Deficit";
+        } else if (reorderPoint != null && onHand < reorderPoint) {
+          suggestion = "Below Reorder";
         }
-        
-        // Check various conditions
-        const belowReorder = available < reorderPoint && reorderPoint > 0;
-        const belowSafety = available < safetyStock && safetyStock > 0;
-        const hasShortage = netRequirement > 0;
-        
-        // Determine suggestion
-        let suggestion: "sufficient" | "rfq" | "po" | "reorder" | "safety" | "make" = "sufficient";
-        
-        // Check if this is a MAKE item (Product type)
-        const isProductItem = item.item_type?.toLowerCase() === "product";
-        
-        // Primary check: Is there a shortage (net requirement > 0)?
-        if (hasShortage) {
-          if (isProductItem) {
-            suggestion = "make"; // Product items should be manufactured
-          } else if (pendingRfqItems.has(item.item_code)) {
-            suggestion = "po"; // Already has RFQ pending, suggest PO follow-up
-          } else {
-            suggestion = "rfq"; // Need to raise RFQ for shortage
-          }
-        } else if (belowSafety) {
-          // No immediate shortage but below safety stock
-          suggestion = "safety";
-        } else if (belowReorder) {
-          // No immediate shortage but below reorder point
-          suggestion = "reorder";
+
+        // 5. ORDER_SUGGESTION
+        let orderSuggestion: { quantity: number; expected_arrival: Date | null } | null = null;
+        if (netRequirement > 0) {
+          orderSuggestion = {
+            quantity: netRequirement,
+            expected_arrival: leadTimeDays ? addDays(today, leadTimeDays) : null,
+          };
         }
+
+        // VALIDATION FLAGS
+        const flags: string[] = [];
+        if (!item.item_code || !item.item_name) flags.push("Incomplete Record");
+        if (allocated > onHand) flags.push("Deficit");
+        if (openPo > 0 && leadTimeDays == null) flags.push("Lead time missing, cannot estimate arrival");
 
         return {
           id: item.id,
@@ -330,35 +309,26 @@ export default function MRPRun() {
           item_type: item.item_type,
           on_hand: onHand,
           allocated: allocated,
-          committed: committed,
           available: available,
-          reorder_point: reorderPoint,
+          bom_req: bomReq,
+          open_po: openPo,
           safety_stock: safetyStock,
+          reorder_point: reorderPoint,
           lead_time_days: leadTimeDays,
-          bom_requirement: bomRequirement,
-          open_po_qty: openPoQty,
           net_requirement: netRequirement,
-          order_by_date: orderByDate,
-          suggestion: suggestion,
+          shortage_qty: shortageQty,
+          suggestion,
+          order_suggestion: orderSuggestion,
+          flags,
           default_supplier: item.default_supplier,
         };
       });
 
-      // Sort: items with net requirement first, then by suggestion priority
+      // Sort: Deficit > Below Reorder > Sufficient; then item_code
+      const suggestionRank: Record<string, number> = { Deficit: 0, "Below Reorder": 1, Sufficient: 2 };
       processedItems.sort((a, b) => {
-        // Priority: BOM shortage > Safety stock > Reorder > Sufficient
-        const getPriority = (item: MRPItem) => {
-          if (item.bom_requirement > 0 && item.net_requirement > 0) return 0;
-          if (item.suggestion === "safety") return 1;
-          if (item.suggestion === "reorder") return 2;
-          if (item.suggestion === "rfq") return 3;
-          return 4;
-        };
-        
-        const priorityA = getPriority(a);
-        const priorityB = getPriority(b);
-        
-        if (priorityA !== priorityB) return priorityA - priorityB;
+        const r = suggestionRank[a.suggestion] - suggestionRank[b.suggestion];
+        if (r !== 0) return r;
         return a.item_code.localeCompare(b.item_code);
       });
 
@@ -384,7 +354,7 @@ export default function MRPRun() {
 
   const selectAllShortage = () => {
     const shortageIds = mrpItems
-      .filter((item) => item.suggestion !== "sufficient")
+      .filter((item) => item.suggestion !== "Sufficient")
       .map((item) => item.id);
     setSelectedItems(shortageIds);
   };
@@ -480,9 +450,9 @@ export default function MRPRun() {
           rfq_id: rfq.id,
           item_code: item.item_code,
           item_name: item.item_name,
-          description: item.bom_requirement > 0 ? `BOM requirement: ${item.bom_requirement}` : "",
-          quantity: item.net_requirement > 0 ? item.net_requirement : item.reorder_point,
-          required_date: addDays(new Date(), item.lead_time_days || 7).toISOString(),
+          description: item.bom_req > 0 ? `BOM requirement: ${item.bom_req}` : "",
+          quantity: item.net_requirement > 0 ? item.net_requirement : (item.reorder_point ?? 1),
+          required_date: addDays(new Date(), item.lead_time_days ?? 7).toISOString(),
         }));
 
         const { error: itemsError } = await supabase.from("rfq_items").insert(rfqItems);
@@ -509,9 +479,9 @@ export default function MRPRun() {
                 items: items.map((item) => ({
                   item_code: item.item_code,
                   item_name: item.item_name,
-                  quantity: item.net_requirement > 0 ? item.net_requirement : item.reorder_point,
-                  required_date: addDays(new Date(), item.lead_time_days || 7).toISOString(),
-                  description: item.bom_requirement > 0 ? `BOM requirement: ${item.bom_requirement}` : "",
+                  quantity: item.net_requirement > 0 ? item.net_requirement : (item.reorder_point ?? 1),
+                  required_date: addDays(new Date(), item.lead_time_days ?? 7).toISOString(),
+                  description: item.bom_req > 0 ? `BOM requirement: ${item.bom_req}` : "",
                 })),
                 payment_terms: "Net 30",
                 notes: `Auto-generated RFQ from MRP Run`,
@@ -553,9 +523,9 @@ export default function MRPRun() {
           rfq_id: rfq.id,
           item_code: item.item_code,
           item_name: item.item_name,
-          description: item.bom_requirement > 0 ? `BOM requirement: ${item.bom_requirement}` : "",
-          quantity: item.net_requirement > 0 ? item.net_requirement : item.reorder_point,
-          required_date: addDays(new Date(), item.lead_time_days || 7).toISOString(),
+          description: item.bom_req > 0 ? `BOM requirement: ${item.bom_req}` : "",
+          quantity: item.net_requirement > 0 ? item.net_requirement : (item.reorder_point ?? 1),
+          required_date: addDays(new Date(), item.lead_time_days ?? 7).toISOString(),
         }));
 
         const { error: itemsError } = await supabase.from("rfq_items").insert(rfqItems);
@@ -586,7 +556,7 @@ export default function MRPRun() {
   };
 
   const getSuggestionBadge = (item: MRPItem) => {
-    if (item.suggestion === "sufficient") {
+    if (item.suggestion === "Sufficient") {
       return (
         <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
           <CheckCircle className="h-3 w-3 mr-1" />
@@ -594,33 +564,7 @@ export default function MRPRun() {
         </Badge>
       );
     }
-    if (item.suggestion === "make") {
-      return (
-        <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="bg-indigo-50 text-indigo-700 border-indigo-200">
-            <Hammer className="h-3 w-3 mr-1" />
-            MAKE
-          </Badge>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="h-6 text-xs px-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200"
-            onClick={() => navigate("/planning", { state: { createJobFor: item.item_code } })}
-          >
-            Create Job
-          </Button>
-        </div>
-      );
-    }
-    if (item.suggestion === "safety") {
-      return (
-        <Badge variant="secondary" className="bg-yellow-50 text-yellow-700 border-yellow-200">
-          <Shield className="h-3 w-3 mr-1" />
-          Below Safety
-        </Badge>
-      );
-    }
-    if (item.suggestion === "reorder") {
+    if (item.suggestion === "Below Reorder") {
       return (
         <Badge variant="secondary" className="bg-orange-50 text-orange-700 border-orange-200">
           <Clock className="h-3 w-3 mr-1" />
@@ -628,31 +572,20 @@ export default function MRPRun() {
         </Badge>
       );
     }
-    if (item.suggestion === "rfq") {
-      return (
-        <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200">
-          <FileText className="h-3 w-3 mr-1" />
-          Create RFQ
-        </Badge>
-      );
-    }
-    if (item.suggestion === "po") {
-      return (
-        <Badge variant="default" className="bg-purple-50 text-purple-700 border-purple-200">
-          <ShoppingCart className="h-3 w-3 mr-1" />
-          Create PO
-        </Badge>
-      );
-    }
-    return null;
+    // Deficit
+    return (
+      <Badge variant="secondary" className="bg-red-50 text-red-700 border-red-200">
+        <AlertCircle className="h-3 w-3 mr-1" />
+        Deficit
+      </Badge>
+    );
   };
 
   const totalItems = mrpItems.length;
-  const sufficientCount = mrpItems.filter((i) => i.suggestion === "sufficient").length;
-  const bomShortageCount = mrpItems.filter((i) => i.bom_requirement > 0 && i.net_requirement > 0).length;
-  const makeCount = mrpItems.filter((i) => i.suggestion === "make").length;
-  const safetyCount = mrpItems.filter((i) => i.suggestion === "safety").length;
-  const reorderCount = mrpItems.filter((i) => i.suggestion === "reorder").length;
+  const sufficientCount = mrpItems.filter((i) => i.suggestion === "Sufficient").length;
+  const deficitCount = mrpItems.filter((i) => i.suggestion === "Deficit").length;
+  const reorderCount = mrpItems.filter((i) => i.suggestion === "Below Reorder").length;
+  const flaggedCount = mrpItems.filter((i) => i.flags.length > 0).length;
   const totalNetRequirement = mrpItems.reduce((sum, i) => sum + i.net_requirement, 0);
 
   return (
@@ -720,23 +653,23 @@ export default function MRPRun() {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    BOM Shortage
+                    Deficit
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-red-600">{bomShortageCount}</div>
-                  <p className="text-xs text-muted-foreground">For open jobs</p>
+                  <div className="text-2xl font-bold text-red-600">{deficitCount}</div>
+                  <p className="text-xs text-muted-foreground">Over-allocated</p>
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Below Safety
+                    Flagged
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-yellow-600">{safetyCount}</div>
-                  <p className="text-xs text-muted-foreground">Safety stock alert</p>
+                  <div className="text-2xl font-bold text-yellow-600">{flaggedCount}</div>
+                  <p className="text-xs text-muted-foreground">With validation flags</p>
                 </CardContent>
               </Card>
               <Card>
@@ -815,54 +748,50 @@ export default function MRPRun() {
                     <TableHead>Type</TableHead>
                     <TableHead className="text-right">On Hand</TableHead>
                     <TableHead className="text-right">Allocated</TableHead>
-                    <TableHead className="text-right">Shortage Qty</TableHead>
+                    <TableHead className="text-right">
+                      <Tooltip>
+                        <TooltipTrigger className="cursor-help underline decoration-dotted">
+                          Available
+                        </TooltipTrigger>
+                        <TooltipContent>On Hand − Allocated (can be negative)</TooltipContent>
+                      </Tooltip>
+                    </TableHead>
                     <TableHead className="text-right">
                       <Tooltip>
                         <TooltipTrigger className="cursor-help underline decoration-dotted">
                           BOM Req
                         </TooltipTrigger>
-                        <TooltipContent>
-                          Component requirements from open jobs (BOM explosion)
-                        </TooltipContent>
+                        <TooltipContent>Required by BOM explosion of open jobs</TooltipContent>
                       </Tooltip>
                     </TableHead>
                     <TableHead className="text-right">Open PO</TableHead>
-                    <TableHead className="text-right">
-                      <Tooltip>
-                        <TooltipTrigger className="cursor-help underline decoration-dotted">
-                          Safety
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          Safety stock level
-                        </TooltipContent>
-                      </Tooltip>
-                    </TableHead>
+                    <TableHead className="text-right">Safety</TableHead>
                     <TableHead className="text-right">Reorder Pt</TableHead>
+                    <TableHead className="text-right">Lead Time</TableHead>
                     <TableHead className="text-right">
                       <Tooltip>
                         <TooltipTrigger className="cursor-help underline decoration-dotted">
-                          Lead Time
+                          Net Req
                         </TooltipTrigger>
-                        <TooltipContent>
-                          Lead time in days
-                        </TooltipContent>
+                        <TooltipContent>MAX(0, (BOM + Safety) − (Available + Open PO))</TooltipContent>
                       </Tooltip>
                     </TableHead>
-                    <TableHead className="text-right">Net Req</TableHead>
+                    <TableHead>Order Suggestion</TableHead>
                     <TableHead>Suggestion</TableHead>
+                    <TableHead>Flags</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={14} className="text-center py-8">
+                      <TableCell colSpan={15} className="text-center py-8">
                         <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
-                        Running MRP analysis with BOM explosion...
+                        Running MRP analysis...
                       </TableCell>
                     </TableRow>
                   ) : mrpItems.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={14} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={15} className="text-center py-8 text-muted-foreground">
                         No inventory items found. Add items to inventory first.
                       </TableCell>
                     </TableRow>
@@ -871,22 +800,18 @@ export default function MRPRun() {
                       <TableRow
                         key={item.id}
                         className={
-                          item.suggestion === "make"
-                            ? "bg-indigo-50/50"
-                            : item.bom_requirement > 0 && item.net_requirement > 0
-                              ? "bg-red-50/50" 
-                              : item.suggestion === "safety"
-                                ? "bg-yellow-50/50"
-                                : item.suggestion === "reorder" 
-                                  ? "bg-orange-50/50" 
-                                  : ""
+                          item.suggestion === "Deficit"
+                            ? "bg-red-50/50"
+                            : item.suggestion === "Below Reorder"
+                              ? "bg-orange-50/50"
+                              : ""
                         }
                       >
                         <TableCell>
                           <Checkbox
                             checked={selectedItems.includes(item.id)}
                             onCheckedChange={() => toggleItemSelection(item.id)}
-                            disabled={item.suggestion === "sufficient" || item.suggestion === "make"}
+                            disabled={item.suggestion === "Sufficient"}
                           />
                         </TableCell>
                         <TableCell className="font-medium">{item.item_code}</TableCell>
@@ -904,33 +829,31 @@ export default function MRPRun() {
                             <span className="text-muted-foreground">0</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-right font-medium">{item.on_hand - item.allocated}</TableCell>
+                        <TableCell className="text-right font-medium">
+                          <span className={item.available < 0 ? "text-red-600" : ""}>{item.available}</span>
+                        </TableCell>
                         <TableCell className="text-right">
-                          {item.bom_requirement > 0 ? (
-                            <span className="text-purple-600 font-medium">{item.bom_requirement}</span>
+                          {item.bom_req > 0 ? (
+                            <span className="text-purple-600 font-medium">{item.bom_req}</span>
                           ) : (
                             <span className="text-muted-foreground">0</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          {item.open_po_qty > 0 ? (
-                            <span className="text-blue-600">{item.open_po_qty}</span>
+                          {item.open_po > 0 ? (
+                            <span className="text-blue-600">{item.open_po}</span>
                           ) : (
                             <span className="text-muted-foreground">0</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          {item.safety_stock > 0 ? (
-                            <span className={item.available < item.safety_stock ? "text-yellow-600 font-medium" : ""}>
-                              {item.safety_stock}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
+                          {item.safety_stock != null ? item.safety_stock : <span className="text-muted-foreground">-</span>}
                         </TableCell>
-                        <TableCell className="text-right">{item.reorder_point || "-"}</TableCell>
                         <TableCell className="text-right">
-                          {item.lead_time_days > 0 ? (
+                          {item.reorder_point != null ? item.reorder_point : <span className="text-muted-foreground">-</span>}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {item.lead_time_days != null ? (
                             <span className="flex items-center justify-end gap-1">
                               <Calendar className="h-3 w-3 text-muted-foreground" />
                               {item.lead_time_days}d
@@ -949,7 +872,36 @@ export default function MRPRun() {
                             <span className="text-green-600">0</span>
                           )}
                         </TableCell>
+                        <TableCell>
+                          {item.order_suggestion ? (
+                            <div className="text-xs">
+                              <div className="font-medium">Order {item.order_suggestion.quantity}</div>
+                              {item.order_suggestion.expected_arrival ? (
+                                <div className="text-muted-foreground">
+                                  Arrives {format(item.order_suggestion.expected_arrival, "MMM d")}
+                                </div>
+                              ) : (
+                                <div className="text-muted-foreground italic">No lead time</div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
                         <TableCell>{getSuggestionBadge(item)}</TableCell>
+                        <TableCell>
+                          {item.flags.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {item.flags.map((f, idx) => (
+                                <Badge key={idx} variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">
+                                  {f}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
                       </TableRow>
                     ))
                   )}

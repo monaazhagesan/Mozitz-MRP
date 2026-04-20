@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\PoReturnItem;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
+
 
 class PoReturnItemController extends Controller
 {
@@ -17,24 +19,29 @@ class PoReturnItemController extends Controller
         return PoReturnItem::findOrFail($id);
     }
 
-    public function store(Request $request)
+     public function store(Request $request)
     {
-        $data = $request->validate([
-            'id' => 'required|string',
-            'return_id' => 'required|string',
-            'grn_item_id' => 'nullable|string',
-            'item_code' => 'required|string',
-            'description' => 'nullable|string',
-            'return_quantity' => 'required|integer',
-            'max_returnable_quantity' => 'required|integer',
-            'unit_price' => 'required|numeric',
-            'tax_percent' => 'nullable|numeric',
-            'tax_amount' => 'nullable|numeric',
-            'total_amount' => 'required|numeric',
-            'created_at' => 'nullable|date',
-        ]);
+        $items = $request->all(); // expecting an array of items
 
-        return PoReturnItem::create($data);
+        $createdItems = [];
+
+        foreach ($items as $itemData) {
+            $createdItems[] = PoReturnItem::create([
+                'id' => Str::uuid(),
+                'return_id' => $itemData['return_id'],
+                'grn_item_id' => $itemData['grn_item_id'] ?? null,
+                'item_code' => $itemData['item_code'],
+                'description' => $itemData['description'] ?? null,
+                'return_quantity' => $itemData['return_quantity'],
+                'max_returnable_quantity' => $itemData['max_returnable_quantity'],
+                'unit_price' => $itemData['unit_price'],
+                'tax_percent' => $itemData['tax_percent'] ?? null,
+                'tax_amount' => $itemData['tax_amount'] ?? null,
+                'total_amount' => $itemData['total_amount'],
+            ]);
+        }
+
+        return response()->json($createdItems, 201);
     }
 
     public function update(Request $request, $id)

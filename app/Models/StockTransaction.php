@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
+
 
 class StockTransaction extends Model
 {
@@ -27,5 +29,20 @@ class StockTransaction extends Model
         'unit_cost'        => 'decimal:6',
         'transaction_date' => 'datetime',
     ];
+
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($model) {
+            if (empty($model->id)) {
+                $model->id = Str::uuid()->toString();
+            }
+
+            if (empty($model->transaction_date)) {
+                $model->transaction_date = now();
+            }
+        });
+    }
 }
 

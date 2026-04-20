@@ -2,6 +2,7 @@ import Layout from "@/components/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import axios from "axios";
 import {
   Table,
   TableBody,
@@ -22,7 +23,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { CheckCircle, XCircle, RefreshCw } from "lucide-react";
 
 const POApproval = () => {
@@ -30,117 +30,111 @@ const POApproval = () => {
   const [loading, setLoading] = useState(true);
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
+     poId: number | null;
     poNumber: string;
     action: "Approved" | "Cancel";
-  }>({ open: false, poNumber: "", action: "Approved" });
+  }>({ open: false,  poId: null, poNumber: "", action: "Approved" });
   const { toast } = useToast();
 
-  useEffect(() => {
-    fetchPendingPOs();
+ useEffect(() => {
+  // Use the outer fetchPendingPOs (the one that sets state)
+  fetchPendingPOs(); // initial fetch
+  const intervalId = setInterval(fetchPendingPOs, 50000); // poll every 5 sec
+  return () => clearInterval(intervalId);
+}, []);
 
-    // Set up real-time subscription for purchase_orders changes
-    const channel = supabase
-      .channel('po-approval-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'purchase_orders',
-          filter: 'status=eq.Awaiting Approval'
-        },
-        () => {
-          // Refetch when any change occurs to pending approval POs
-          fetchPendingPOs();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  const fetchPendingPOs = async () => {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from('purchase_orders')
-        .select(`
-          *,
-          purchase_order_items(*)
-        `)
-        .eq('status', 'Awaiting Approval')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      const formattedPOs = data?.map(po => {
-        const totalAmount = po.purchase_order_items?.reduce((sum: number, item: any) => 
-          sum + Number(item.total || 0), 0
-        ) || 0;
-
-        const itemCount = po.purchase_order_items?.length || 0;
-
-        return {
-          id: po.id,
-          poNumber: po.po_number,
-          vendor: po.vendor,
-          date: new Date(po.po_date).toISOString().split('T')[0],
-          amount: `$${totalAmount.toFixed(2)}`,
-          status: po.status,
-          items: itemCount,
-          deliveryDate: po.delivery_date ? new Date(po.delivery_date).toISOString().split('T')[0] : '-',
-        };
-      }) || [];
-
-      setPendingPOs(formattedPOs);
-    } catch (error: any) {
-      toast({
-        title: "Error Fetching POs",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
+ const formatDate = (dateStr: string | null | undefined) => {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? '-' : d.toISOString().split('T')[0];
   };
 
-  const openConfirmDialog = (poNumber: string, action: "Approved" | "Cancel") => {
-    setConfirmDialog({ open: true, poNumber, action });
+ const fetchPendingPOs = async () => {
+  try {
+    setLoading(true);
+
+     console.log("Fetching pending POs...");
+
+    // Fetch pending purchase orders with related items
+    const response = await axios.get('/api/purchase-orders', {
+      params: {
+        status: 'Awaiting Approval',
+      },
+    });
+
+    const data = response.data;
+
+    console.log("Raw POs from API:", data);
+
+  const formattedPOs = data?.map((po: any) => {
+  const totalAmount =
+    po.lines?.length
+      ? po.lines.reduce((sum: number, line: any) => sum + Number(line.total || 0), 0)
+      : Number(po.total || 0); // fallback if lines are empty
+
+  return {
+    id: po.id,
+    poNumber: po.po_number,
+    vendor: po.vendor,
+    date: po.expected_date,
+    amount: `$${totalAmount.toFixed(2)}`,  // make sure this is defined
+    status: po.status,
+    items: po.lines?.length || po.line_items_count || 0,
+    deliveryDate: po.promised_date
+      ? new Date(po.expected_date).toISOString().split("T")[0]
+      : "-",
+  };
+}) || [];
+    setPendingPOs(formattedPOs);
+  } catch (error: any) {
+    toast({
+      title: 'Error Fetching POs',
+      description: error.message,
+      variant: 'destructive',
+    });
+  } finally {
+    setLoading(false);
+  }
+};
+
+  const openConfirmDialog = (poId: number,poNumber: string, action: "Approved" | "Cancel") => {
+    setConfirmDialog({ open: true, poId, poNumber, action });
   };
 
   const handleConfirmAction = async () => {
-    const { poNumber, action } = confirmDialog;
-    setConfirmDialog({ open: false, poNumber: "", action: "Approved" });
+  const { poId, poNumber, action } = confirmDialog;
 
-    try {
-      const { error } = await supabase
-        .from('purchase_orders')
-        .update({ status: action })
-        .eq('po_number', poNumber);
+  // Close the confirmation dialog
+  setConfirmDialog({ open: false,  poId: null, poNumber: "", action: "Approved" });
 
-      if (error) throw error;
+  try {
+    // Make an API call to update the PO status
+    await axios.patch(`/api/purchase-orders/${poId}/status`, {
 
-      const statusMessages: Record<string, string> = {
-        "Approved": "approved successfully",
-        "Cancel": "cancelled",
-      };
+      status: action,
+    });
 
-      toast({
-        title: "Status Updated",
-        description: `PO ${poNumber} has been ${statusMessages[action] || 'updated'}`,
-      });
+    // Map action to user-friendly messages
+    const statusMessages: Record<string, string> = {
+      Approved: "approved successfully",
+      Cancel: "cancelled",
+    };
 
-      fetchPendingPOs();
-    } catch (error: any) {
-      toast({
-        title: "Error Updating Status",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  };
+    toast({
+      title: "Status Updated",
+      description: `PO ${poNumber} has been ${statusMessages[action] || 'updated'}`,
+    });
+
+    // Refresh the pending POs
+    fetchPendingPOs();
+  } catch (error: any) {
+    toast({
+      title: "Error Updating Status",
+      description: error.message,
+      variant: "destructive",
+    });
+  }
+};
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -215,7 +209,7 @@ const POApproval = () => {
                           <Button
                             variant="default"
                             size="sm"
-                            onClick={() => openConfirmDialog(po.poNumber, "Approved")}
+                            onClick={() => openConfirmDialog(po.id, po.poNumber, "Approved")}
                           >
                             <CheckCircle className="h-4 w-4 mr-1" />
                             Approve
@@ -223,7 +217,7 @@ const POApproval = () => {
                           <Button
                             variant="destructive"
                             size="sm"
-                            onClick={() => openConfirmDialog(po.poNumber, "Cancel")}
+                            onClick={() => openConfirmDialog(po.id, po.poNumber, "Cancel")}
                           >
                             <XCircle className="h-4 w-4 mr-1" />
                             Cancel

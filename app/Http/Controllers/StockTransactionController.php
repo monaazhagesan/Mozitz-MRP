@@ -8,11 +8,18 @@ use Illuminate\Support\Str;
 
 class StockTransactionController extends Controller
 {
-    public function index()
-    {
-        $transactions = StockTransaction::orderBy('transaction_date','desc')->get();
-        return view('stock_transactions.index', compact('transactions'));
+    public function index(Request $request)
+{
+    $itemCode = $request->query('item_code');
+
+    $query = StockTransaction::orderBy('transaction_date', 'desc');
+
+    if ($itemCode) {
+        $query->where('item_code', $itemCode);
     }
+
+    return response()->json($query->get());
+}
 
     public function import(Request $request)
     {
@@ -36,5 +43,32 @@ class StockTransactionController extends Controller
         }
 
         return redirect()->back()->with('success', 'Imported successfully');
+    }
+
+     public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'item_code' => 'required|string|max:255',
+            'transaction_type' => 'required|string|max:50',
+            'reference_type' => 'nullable|string|max:50',
+            'reference_number' => 'nullable|string|max:100',
+            'quantity' => 'required|numeric',
+            'unit_cost' => 'nullable|numeric',
+            'notes' => 'nullable|string',
+        ]);
+
+        $transaction = StockTransaction::create($validated);
+
+        return response()->json([
+            'success' => true,
+            'data' => $transaction
+        ], 201);
+    }
+
+    // Optional: show single transaction
+    public function show($id)
+    {
+        $transaction = StockTransaction::findOrFail($id);
+        return response()->json($transaction);
     }
 }

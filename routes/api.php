@@ -28,6 +28,18 @@ use App\Http\Controllers\CreditNoteController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\OrderPackageController;
 use App\Http\Controllers\CreditNoteItemController;
+use App\Http\Controllers\PurchaseOrderController;
+use App\Http\Controllers\PurchaseOrderLineController;
+use App\Http\Controllers\PurchaseOrderShipmentController;
+use App\Http\Controllers\PurchaseOrderTaxController;
+use App\Http\Controllers\GrnController;
+use App\Http\Controllers\GrnItemController;
+use App\Http\Controllers\StockTransactionController;
+use App\Http\Controllers\SupplierPayableController;
+use App\Http\Controllers\PoReturnItemController;
+use App\Http\Controllers\PoReturnController;
+
+
 
 /*
 |--------------------------------------------------------------------------
@@ -161,3 +173,63 @@ Route::post('/order-packages', [OrderPackageController::class, 'store']);
 Route::get('/order-packages/{id}', [OrderPackageController::class, 'show']);
 Route::put('/order-packages/{id}', [OrderPackageController::class, 'update']);
 Route::delete('/order-packages/{id}', [OrderPackageController::class, 'destroy']);
+
+
+Route::apiResource('purchase-orders', PurchaseOrderController::class);
+
+Route::post('/purchase-order-lines', [PurchaseOrderLineController::class,'store']);
+
+Route::post('/purchase-order-shipments', [PurchaseOrderShipmentController::class,'store']);
+
+Route::post('/purchase-order-taxes', [PurchaseOrderTaxController::class,'store']);
+
+Route::get('/purchase-orders/by-number/{po_number}', [PurchaseOrderController::class, 'showByNumber']);
+
+Route::patch('/purchase_orders/{po_number}', [PurchaseOrderController::class, 'updateStatus']);
+Route::post('/generate-po-pdf', [PurchaseOrderController::class, 'generatePDF']);
+Route::get('/purchase-order-lines', [PurchaseOrderLineController::class, 'index']);
+// routes/api.php
+Route::put('/purchase-orders/{id}', [PurchaseOrderController::class, 'update']);
+// routes/api.php
+Route::patch('purchase-orders/{id}/status', [PurchaseOrderController::class, 'updateStatus']);
+
+// Purchase Order Lines
+Route::put('/purchase-order-lines/{id}', [PurchaseOrderLineController::class,'update']);
+Route::delete('/purchase-order-lines/{id}', [PurchaseOrderLineController::class,'destroy']);
+
+// Shipments
+Route::put('/purchase-order-shipments/{id}', [PurchaseOrderShipmentController::class,'update']);
+Route::delete('/purchase-order-shipments/{id}', [PurchaseOrderShipmentController::class,'destroy']);
+
+// Taxes
+Route::put('/purchase-order-taxes/{id}', [PurchaseOrderTaxController::class,'update']);
+Route::delete('/purchase-order-taxes/{id}', [PurchaseOrderTaxController::class,'destroy']);
+
+Route::delete('/purchase-order-lines/by-po/{po_id}', [PurchaseOrderLineController::class, 'deleteByPO']);
+
+Route::get('/grn/check', [GrnController::class, 'check']);
+Route::post('/grn', [GrnController::class, 'store']);
+Route::post('/grn-items', [GrnItemController::class, 'store']);
+Route::get('/grn', [GRNController::class, 'index']);
+
+
+Route::put('/purchase-order-items/update-received', [PurchaseOrderLineController::class, 'updateReceived']);
+Route::patch('/purchase-order-items/update-received', [PurchaseOrderLineController::class, 'updateReceived']);
+Route::patch('/purchase-orders/{po_number}', [PurchaseOrderController::class, 'updateStatus']);
+Route::patch('/purchase-orders/{id}', [PurchaseOrderController::class, 'updateStatus']);
+
+Route::get('/stock-transactions', [StockTransactionController::class, 'index']);
+Route::get('/stock-transactions/{id}', [StockTransactionController::class, 'show']);
+Route::post('/stock-transactions', [StockTransactionController::class, 'store']);
+
+Route::get('/supplier-payables', [SupplierPayableController::class, 'index']);
+Route::post('/supplier-payables', [SupplierPayableController::class, 'store']);
+
+
+Route::post('/po-return-items', [PoReturnItemController::class, 'store']); // store multiple items
+Route::get('/po-return-items/{returnId}', [PoReturnItemController::class, 'index']); 
+
+
+Route::post('/po-returns', [PoReturnController::class, 'store']);      // create PO Return
+Route::get('/po-returns', [PoReturnController::class, 'index']);       // list all PO Returns
+Route::get('/po-returns/{id}', [PoReturnController::class, 'show']); 

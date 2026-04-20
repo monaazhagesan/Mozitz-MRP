@@ -52,5 +52,16 @@ class SupplierPayable extends Model
         'total_amount'     => 'decimal:6',
         'paid_amount'      => 'decimal:6',
     ];
+
+     protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($model) {
+            if (!$model->id) {
+                $model->id = (string) \Illuminate\Support\Str::uuid();
+            }
+        });
+    }
 }
 

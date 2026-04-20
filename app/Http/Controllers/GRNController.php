@@ -7,10 +7,11 @@ use Illuminate\Http\Request;
 
 class GRNController extends Controller
 {
-    public function index()
-    {
-        return GRN::orderBy('created_at', 'desc')->get();
-    }
+   public function index()
+{
+    // eager load items
+    return GRN::with('items')->orderBy('created_at', 'desc')->get();
+}
 
    public function show($id)
 {
@@ -20,8 +21,7 @@ class GRNController extends Controller
 
     public function store(Request $request)
     {
-        $data = $request->validate([
-            'id' => 'required|string',
+        $data = $request->validate([         
             'grn_number' => 'required|string|unique:grns',
             'po_number' => 'required|string',
             'vendor' => 'required|string',
@@ -51,4 +51,12 @@ class GRNController extends Controller
 
         return response()->json(['message' => 'GRN deleted successfully']);
     }
+
+      public function check(Request $request)
+    {
+        $grn_number = $request->query('grn_number');
+        $existing = Grn::where('grn_number', $grn_number)->first();
+        return response()->json($existing);
+    }
+
 }

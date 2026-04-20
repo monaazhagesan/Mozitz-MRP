@@ -25,6 +25,7 @@ interface GRNData {
   receipt_date: string;
   created_at: string;
   grn_items: GRNItem[];
+  items: GRNItem[]; 
 }
 
 interface GRNPrintReceiptProps {
@@ -43,9 +44,9 @@ const GRNPrintReceipt = ({ open, onOpenChange, grn }: GRNPrintReceiptProps) => {
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
 
-    const acceptedItems = grn?.grn_items?.filter(
-      (item) => Number(item.accepted_quantity) > 0
-    ) || [];
+    const acceptedItems = grn?.items?.filter(
+  (item) => Number(item.accepted_quantity) > 0
+) || [];
 
     const totalAmount = acceptedItems.reduce(
       (sum, item) => sum + (Number(item.accepted_quantity) * Number(item.unit_price)),
@@ -232,14 +233,14 @@ const GRNPrintReceipt = ({ open, onOpenChange, grn }: GRNPrintReceiptProps) => {
 
   if (!grn) return null;
 
-  const acceptedItems = grn.grn_items?.filter(
-    (item) => Number(item.accepted_quantity) > 0
-  ) || [];
+  const acceptedItems = grn.items?.filter(
+  (item) => Number(item.accepted_quantity) > 0
+) || [];
 
   const totalAmount = acceptedItems.reduce(
-    (sum, item) => sum + (Number(item.accepted_quantity) * Number(item.unit_price)),
-    0
-  );
+  (sum, item) => sum + Number(item.accepted_quantity) * Number(item.unit_price),
+  0
+);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

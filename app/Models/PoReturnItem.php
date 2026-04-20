@@ -1,13 +1,13 @@
 <?php
 
 namespace App\Models;
-
+use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\Model;
 
 class PoReturnItem extends Model
 {
     protected $table = 'po_return_items';
-    protected $primaryKey = 'id';
+    
     public $incrementing = false;
     public $keyType = 'string';
 
@@ -27,4 +27,19 @@ class PoReturnItem extends Model
         'total_amount',
         'created_at',
     ];
+    public function poReturn()
+    {
+        return $this->belongsTo(PoReturn::class, 'return_id');
+    }
+
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($model) {
+            if (!$model->id) {
+                $model->id = (string) Str::uuid();
+            }
+        });
+    }
 }
