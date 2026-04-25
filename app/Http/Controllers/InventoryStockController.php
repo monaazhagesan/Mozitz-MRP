@@ -51,7 +51,7 @@ class InventoryStockController extends Controller
             'uom' => $item->uom ?? '',
             'defaultSupplier' => $item->default_supplier ?? '-',
 
-            'purchasePrice' => $unitCost,
+            'unit_cost' => $unitCost,
             'defaultSalesPrice' => $sellingPrice,
             'sellingPrice' => $sellingPrice,
 
@@ -190,6 +190,10 @@ class InventoryStockController extends Controller
                 : (float) $item->$field;
         }
 
+        $data['unit_cost'] = isset($data['unit_cost'])
+    ? (float) $data['unit_cost']
+    : (float) $item->unit_cost;
+
         // recalc
         $data['available_quantity'] =
             $data['quantity_on_hand']
@@ -289,4 +293,26 @@ class InventoryStockController extends Controller
     return filter_var($request->input($field), FILTER_VALIDATE_BOOLEAN);
 }
     
+
+public function allocate(Request $request)
+{
+    $request->validate([
+        'itemCode' => 'required|string',
+        'quantity' => 'required|numeric|min:0.01',
+    ]);
+
+    $item = InventoryStock::where('item_code', $request->itemCode)->firstOrFail();
+
+    $allocated = (float) ($item->allocated_quantity ?? 0);
+    $quantity = (float) $request->quantity;
+
+    $item->allocated_quantity = $allocated + $quantity;
+    $item->save();
+
+    return response()->json([
+        'message' => 'Allocated successfully',
+        'item' => $item
+    ]);
+}
+
 }

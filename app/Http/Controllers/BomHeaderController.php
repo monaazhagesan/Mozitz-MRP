@@ -14,10 +14,10 @@ use Illuminate\Support\Facades\Storage;
 
 class BomHeaderController extends Controller
 {
-    public function index()
-    {
-        return BomHeader::all();
-    }
+   public function index()
+{
+    return BomHeader::where('status', 'Active')->get();
+}
 
     public function show($id)
     {
@@ -132,5 +132,12 @@ public function update(Request $request, $id)
         'message' => 'BOM updated successfully',
         'bom' => $bom,
     ]);
+}
+
+public function getByItemCode(Request $request)
+{
+    return BomHeader::where('item_code', $request->item_code)
+        ->orderByDesc('revision_number')
+        ->get();
 }
 }

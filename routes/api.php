@@ -90,6 +90,7 @@ Route::get('/inventory-stock/{id}', [InventoryStockController::class, 'show']);
 Route::post('/inventory-stock', [InventoryStockController::class, 'store']);
 Route::put('/inventory-stock/{id}', [InventoryStockController::class, 'update']);
 Route::delete('/inventory-stock/{id}', [InventoryStockController::class, 'destroy']);
+Route::post('/inventory-stock/allocate', [InventoryStockController::class, 'allocate']);
 
 Route::post('/inventory-insights', [InventoryInsightsController::class, 'generateInsights']);
 
@@ -98,6 +99,7 @@ Route::get('/bom-components/{id}', [BomComponentController::class, 'show']);
 Route::post('/bom-components', [BomComponentController::class, 'store']);
 Route::delete('/bom-components', [BomComponentController::class, 'deleteByBomId']);
 Route::put('/bom-components/{id}', [BomComponentController::class, 'update']);
+Route::delete('/bom-components/{id}', [BomComponentController::class, 'destroy']);
 
 Route::get('/bom-deletion-logs', [BomDeletionLogController::class, 'index']);
 Route::get('/bom-deletion-logs/{id}', [BomDeletionLogController::class, 'show']);
@@ -165,8 +167,10 @@ Route::get('/credit-note-items', [CreditNoteItemController::class, 'index']);
 Route::post('/order-insights', [OrderController::class, 'generateInsights']);
 Route::post('/orders', [OrderController::class, 'store']);
 Route::get('/orders', [OrderController::class, 'index']);
-Route::get('/orders/{id}', [OrderController::class, 'show']);
 Route::put('/orders/{id}/status', [OrderController::class, 'updateStatus']);
+Route::get('/orders/next-so', [OrderController::class, 'getNextSONumber']);
+Route::get('/orders/{id}', [OrderController::class, 'show'])
+    ->where('id', '[0-9]+');
 
 Route::get('/order-packages', [OrderPackageController::class, 'index']);
 Route::post('/order-packages', [OrderPackageController::class, 'store']);

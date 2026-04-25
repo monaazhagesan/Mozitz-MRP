@@ -54,23 +54,37 @@ class Order extends Model
   
     // Auto-generate order_no if not provided
     protected static function booted()
-    {
-        static::created(function ($order) {
+{
+    static::creating(function ($order) {
+
+        // Generate SO number BEFORE insert
         if (!$order->order_no) {
-            $order->order_no = 'ORD-' . str_pad($order->id, 6, '0', STR_PAD_LEFT);
-            $order->save();
+
+            $year = date('Y');
+
+            // Get last order of same year
+            $lastOrder = self::whereYear('created_at', $year)
+                ->orderBy('id', 'desc')
+                ->first();
+
+            $nextNumber = 1;
+
+            if ($lastOrder && $lastOrder->order_no) {
+                $parts = explode('-', $lastOrder->order_no);
+                $nextNumber = (int) end($parts) + 1;
+            }
+
+            $order->order_no = 'SO-' . $year . '-' . str_pad($nextNumber, 5, '0', STR_PAD_LEFT);
         }
 
-            // Ensure invoice_required is boolean
-            $order->invoice_required = (bool)$order->invoice_required;
+        // Normalize fields
+        $order->invoice_required = (bool) $order->invoice_required;
 
-            // Ensure numeric fields are numbers
-            $order->advance_amount = $order->advance_amount ?? 0;
-           
-            $order->quantity = $order->quantity ?? 0;
-            $order->rate = $order->rate ?? 0;
-            $order->tax = $order->tax ?? 0;
-            $order->total_amount = $order->total_amount ?? 0;
-        });
-    }
+        $order->advance_amount = $order->advance_amount ?? 0;
+        $order->quantity = $order->quantity ?? 0;
+        $order->rate = $order->rate ?? 0;
+        $order->tax = $order->tax ?? 0;
+        $order->total_amount = $order->total_amount ?? 0;
+    });
+}
 }

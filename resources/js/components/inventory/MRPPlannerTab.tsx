@@ -56,6 +56,7 @@ type MRPItem = {
   safety_stock: number | null;
   reorder_point: number | null;
   lead_time_days: number | null;
+   unit_cost: number | null; // ✅ ADD THIS
 };
 
 type Suggestion = "Sufficient" | "Below Reorder" | "Deficit";
@@ -76,6 +77,7 @@ const NUMERIC_FIELDS: Array<keyof MRPItem> = [
   "safety_stock",
   "reorder_point",
   "lead_time_days",
+    "unit_cost", // ✅ ADD
 ];
 
 function compute(item: MRPItem): ComputedRow {
@@ -145,6 +147,7 @@ const emptyItem: Omit<MRPItem, "id"> = {
   safety_stock: null,
   reorder_point: null,
   lead_time_days: null,
+   unit_cost: null, // ✅ ADD
 };
 
 export default function MRPPlannerTab() {
@@ -235,6 +238,8 @@ const fetchData = async () => {
   lead_time_days: Number(
     r.leadTimeDays ?? r.lead_time_days ?? 0
   ),
+
+  unit_cost: Number(r.unit_cost ?? r.unitCost ?? 0), // ✅ ADD
 }));
     console.log("🔄 MAPPED DATA:", mapped);
 
@@ -340,6 +345,7 @@ const persistField = async (
       safety_stock: "safety_stock",
       reorder_point: "reorder_point",
       lead_time_days: "lead_time_days",
+       unit_cost: "unit_cost", // ✅ ADD
     };
     const dbField = dbMap[field as string];
     if (!dbField) return;
@@ -362,6 +368,8 @@ const persistField = async (
       safety_stock: row.safety_stock,
       reorder_point: row.reorder_point,
       lead_time_days: row.lead_time_days,
+       unit_cost: row.unit_cost, // ✅ ADD THIS
+
     });
     setIsNew(false);
     setEditOpen(true);
@@ -405,6 +413,7 @@ const saveEdit = async () => {
   safety_stock: Number(editing.safety_stock ?? 0),
   reorder_point: Number(editing.reorder_point ?? 0),
   lead_time_days: Number(editing.lead_time_days ?? 0),
+  unit_cost: Number(editing.unit_cost ?? 0),
 };
 
   try {

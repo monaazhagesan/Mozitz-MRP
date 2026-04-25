@@ -18,45 +18,75 @@ class OrderController extends Controller
             'order_no' => 'nullable|string|unique:orders,order_no',
             'customer' => 'required|string',
             'order_type' => 'nullable|string',
+
+            'order_date' => 'nullable|date',
+            'expected_dispatch_date' => 'nullable|date',
+            'status' => 'nullable|string',
+
             'items' => 'required|array|min:1',
+
             'items.*.item_code' => 'nullable|string',
             'items.*.item_name' => 'nullable|string',
+            'items.*.item_type' => 'nullable|string',
             'items.*.uom' => 'nullable|string',
-            'items.*.quantity_ordered' => 'nullable|numeric|min:1',
+
+            'items.*.quantity' => 'nullable|numeric|min:1',
             'items.*.rate' => 'nullable|numeric|min:0',
             'items.*.tax' => 'nullable|numeric|min:0',
-            'items.*.totalAmount' => 'nullable|numeric|min:0',
+            'items.*.total_amount' => 'nullable|numeric|min:0',
+            'dispatch_mode' => 'nullable|string',
         ]);
 
         DB::beginTransaction();
 
         try {
-            $orderData = $request->except('items');
 
-            // Create the order
-            $order = Order::create($orderData);
+            foreach ($request->items ?? [] as $item) {
 
-            // Loop through items safely
-            foreach ($request->items as $item) {
-                // Use null coalescing to avoid undefined key errors
-                $itemCode = $item['item_code'] ?? null;
-                $quantity = $item['quantity'] ?? 0;
+                Order::create([
+                    'order_no' => $request->order_no,
+                    'customer' => $request->customer,
+                    'order_type' => $request->order_type,
 
-                $order->update([ // Update order table with item-level info
-                    'item_code' => $itemCode,
+                    // ✅ FIXED FIELDS (NOW INCLUDED)
+                    'contact_person' => $request->contact_person,
+                    'contact_number' => $request->contact_number,
+                    'email' => $request->email,
+                    'location' => $request->location,
+
+                    'order_date' => $request->order_date,
+                    'expected_dispatch_date' => $request->expected_dispatch_date,
+                    'status' => $request->status ?? 'Pending',
+
+                    'expected_delivery_date' => $request->expected_delivery_date,
+
+                    'reference_no' => $request->reference_no,
+                    'remarks' => $request->remarks,
+                    'payment_terms' => $request->payment_terms,
+
+
+                    // ITEM DATA STORED IN SAME TABLE
+                    'item_code' => $item['item_code'] ?? null,
                     'item_name' => $item['item_name'] ?? null,
+                    'item_type' => $item['item_type'] ?? null,
                     'uom' => $item['uom'] ?? 'pcs',
-                    'quantity' => $quantity,
+
+                    'quantity' => $item['quantity'] ?? 0,
                     'rate' => $item['rate'] ?? 0,
                     'tax' => $item['tax'] ?? 0,
                     'total_amount' => $item['total_amount'] ?? 0,
+                    'dispatch_mode' => $request->dispatch_mode,
                 ]);
 
-                // Update inventory if item_code exists
-                if ($itemCode) {
-                    $inventoryItem = InventoryStock::where('item_code', $itemCode)->first();
+                // Inventory update
+                if (!empty($item['item_code'])) {
+
+                    $inventoryItem = InventoryStock::where('item_code', $item['item_code'])->first();
+
                     if ($inventoryItem) {
-                        $inventoryItem->allocated_quantity += $quantity;
+                        $inventoryItem->allocated_quantity =
+                            ($inventoryItem->allocated_quantity ?? 0) + ($item['quantity'] ?? 0);
+
                         $inventoryItem->save();
                     }
                 }
@@ -64,17 +94,24 @@ class OrderController extends Controller
 
             DB::commit();
 
-            return response()->json($order, 201);
+            return response()->json([
+                'message' => 'Order created successfully'
+            ], 201);
         } catch (\Exception $e) {
+
             DB::rollBack();
-            Log::error('Order creation failed: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
+
+            Log::error('Order creation failed', [
+                'error' => $e->getMessage()
+            ]);
+
             return response()->json([
                 'message' => 'Failed to create order',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
-   // Fetch all orders
+    // Fetch all orders
     public function index()
     {
         try {
@@ -97,7 +134,7 @@ class OrderController extends Controller
                 ];
 
                 $order->order_total = $order->total_amount; // total amount for frontend
-                 $order->status = $order->status;
+                $order->status = $order->status;
                 return $order;
             });
 
@@ -116,23 +153,23 @@ class OrderController extends Controller
     }
 
     public function updateStatus(Request $request, $id)
-{
-    $request->validate([
-        'status' => 'required|string',
-    ]);
+    {
+        $request->validate([
+            'status' => 'required|string',
+        ]);
 
-    $order = Order::findOrFail($id);
-    $order->status = $request->status;
-    $order->save();
+        $order = Order::findOrFail($id);
+        $order->status = $request->status;
+        $order->save();
 
-    return response()->json([
-        'success' => true,
-        'message' => 'Order status updated successfully',
-        'data' => $order
-    ]);
-}
+        return response()->json([
+            'success' => true,
+            'message' => 'Order status updated successfully',
+            'data' => $order
+        ]);
+    }
 
-  public function generateInsights(Request $request)
+    public function generateInsights(Request $request)
     {
         $orders = $request->input('orders', []);
 
@@ -162,12 +199,33 @@ class OrderController extends Controller
             return response()->json([
                 'insights' => $summary,
             ]);
-
         } catch (\Exception $e) {
             return response()->json([
                 'insights' => null,
                 'message' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    public function getNextSONumber()
+    {
+        $year = date('Y');
+
+        $lastOrder = Order::whereYear('created_at', $year)
+            ->whereNotNull('order_no')
+            ->orderBy('id', 'desc')
+            ->first();
+
+        $next = 1;
+
+        if ($lastOrder && $lastOrder->order_no) {
+            $parts = explode('-', $lastOrder->order_no);
+            $next = isset($parts[2]) ? ((int)$parts[2] + 1) : 1;
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => 'SO-' . $year . '-' . str_pad($next, 5, '0', STR_PAD_LEFT)
+        ]);
     }
 }

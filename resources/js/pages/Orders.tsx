@@ -1,67 +1,64 @@
 import Layout from "@/components/Layout";
 import RFQForm from "@/components/RFQForm";
 import OrderPackagesTab from "@/components/orders/OrderPackagesTab";
-//import { RefundDialog } from "@/components/orders/RefundDialog";
-//import { RefundsTab } from "@/components/orders/RefundsTab";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { RefundDialog } from "@/components/orders/RefundDialog";
+import { RefundsTab } from "@/components/orders/RefundsTab";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import axios from "axios";
 import {
-  Plus,
-  Trash2,
-  Eye,
-  Download,
-  Upload,
-  FileSpreadsheet,
-  FileText,
-  AlertCircle,
-  CheckCircle2,
-  Check,
-  ChevronsUpDown,
-  GripVertical,
-  Printer,
-  Sparkles,
-  MapPin,
-  ExternalLink,
-  ChevronDown,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-  CalendarIcon,
-  Filter,
-  RotateCcw,
-} from "lucide-react";
-import { Checkbox } from "@/components/ui/checkbox";
-import FilterBar from "@/components/FilterBar";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Calendar } from "@/components/ui/calendar";
-import { Badge } from "@/components/ui/badge";
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { useNavigate, useLocation } from "react-router-dom";
 import * as XLSX from "xlsx";
 import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-  PaginationEllipsis,
-} from "@/components/ui/pagination";
-import { Progress } from "@/components/ui/progress";
+  AlertCircle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  CalendarIcon,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Copy,
+  Download,
+  ExternalLink,
+  Eye,
+  Factory,
+  FileSpreadsheet,
+  Filter,
+  LayoutDashboard,
+  MapPin,
+  Package,
+  Plus,
+  Printer,
+  RotateCcw,
+  Save,
+  Search,
+  Send,
+  ShoppingCart,
+  Sparkles,
+  Trash2,
+  Truck,
+  X,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 interface BOMComponent {
   component: string;
@@ -97,7 +94,6 @@ interface LineItem {
 interface Order {
   id: string;
   orderDate: string;
-  orderNo: string;
   orderType: string;
   customer: string;
   contactPerson: string;
@@ -119,316 +115,164 @@ interface Order {
   paymentType: string;
   paymentTerms: string;
   advanceAmount: number;
+  balanceAmount: number;
   invoiceRequired: string;
   status: string;
 }
+
+interface RefundItem {
+  itemCode: string;
+  itemName: string;
+  quantityOrdered: number;
+  quantityRefunded: number;
+  unitPrice: number;
+  refundAmount: number;
+  restoreInventory: boolean;
+}
+
+interface RefundRecord {
+  id: string;
+  refundNumber: string;
+  orderId: string;
+  customerName: string;
+  refundType: "full" | "partial";
+  status: "pending" | "approved" | "rejected" | "processed";
+  reason: string;
+  notes?: string;
+  originalAmount: number;
+  refundAmount: number;
+  items: RefundItem[];
+  approvedBy?: string;
+  approvedAt?: string;
+  processedAt?: string;
+  createdAt: string;
+}
+
+interface RegularOrderTemplate {
+  id: string;
+  templateNumber: string;
+  customer: string;
+  itemCode: string;
+  itemName: string;
+  quantity: number;
+  frequency: string;
+  nextOrderDate: string;
+  lastOrdered?: string;
+  status: "Active" | "Paused";
+  price: number;
+}
+
+interface FormDataState {
+  customerName: string;
+  customerCode: string;
+  contactPerson: string;
+  contactNumber: string;
+  email: string;
+  billingAddress: string;
+  shippingAddress: string;
+  orderNo: string;
+  orderDate: string;
+  expectedDeliveryDate: string;
+  orderType: string;
+  referenceNo: string;
+  priority: string;
+  remarks: string;
+  dispatchMode: string;
+  transporterName: string;
+  vehicleNo: string;
+  expectedDispatchDate: string;
+  deliveryStatus: string;
+  warehouseLocation: string;
+  location: string;
+  paymentType: string;
+  paymentTerms: string;
+  advanceAmount: number;
+  balanceAmount: number;
+  invoiceRequired: string;
+}
+
+type OrderWorkspaceView =
+  | "new"
+  | "orders"
+  | "clone"
+  | "regular"
+  | "validation"
+  | "purchase"
+  | "excess"
+  | "dashboard";
+
+type MainTab = "orders" | "packages" | "refunds";
+type ValidationState = "available" | "partial" | "purchase" | "produce" | "missing";
+type SortField = "date" | "amount" | "customer" | "status";
+
+const ORDER_VIEWS: Array<{ id: OrderWorkspaceView; label: string; icon: any; countKey?: string }> = [
+  { id: "new", label: "New Order", icon: Plus },
+  { id: "orders", label: "All Orders", icon: ShoppingCart, countKey: "orders" },
+  { id: "clone", label: "Clone Last Order", icon: Copy },
+  { id: "regular", label: "Regular Orders", icon: RotateCcw, countKey: "regular" },
+  { id: "validation", label: "Stock Validation", icon: CheckCircle2 },
+  { id: "purchase", label: "Purchase Needs", icon: Truck, countKey: "purchase" },
+  { id: "excess", label: "Excess Production", icon: Factory },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+];
+
+const todayISO = () => new Date().toISOString().split("T")[0];
+const money = (value: number) => `₹${Number.isFinite(value) ? value.toFixed(2) : "0.00"}`;
+const integer = (value: number) => Math.max(0, Math.round(value || 0));
+const normalizeText = (value?: string | null) => (value || "").trim().toLowerCase();
+
+const createEmptyLineItem = (itemType = "Material"): LineItem => ({
+  id: crypto.randomUUID(),
+  itemType,
+  itemCode: "",
+  itemName: "",
+  uom: "pcs",
+  quantityOrdered: 1,
+  availableStock: 0,
+  rackLocation: "",
+  batchNo: "",
+  expiryDate: "",
+  rate: 0,
+  tax: 18,
+  totalAmount: 0,
+  stockValidated: false,
+  bomComponents: [],
+  bomLoading: false,
+  noBOM: false,
+});
+
+const getDefaultItemType = (orderType: string) => {
+  if (normalizeText(orderType).includes("manufacturing")) return "Product";
+  return "Material";
+};
+
+const normalizeItemType = (value?: string | null) => {
+  const type = normalizeText(value);
+  if (type.includes("product")) return "Product";
+  if (type.includes("component")) return "Component";
+  if (type.includes("material")) return "Material";
+  return value?.trim() || "Material";
+};
 
 const Orders = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
-  const [orders, setOrders] = useState<Order[]>(() => {
-    const saved = localStorage.getItem("orders");
-    if (!saved) return [];
 
-    try {
-      const parsed = JSON.parse(saved);
-      // Ensure all orders have items as an array
-      return Array.isArray(parsed)
-        ? parsed.map((order) => ({
-            ...order,
-            items: Array.isArray(order.items) ? order.items : [],
-          }))
-        : [];
-    } catch (e) {
-      console.error("Failed to parse orders from localStorage:", e);
-      return [];
-    }
-  });
-
-  const [usedItemCodes, setUsedItemCodes] = useState<Set<string>>(new Set());
-  const [searchTerm, setSearchTerm] = useState("");
-  const [viewOrder, setViewOrder] = useState<Order | null>(null);
-  const [inventoryItems, setInventoryItems] = useState<any[]>([]);
-  
-const [itemSearch, setItemSearch] = useState("");
-const [itemSearches, setItemSearches] = useState<Record<string, string>>({});
-  const [createItemOpen, setCreateItemOpen] = useState(false);
-  const [currentEditingItemId, setCurrentEditingItemId] = useState<string | null>(null);
-  const [itemCodePopoverOpen, setItemCodePopoverOpen] = useState<{ [key: string]: boolean }>({});
-  const [itemUsabilityFilter, setItemUsabilityFilter] = useState<{ [key: string]: "all" | "buy" | "make" }>({});
-  const [customers, setCustomers] = useState<any[]>([]);
-  const [customerPopoverOpen, setCustomerPopoverOpen] = useState(false);
-  const [filterStatus, setFilterStatus] = useState<"Open" | "Done">("Open");
-  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
-  const [locationFilter, setLocationFilter] = useState("All locations");
-  const [currentTab, setCurrentTab] = useState("customer");
-  const [mainTab, setMainTab] = useState("orders");
-  const [completedTabs, setCompletedTabs] = useState<Set<string>>(new Set());
-  const [fieldErrors, setFieldErrors] = useState<{ [key: string]: string }>({});
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
-  const [showInsights, setShowInsights] = useState(false);
-  const [insights, setInsights] = useState("");
-  const [isLoadingInsights, setIsLoadingInsights] = useState(false);
-
-  // Advanced filter states
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
-  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
-  const [minAmount, setMinAmount] = useState<string>("");
-  const [maxAmount, setMaxAmount] = useState<string>("");
-  const [deliveryStatusFilter, setDeliveryStatusFilter] = useState<string>("all");
-  const [soNumber, setSoNumber] = useState("");
-
-  // Sorting states
-  const [sortField, setSortField] = useState<"date" | "amount" | "customer" | "status" | null>(null);
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-
-  const [orderStatuses, setOrderStatuses] = useState<Record<string, string>>({});
-
-  // RFQ dialog states
-  const [rfqDialogOpen, setRfqDialogOpen] = useState(false);
-  const [rfqItem, setRfqItem] = useState<{
-    item_code: string;
-    item_name: string;
-    description?: string;
-    quantity: number;
-  } | null>(null);
-
-  // Refund states
-  const [refunds, setRefunds] = useState<any[]>(() => {
+  const [mainTab, setMainTab] = useState<MainTab>("orders");
+  const [workspaceView, setWorkspaceView] = useState<OrderWorkspaceView>("new");
+  const [orders, setOrders] = useState<any[]>([]);
+  const [refunds, setRefunds] = useState<RefundRecord[]>(() => {
     const saved = localStorage.getItem("orderRefunds");
     return saved ? JSON.parse(saved) : [];
   });
-  const [refundDialogOpen, setRefundDialogOpen] = useState(false);
-  const [refundOrder, setRefundOrder] = useState<Order | null>(null);
-
-  useEffect(() => {
-    localStorage.setItem("orders", JSON.stringify(orders));
-  }, [orders]);
-
-  // Save refunds to localStorage
-  useEffect(() => {
-    localStorage.setItem("orderRefunds", JSON.stringify(refunds));
-  }, [refunds]);
-
-  // Auto-create order when returning from BOM page
-  useEffect(() => {
-    if (location.state?.autoCreateOrder && location.state?.orderData && location.state?.lineItems) {
-      const { orderData, lineItems: returnedLineItems, bomData } = location.state;
-
-      // Restore form data and line items
-      setFormData(orderData);
-      setLineItems(returnedLineItems);
-
-      toast({
-        title: "BOM Created Successfully",
-        description: `BOM ${bomData.itemCode} created. Creating order automatically...`,
-      });
-
-      // Trigger order creation after a short delay
-      setTimeout(async () => {
-        // Create order programmatically
-        const totalAmount = returnedLineItems.reduce((sum: number, item: LineItem) => sum + item.totalAmount, 0);
-
-        const newOrder: Order = {
-          id: generateSONumber(),
-          orderNo: generateSONumber(),
-          orderDate: orderData.orderDate,
-          orderType: orderData.orderType,
-          customer: orderData.customerName,
-          contactPerson: orderData.contactPerson,
-          contactNumber: orderData.contactNumber,
-          email: orderData.email,
-          billingAddress: orderData.billingAddress,
-          shippingAddress: orderData.shippingAddress,
-          referenceNo: orderData.referenceNo,
-          priority: orderData.priority,
-          remarks: orderData.remarks,
-          items: returnedLineItems,
-          dispatchMode: orderData.dispatchMode,
-          transporterName: orderData.transporterName,
-          vehicleNo: orderData.vehicleNo,
-          expectedDispatchDate: orderData.expectedDispatchDate,
-          deliveryStatus: orderData.deliveryStatus,
-          warehouseLocation: orderData.warehouseLocation,
-          location: orderData.location || "",
-          paymentType: orderData.paymentType,
-          paymentTerms: orderData.paymentTerms,
-          advanceAmount: orderData.advanceAmount,
-          
-          invoiceRequired: orderData.invoiceRequired,
-          status: "Awaiting Confirmation",
-        };
-
-        // Update allocated quantity in inventory for each line item (orders use allocated)
-        for (const item of returnedLineItems) {
-          if (item.itemCode && item.quantityOrdered > 0) {
-           await axios.post("/api/inventory-stock", {
-              item_code: item.itemCode,
-              allocated_quantity: item.quantityOrdered,
-            });
-
-          }
-        }
-
-        setOrders((prev) => [...prev, newOrder]);
-
-        toast({
-          title: "Order Created Successfully",
-          description: `${newOrder.id} has been created with BOM ${bomData.itemCode}.`,
-        });
-      }, 1000);
-
-      // Clear location state to prevent re-triggering
-      window.history.replaceState({}, document.title);
-    }
-  }, [location.state, toast]);
-
-
-
-
-// fetch items on mount
-/*useEffect(() => {
-  fetch("http://127.0.0.1:8000/api/inventory-stock")
-    .then((res) => res.json())
-    .then((data) => {
-      console.log("Fetched items:", data);
-      // adjust if your API returns { items: [...] }
-      setInventoryItems(data.items || []);
-    })
-    .catch((err) => console.error("Error fetching inventory:", err));
-}, []);
-         */
-
-
-// Load orders
-useEffect(() => {
-  const loadOrders = async () => {
-    try {
-      const res = await axios.get("/api/orders", {
-        params: { status: filterStatus === "Open" ? "not_delivered" : "delivered" }
-      });
-      setOrders(res.data.data || res.data || []);
-    } catch (err) {
-      console.error(err);
-      toast({ title: "Failed to load orders", variant: "destructive" });
-    }
-  };
-  loadOrders();
-}, [filterStatus]);
-
-
-useEffect(() => {
-  // Fetch all inventory items from backend
-  fetch("/api/inventory-stock")
-    .then((res) => res.json())
-    .then((data) => setInventoryItems(data))
-    .catch((err) => console.error("Error fetching inventory items:", err));
-}, []);
-
-  // Fetch inventory items and customers
-useEffect(() => {
-  const fetchData = async () => {
-    try {
-      // 1. Inventory fetch
-      const inventoryResponse = await axios.get("/api/inventory-stock");
-      const rawData = inventoryResponse.data;
-
-      console.log("[Inventory] Raw response:", rawData);
-
-      // Safely extract array (covers most Laravel patterns)
-      let items = [];
-      if (Array.isArray(rawData)) {
-        items = rawData;
-      } else if (rawData && typeof rawData === "object") {
-        items = rawData.items || rawData.data || rawData.inventory || [];
-      }
-
-      console.log("[Inventory] Processed count:", items.length);
-      if (items.length > 0) {
-        console.log("[Inventory] First item:", items[0]);
-        console.log("[Inventory] First item keys:", Object.keys(items[0]));
-      } else {
-        console.warn("[Inventory] No items loaded — check if DB has data or API response format");
-      }
-
-      setInventoryItems(items);
-
-      // 2. Customers fetch
-      const customerResponse = await axios.get("/api/customers");
-      const customersData = Array.isArray(customerResponse.data)
-        ? customerResponse.data
-        : (customerResponse.data?.customers || customerResponse.data?.data || []);
-
-      console.log("[Customers] Count:", customersData.length);
-
-      setCustomers(
-        customersData.length > 0
-          ? customersData
-          : [
-              { id: "1", customer_name: "ABC Corporation", customer_code: "CUST001", email: "contact@abc.com", phone: "1234567890" },
-              { id: "2", customer_name: "XYZ Industries",   customer_code: "CUST002", email: "info@xyz.com",     phone: "0987654321" },
-              { id: "3", customer_name: "Global Traders",   customer_code: "CUST003", email: "sales@globaltraders.com", phone: "5551234567" },
-            ]
-      );
-
-    } catch (error: any) {
-      console.error("[Data Fetch] Failed:", error.message, error.response?.data);
-
-      setCustomers([
-        { id: "1", customer_name: "ABC Corporation", customer_code: "CUST001", email: "contact@abc.com", phone: "1234567890" },
-        { id: "2", customer_name: "XYZ Industries",   customer_code: "CUST002", email: "info@xyz.com",     phone: "0987654321" },
-        { id: "3", customer_name: "Global Traders",   customer_code: "CUST003", email: "sales@globaltraders.com", phone: "5551234567" },
-      ]);
-
-      toast({
-        title: "Data Load Issue",
-        description: error.response?.data?.message || "Couldn't load inventory/customers. Using fallback data.",
-        variant: "default",
-      });
-    }
-  };
-
-  fetchData();
-}, [createItemOpen]);
-
-  // Generate unique SO number
-  const generateSONumber = () => {
-    const year = new Date().getFullYear();
-    const count = orders.length + 1;
-    return `SO-${year}-${String(count).padStart(5, "0")}`;
-  };
-
-
-  // useEffect to generate SO number whenever orders change
-  useEffect(() => {
-    const generateSONumber = () => {
-      const year = new Date().getFullYear();
-      const count = orders.length + 1;
-      return `SO-${year}-${String(count).padStart(5, "0")}`;
-    };
-
-    setSoNumber(generateSONumber());
-  }, [orders]);
-
-  // Generate unique item code
-  const generateItemCode = () => {
-    let code;
-    do {
-      code = `ITM-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-    } while (usedItemCodes.has(code));
-    return code;
-  };
-
-  // Validate stock availability against Supabase inventory
-  const validateStock = (itemCode: string, quantity: number): boolean => {
-    const item = inventoryItems.find((i: any) => i.item_code === itemCode);
-    return item ? (item.available_quantity || 0) >= quantity : false;
-  };
-
-  const [formData, setFormData] = useState({
+  const [regularOrders, setRegularOrders] = useState<RegularOrderTemplate[]>(() => {
+    const saved = localStorage.getItem("regularOrderTemplates");
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [inventoryItems, setInventoryItems] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [formData, setFormData] = useState<FormDataState>({
     customerName: "",
     customerCode: "",
     contactPerson: "",
@@ -436,10 +280,10 @@ useEffect(() => {
     email: "",
     billingAddress: "",
     shippingAddress: "",
-    orderNo: generateSONumber(),
-    orderDate: new Date().toISOString().split("T")[0],
+    orderNo: "",
+    orderDate: todayISO(),
     expectedDeliveryDate: "",
-    orderType: "Sales Order",
+    orderType: "Sales",
     referenceNo: "",
     priority: "Normal",
     remarks: "",
@@ -453,2998 +297,2289 @@ useEffect(() => {
     paymentType: "Credit",
     paymentTerms: "Net 30 days",
     advanceAmount: 0,
-    invoiceRequired: "Yes",
+    balanceAmount: 0,
+    invoiceRequired: "1",
   });
+  const [lineItems, setLineItems] = useState<LineItem[]>([createEmptyLineItem(getDefaultItemType("Sales"))]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [sortField, setSortField] = useState<SortField>("date");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [validationRun, setValidationRun] = useState(false);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
+  const [selectedCloneId, setSelectedCloneId] = useState<string | null>(null);
+  const [viewOrder, setViewOrder] = useState<Order | null>(null);
+  const [regularDialogOpen, setRegularDialogOpen] = useState(false);
+  const [regularForm, setRegularForm] = useState({
+    customer: "",
+    itemCode: "",
+    quantity: 1,
+    frequency: "Weekly",
+    nextOrderDate: todayISO(),
+    price: 0,
+  });
+  const [rfqDialogOpen, setRfqDialogOpen] = useState(false);
+  const [rfqItem, setRfqItem] = useState<{
+    item_code: string;
+    item_name: string;
+    description?: string;
+    quantity: number;
+  } | null>(null);
+  const [refundDialogOpen, setRefundDialogOpen] = useState(false);
+  const [refundOrder, setRefundOrder] = useState<Order | null>(null);
 
-  const [lineItems, setLineItems] = useState<LineItem[]>([
-    {
-      id: "1",
-      itemType: "",
-      itemCode: "",
-      itemName: "",
-      uom: "pcs",
-      quantityOrdered: 0,
-      availableStock: 0,
-      rackLocation: "",
-      batchNo: "",
-      expiryDate: "",
-      rate: 0,
-      tax: 18, // Default GST 18%
-      totalAmount: 0,
-      stockValidated: false,
-    },
-  ]);
+  const safeOrders = Array.isArray(orders) ? orders : [];
+const safeInventoryItems = Array.isArray(inventoryItems) ? inventoryItems : [];
+const safeLineItems = Array.isArray(lineItems) ? lineItems : [];
 
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-
-  // Auto-save form data to localStorage
   useEffect(() => {
-    if (isDialogOpen) {
-      const formState = {
-        formData,
-        lineItems,
-        currentTab,
-        completedTabs: Array.from(completedTabs),
-      };
-      localStorage.setItem("orderFormDraft", JSON.stringify(formState));
-    }
-  }, [formData, lineItems, currentTab, completedTabs, isDialogOpen]);
+    localStorage.setItem("orders", JSON.stringify(orders));
+  }, [orders]);
 
-  // Load saved form data when dialog opens
   useEffect(() => {
-    if (isDialogOpen) {
-      const savedDraft = localStorage.getItem("orderFormDraft");
-      if (savedDraft) {
-        try {
-          const {
-            formData: savedFormData,
-            lineItems: savedLineItems,
-            currentTab: savedTab,
-            completedTabs: savedCompletedTabs,
-          } = JSON.parse(savedDraft);
+    localStorage.setItem("orderRefunds", JSON.stringify(refunds));
+  }, [refunds]);
 
-          // Only restore if we have actual saved data different from initial state
-          const hasData = savedFormData.customerName || savedLineItems.some((item: LineItem) => item.itemCode);
-          if (hasData) {
-            setFormData(savedFormData);
-            setLineItems(savedLineItems);
-            setCurrentTab(savedTab);
-            setCompletedTabs(new Set(savedCompletedTabs));
+  useEffect(() => {
+    localStorage.setItem("regularOrderTemplates", JSON.stringify(regularOrders));
+  }, [regularOrders]);
 
-            toast({
-              title: "Draft Restored",
-              description: "Your previous form data has been restored.",
-            });
-          }
-        } catch (e) {
-          console.error("Failed to restore draft:", e);
-        }
-      }
-    }
-  }, [isDialogOpen]);
-
-  const addLineItem = () => {
-    // Determine default item type based on order type
-    const defaultItemType =
-      formData.orderType === "Sales" ? "Component" : formData.orderType === "Manufacturing" ? "Product" : "";
-
-    const newItem: LineItem = {
-      id: String(lineItems.length + 1),
-      itemType: defaultItemType,
-      itemCode: "",
-      itemName: "",
-      uom: "pcs",
-      quantityOrdered: 0,
-      availableStock: 0,
-      rackLocation: "",
-      batchNo: "",
-      expiryDate: "",
-      rate: 0,
-      tax: 18, // Default GST 18%
-      totalAmount: 0,
-      stockValidated: false,
-    };
-    setLineItems([...lineItems, newItem]);
-  };
-
-  const removeLineItem = (id: string) => {
-    if (lineItems.length > 1) {
-      setLineItems(lineItems.filter((item) => item.id !== id));
-    }
-  };
-
-  // Calculate progress for each tab
-  const getTabProgress = (tab: string) => {
-    let completed = 0;
-    let total = 0;
-
-    switch (tab) {
-      case "customer":
-        total = 4;
-        if (formData.customerName) completed++;
-        if (formData.contactPerson) completed++;
-        if (formData.contactNumber) completed++;
-        if (formData.location) completed++;
-        break;
-      case "order":
-        total = 4;
-        if (formData.orderType) completed++;
-        if (formData.orderDate) completed++;
-        if (formData.expectedDeliveryDate) completed++;
-        if (formData.priority) completed++;
-        break;
-      case "items":
-        total = lineItems.length * 3;
-        lineItems.forEach((item) => {
-          if (item.itemType) completed++;
-          if (item.itemCode) completed++;
-          if (item.quantityOrdered > 0) completed++;
-        });
-        break;
-      case "delivery":
-        total = 2;
-        if (formData.dispatchMode) completed++;
-        if (formData.expectedDispatchDate) completed++;
-        break;
-      case "payment":
-        total = 2;
-        if (formData.paymentType) completed++;
-        if (formData.paymentTerms) completed++;
-        break;
-    }
-
-    return { completed, total, percentage: total > 0 ? (completed / total) * 100 : 0 };
-  };
-
-  // Fetch BOM components for a product
-  const fetchBOMComponents = async (itemCode: string, orderQuantity: number) => {
+  
+ const generateSONumber = async () => {
   try {
-    // 1️⃣ Fetch the latest active BOM header for this item
-    const bomHeaderResponse = await axios.get("/api/bom-headers", {
-      params: {
-        item_code: itemCode.trim(),
-        status: "Active",
-        limit: 1,
-        order_by: "created_at",
-        order_dir: "desc",
-      },
-    });
+    const res = await axios.get("/api/orders/next-so");
 
-    const bomHeaders = bomHeaderResponse.data;
+    console.log("SO API RESPONSE:", res.data);
 
-    if (!bomHeaders || bomHeaders.length === 0) {
+    return res.data.data;
+  } catch (err) {
+    console.error("SO GENERATION FAILED:", err.response?.data || err);
+    return "SO-ERROR";
+  }
+};
+
+  const generateRegularNumber = () => {
+    const year = new Date().getFullYear();
+    return `REG-${year}-${String(regularOrders.length + 1).padStart(4, "0")}`;
+  };
+
+  useEffect(() => {
+  const loadSO = async () => {
+    const so = await generateSONumber();
+    setFormData((prev) => ({ ...prev, orderNo: so }));
+  };
+
+  loadSO();
+}, []);
+
+ const inventoryByCode = useMemo(() => {
+  if (!Array.isArray(inventoryItems)) return new Map();
+
+  return new Map(
+    inventoryItems.map((item) => [
+      normalizeText(item.item_code),
+      item,
+    ])
+  );
+}, [inventoryItems]);
+
+  const customerByName = useMemo(() => {
+    return new Map(customers.map((customer) => [normalizeText(customer.customer_name), customer]));
+  }, [customers]);
+
+  const getInventoryRecord = (itemCode: string) => inventoryByCode.get(normalizeText(itemCode));
+
+  const getAvailableStock = (itemCode: string) => {
+    const inventory = getInventoryRecord(itemCode);
+    if (!inventory) return 0;
+    if (typeof inventory.available_quantity === "number") return integer(inventory.available_quantity);
+    return integer((inventory.quantity_on_hand || 0) - (inventory.allocated_quantity || 0));
+  };
+
+
+const fetchInventory = async () => {
+  try {
+    const res = await axios.get("/api/inventory-stock");
+
+    console.log("📦 RAW INVENTORY:", res.data);
+
+    const data = res.data?.items ?? [];   // ✅ FIX HERE
+
+    console.log("✅ NORMALIZED INVENTORY:", data);
+
+    setInventoryItems(data);
+  } catch (error) {
+    console.error("❌ Inventory fetch error:", error);
+    setInventoryItems([]);
+  }
+};
+
+useEffect(() => {
+  fetchInventory();
+}, []);
+
+const fetchBOMComponents = async (
+  bomId: string,
+  orderQuantity: number,
+  itemUOM?: string
+) => {
+  try {
+    if (!bomId) {
       return { components: [], noBOM: true };
     }
 
-    const bomId = bomHeaders[0].id;
-
-    // 2️⃣ Fetch BOM components for this BOM
-    const componentsResponse = await axios.get("/api/bom-components", {
+    // 1. Fetch BOM components directly using bomId
+    const componentsRes = await axios.get("/api/bom-components", {
       params: {
         bom_id: bomId,
-        status: "Active",
       },
     });
 
-    const components = componentsResponse.data;
+    const components = componentsRes.data;
 
-    if (!components || components.length === 0) {
+    if (!Array.isArray(components) || components.length === 0) {
       return { components: [], noBOM: true };
     }
 
-    // 3️⃣ Fetch available quantities for all components
-    const componentCodes = components.map((c: any) => c.component);
+    // 2. Get component codes
+    const codes = components.map((c: any) => c.component);
 
-    const inventoryResponse = await axios.get("/api/inventory-stock", {
+    // 3. Fetch stock
+    const stockRes = await axios.get("/api/inventory-stock", {
       params: {
-        item_codes: componentCodes.join(","), // assuming your API can accept comma-separated codes
+        item_codes: codes.join(","),
       },
     });
 
-    const inventoryData = inventoryResponse.data;
+    const stockData =
+      stockRes.data?.items ||
+      stockRes.data?.data ||
+      stockRes.data ||
+      [];
 
-    const inventoryMap = new Map(
-      (inventoryData || []).map((item: any) => [item.item_code, item.available_quantity || 0])
+    const safeStockArray = Array.isArray(stockData)
+      ? stockData
+      : [];
+
+    const availableMap = new Map(
+      safeStockArray.map((item: any) => [
+        item.item_code,
+        Number(item.available_quantity || 0),
+      ])
     );
 
-    // 4️⃣ Map BOM components with required and available quantities
-    const bomComponents: BOMComponent[] = components.map((comp: any) => ({
-      component: comp.component,
-      description: comp.description,
-      uom: comp.uom,
-      type: comp.type,
-      bomQuantity: comp.quantity,
-      availableQty: inventoryMap.get(comp.component) || 0,
-      requiredQty: comp.quantity * orderQuantity,
-    }));
-
-    return { components: bomComponents, noBOM: false };
+    // 4. Final mapping
+    return {
+      noBOM: false,
+      components: components.map((component: any) => ({
+        component: component.component,
+        description: component.description,
+        uom: component.uom || component.base_uom || "NOS",
+        type: normalizeItemType(component.type),
+        bomQuantity: Number(component.quantity),
+        availableQty: availableMap.get(component.component) || 0,
+        requiredQty: Number(component.quantity) * orderQuantity,
+      })),
+    };
   } catch (error) {
     console.error("Error fetching BOM components:", error);
     return { components: [], noBOM: true };
   }
 };
 
- const updateLineItem = (id: string, field: keyof LineItem, value: any) => {
-  setLineItems((prevItems) =>
-    prevItems.map((item) => {
-      if (item.id !== id) return item;
 
-      const updated = { ...item, [field]: value };
+  const getLineAssessment = (item: LineItem) => {
+    const inventory = getInventoryRecord(item.itemCode);
+    const available = item.itemCode ? getAvailableStock(item.itemCode) : 0;
+    const quantity = integer(item.quantityOrdered);
+    const gap = Math.max(0, quantity - Math.max(0, available));
+    const reorderPoint = integer(inventory?.reorder_point || 0);
+    const type = normalizeItemType(item.itemType || inventory?.item_type);
 
-      /* ===============================
-         WHEN ITEM CODE CHANGES
-      ================================ */
-      if (field === "itemCode" && value) {
-        const selectedItem = inventoryItems.find(
-          (inv) =>
-            inv.itemCode === value ||   // camelCase support
-            inv.item_code === value     // snake_case support
-        );
+    let state: ValidationState = "missing";
+    let label = "Select item";
+    let action = "Choose an item code to run validation.";
 
-        console.log("Selected Item:", selectedItem);
+    if (!item.itemCode) {
+      state = "missing";
+      label = "Missing item";
+      action = "Add an item code.";
+    } else if (quantity <= 0) {
+      state = "missing";
+      label = "Missing qty";
+      action = "Enter quantity greater than zero.";
+    } else if (gap <= 0) {
+      state = "available";
+      label = reorderPoint > 0 && available < reorderPoint ? "Below reorder" : "Stock OK";
+      action = reorderPoint > 0 && available < reorderPoint ? "Monitor stock and restock soon." : "Can be fulfilled from stock.";
+    } else if (available > 0) {
+      state = "partial";
+      label = `Partial ${available}/${quantity}`;
+      action = `Short by ${gap}. Split delivery or trigger replenishment.`;
+    } else if (type === "Product") {
+      state = "produce";
+      label = `Produce ${quantity}`;
+      action = "Create or update the BOM / production plan.";
+    } else {
+      state = "purchase";
+      label = `Buy ${quantity}`;
+      action = "Raise RFQ or purchase request.";
+    }
 
-        if (selectedItem) {
-          updated.itemCode =
-            selectedItem.itemCode ||
-            selectedItem.item_code ||
-            "";
+    return {
+      state,
+      label,
+      action,
+      available,
+      gap,
+      quantity,
+      reorderPoint,
+      inventory,
+      type,
+      openPO: 0,
+    };
+  };
 
-          updated.itemName =
-            selectedItem.itemName ||
-            selectedItem.item_name ||
-            "";
+  const lineAssessments = useMemo(() => lineItems.map((item) => ({ item, assessment: getLineAssessment(item) })), [lineItems, inventoryItems]);
 
-          updated.rate =
-            selectedItem.unit_cost ||
-            selectedItem.unitCost ||
-            0;
-
-          updated.availableStock =
-            selectedItem.available_quantity ||
-            selectedItem.availableQuantity ||
-            0;
-
-          updated.rackLocation =
-            selectedItem.location || "";
-
-          updated.stockValidated = true;
-
-          /* ===============================
-             FETCH BOM IF PRODUCT
-          ================================ */
-          if (updated.itemType === "Product") {
-            updated.bomLoading = true;
-            updated.bomComponents = [];
-            updated.noBOM = false;
-
-            fetchBOMComponents(value, updated.quantityOrdered || 1)
-              .then(({ components, noBOM }) => {
-                setLineItems((prev) =>
-                  prev.map((row) =>
-                    row.id === id
-                      ? {
-                          ...row,
-                          bomComponents: components,
-                          bomLoading: false,
-                          noBOM,
-                        }
-                      : row
-                  )
-                );
-              });
-          }
-
-          /* ===============================
-             CHECK BOM STATUS
-          ================================ */
-          checkBOMStatus(value).then((bomStatus) => {
-            if (bomStatus.hasBOM) {
-              if (bomStatus.needsUpdate) {
-                toast({
-                  title: "BOM Update Required",
-                  description: `Item ${value} has outdated BOM. ${bomStatus.reason}`,
-                  variant: "destructive",
-                });
-              } else {
-                toast({
-                  title: "BOM Verified",
-                  description: `Item ${value} has up-to-date BOM`,
-                });
-              }
-            } else {
-              toast({
-                title: "No BOM Found",
-                description: `Item ${value} does not have a Bill of Materials`,
-                variant: "destructive",
-              });
-            }
-          });
-        }
-      }
-
-      /* ===============================
-         STOCK VALIDATION
-      ================================ */
-      if (field === "quantityOrdered" || field === "itemCode") {
-        const qty =
-          field === "quantityOrdered"
-            ? value
-            : updated.quantityOrdered;
-
-        const code =
-          field === "itemCode"
-            ? value
-            : updated.itemCode;
-
-        if (code && qty > 0) {
-          updated.stockValidated = validateStock(code, qty);
-
-//          if (!updated.stockValidated) {
- //           toast({
-  //            title: "Stock Warning",
- //             description: `Insufficient stock for ${code}. Qty: ${qty}`,
- //             variant: "destructive",
-   //         });
- //         }
-        }
-      }
-
-      /* ===============================
-         RECALCULATE BOM QTY
-      ================================ */
-      if (
-        field === "quantityOrdered" &&
-        updated.itemType === "Product" &&
-        updated.bomComponents
-      ) {
-        updated.bomComponents = updated.bomComponents.map((comp) => ({
-          ...comp,
-          requiredQty: comp.bomQuantity * value,
-        }));
-      }
-
-      /* ===============================
-         RECALCULATE TOTAL
-      ================================ */
-      if (field === "quantityOrdered" || field === "rate" || field === "tax") {
-        const qty =
-          field === "quantityOrdered"
-            ? value
-            : updated.quantityOrdered;
-
-        const rate =
-          field === "rate"
-            ? value
-            : updated.rate;
-
-        const tax =
-          field === "tax"
-            ? value
-            : updated.tax;
-
-        updated.totalAmount = qty * rate * (1 + tax / 100);
-      }
-
-      return updated;
-    })
-  );
-};
-
-  // Check BOM status for an item
-const checkBOMStatus = async (
-  itemCode: string
-): Promise<{ hasBOM: boolean; needsUpdate: boolean; reason: string }> => {
-  try {
-    const trimmedCode = itemCode.trim();
-
-    // 1️⃣ Fetch BOM headers along with components and operations
-    const bomResponse = await axios.get("/api/bom-headers", {
-      params: {
-        item_code: trimmedCode,
-        include: "bom_components,bom_operations", // your API should handle this
-        limit: 1,
+  const validationMetrics = useMemo(() => {
+    const values = lineAssessments.reduce(
+      (acc, entry) => {
+        acc[entry.assessment.state] += 1;
+        return acc;
       },
+      { available: 0, partial: 0, purchase: 0, produce: 0, missing: 0 } as Record<ValidationState, number>,
+    );
+    return values;
+  }, [lineAssessments]);
+
+  const totalSummary = useMemo(() => {
+    const subtotal = lineItems.reduce((sum, item) => sum + item.quantityOrdered * item.rate, 0);
+    const taxAmount = lineItems.reduce((sum, item) => sum + item.quantityOrdered * item.rate * (item.tax / 100), 0);
+    const total = subtotal + taxAmount;
+    return { subtotal, taxAmount, total };
+  }, [lineItems]);
+
+  useEffect(() => {
+    setFormData((prev) => ({
+      ...prev,
+      balanceAmount: Math.max(0, totalSummary.total - Number(prev.advanceAmount || 0)),
+    }));
+  }, [totalSummary.total]);
+
+  const resetComposer = () => {
+    const defaultType = getDefaultItemType("Sales");
+    setFormData({
+      customerName: "",
+      customerCode: "",
+      contactPerson: "",
+      contactNumber: "",
+      email: "",
+      billingAddress: "",
+      shippingAddress: "",
+      orderNo: generateSONumber(),
+      orderDate: todayISO(),
+      expectedDeliveryDate: "",
+      orderType: "Sales",
+      referenceNo: "",
+      priority: "Normal",
+      remarks: "",
+      dispatchMode: "Courier",
+      transporterName: "",
+      vehicleNo: "",
+      expectedDispatchDate: "",
+      deliveryStatus: "Awaiting",
+      warehouseLocation: "",
+      location: "",
+      paymentType: "Credit",
+      paymentTerms: "Net 30 days",
+      advanceAmount: 0,
+      balanceAmount: 0,
+      invoiceRequired: "1",
     });
-
-    const bomDataArray = bomResponse.data;
-
-    if (!bomDataArray || bomDataArray.length === 0) {
-      return { hasBOM: false, needsUpdate: false, reason: "No BOM defined" };
-    }
-
-    const bomData = bomDataArray[0];
-
-    const components = bomData.bom_components || [];
-    const operations = bomData.bom_operations || [];
-
-    let needsUpdate = false;
-    let reason = "";
-
-    // 2️⃣ Check each BOM component
-    for (const comp of components) {
-      // Fetch inventory for this component
-      const invResponse = await axios.get("/api/inventory-stock", {
-        params: { item_code: comp.component },
-      });
-      const invData = invResponse.data[0]; // assume API returns an array
-
-      if (!invData || (invData.available_quantity || 0) < comp.quantity) {
-        needsUpdate = true;
-        reason = "Component stock insufficient";
-        break;
-      }
-
-      // Check if cost has changed significantly
-      if (invData && comp.unit_cost && Math.abs((invData.unit_cost || 0) - comp.unit_cost) / comp.unit_cost > 0.1) {
-        needsUpdate = true;
-        reason = "Component costs have changed";
-        break;
-      }
-    }
-
-    // 3️⃣ Check operations for missing data
-    for (const op of operations) {
-      const totalCost = (op.labor_cost || 0) + (op.machine_cost || 0) + (op.overhead_cost || 0);
-      if (totalCost === 0 || ((op.setup_time || 0) === 0 && (op.run_time || 0) === 0)) {
-        needsUpdate = true;
-        reason = reason || "Operation data incomplete";
-        break;
-      }
-    }
-
-    return { hasBOM: true, needsUpdate, reason: needsUpdate ? reason : "BOM is up to date" };
-  } catch (error) {
-    console.error("Error checking BOM status:", error);
-    return { hasBOM: false, needsUpdate: false, reason: "Error checking BOM" };
-  }
-};
-
-
-const handleTabChange = (tab: string) => {
-  setCurrentTab(tab);
-
-  if (tab === "done") {
-    setDeliveryStatusFilter("Delivered"); // show only delivered orders
-    setCurrentPage(1); // reset pagination
-  }
-};
-
-
-  // Validation functions for each tab
-  const validateCustomerTab = (): boolean => {
-    const errors: { [key: string]: string } = {};
-
-    if (!formData.customerName?.trim()) {
-      errors.customerName = "Customer name is required";
-    }
-    if (!formData.contactPerson?.trim()) {
-      errors.contactPerson = "Contact person is required";
-    }
-    if (!formData.contactNumber?.trim()) {
-      errors.contactNumber = "Contact number is required";
-    }
-    if (!formData.location?.trim()) {
-      errors.location = "Location is required";
-    }
-    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      errors.email = "Invalid email format";
-    }
-
-    setFieldErrors(errors);
-    return Object.keys(errors).length === 0;
+    setLineItems([createEmptyLineItem(defaultType)]);
+    setValidationRun(false);
   };
 
-  const validateOrderTab = (): boolean => {
-    const errors: { [key: string]: string } = {};
-
-    if (!formData.orderType?.trim()) {
-      errors.orderType = "Order type is required";
-    }
-    if (!formData.orderDate?.trim()) {
-      errors.orderDate = "Order date is required";
-    }
-    if (!formData.expectedDeliveryDate?.trim()) {
-      errors.expectedDeliveryDate = "Expected delivery date is required";
-    } else if (formData.orderDate && formData.expectedDeliveryDate) {
-      // Check if expected delivery date is not earlier than order date
-      const orderDate = new Date(formData.orderDate);
-      const deliveryDate = new Date(formData.expectedDeliveryDate);
-      if (deliveryDate < orderDate) {
-        errors.expectedDeliveryDate = "Expected delivery date cannot be earlier than order date";
-      }
-    }
-    if (!formData.priority?.trim()) {
-      errors.priority = "Priority is required";
+  const applyCustomerSelection = (name: string) => {
+    const customer = customerByName.get(normalizeText(name));
+    if (!customer) {
+      setFormData((prev) => ({ ...prev, customerName: name }));
+      return;
     }
 
-    setFieldErrors(errors);
-    return Object.keys(errors).length === 0;
+    setFormData((prev) => ({
+      ...prev,
+      customerName: customer.customer_name,
+      customerCode: customer.customer_code || "",
+      email: customer.email || "",
+      contactNumber: customer.phone || "",
+      contactPerson: customer.contact_person || "",
+      billingAddress: customer.billing_address || "",
+      shippingAddress: customer.shipping_address || customer.billing_address || "",
+      location: customer.country || prev.location,
+    }));
   };
 
-  const validateItemsTab = (): boolean => {
-    const errors: { [key: string]: string } = {};
+  const syncItemCode = async (id: string, code: string) => {
+    const inventory = getInventoryRecord(code);
+    const normalizedType = normalizeItemType(inventory?.item_type || getDefaultItemType(formData.orderType));
 
-    if (lineItems.length === 0) {
-      errors.lineItems = "At least one item is required";
+    setLineItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        const quantity = integer(item.quantityOrdered || 1);
+        const rate = Number(inventory?.unit_cost || item.rate || 0);
+        const tax = Number(item.tax || 18);
+        return {
+          ...item,
+          itemCode: inventory?.item_code || code,
+          itemName: inventory?.item_name || item.itemName,
+          itemType: normalizedType,
+          uom: inventory?.item_mode || inventory?.uom || item.uom || "pcs",
+          availableStock: getAvailableStock(code),
+          rackLocation: inventory?.location || "",
+          rate,
+          totalAmount: quantity * rate * (1 + tax / 100),
+          stockValidated: Boolean(inventory),
+          bomLoading: normalizedType === "Product",
+          bomComponents: normalizedType === "Product" ? [] : undefined,
+          noBOM: false,
+        };
+      }),
+    );
+
+    if (normalizedType === "Product" && code) {
+      const { components, noBOM } = await fetchBOMComponents(code, integer(lineItems.find((item) => item.id === id)?.quantityOrdered || 1));
+      setLineItems((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, bomComponents: components, bomLoading: false, noBOM } : item)),
+      );
+    }
+  };
+
+  const updateLineItem = async (id: string, field: keyof LineItem, value: any) => {
+    if (field === "itemCode") {
+      await syncItemCode(id, value);
+      return;
+    }
+
+    setLineItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        const updated = { ...item, [field]: value };
+        const quantity = integer(field === "quantityOrdered" ? value : updated.quantityOrdered);
+        const rate = Number(field === "rate" ? value : updated.rate || 0);
+        const tax = Number(field === "tax" ? value : updated.tax || 0);
+        updated.quantityOrdered = quantity;
+        updated.availableStock = updated.itemCode ? getAvailableStock(updated.itemCode) : 0;
+        updated.stockValidated = updated.itemCode ? updated.availableStock >= quantity : false;
+        updated.totalAmount = quantity * rate * (1 + tax / 100);
+
+        if (field === "itemType" && value !== "Product") {
+          updated.bomComponents = [];
+          updated.bomLoading = false;
+          updated.noBOM = false;
+        }
+
+        if (field === "quantityOrdered" && updated.bomComponents?.length) {
+          updated.bomComponents = updated.bomComponents.map((component) => ({
+            ...component,
+            requiredQty: integer(component.bomQuantity * quantity),
+          }));
+        }
+
+        return updated;
+      }),
+    );
+
+    if (field === "itemType" && value === "Product") {
+      const currentItem = lineItems.find((item) => item.id === id);
+      if (currentItem?.itemCode) {
+        const { components, noBOM } = await fetchBOMComponents(currentItem.itemCode, integer(currentItem.quantityOrdered));
+        setLineItems((prev) =>
+          prev.map((item) => (item.id === id ? { ...item, bomComponents: components, bomLoading: false, noBOM } : item)),
+        );
+      }
+    }
+  };
+
+  const addLineItem = () => setLineItems((prev) => [...prev, createEmptyLineItem(getDefaultItemType(formData.orderType))]);
+  const removeLineItem = (id: string) => setLineItems((prev) => (prev.length > 1 ? prev.filter((item) => item.id !== id) : prev));
+
+  const validateComposer = () => {
+    if (!formData.customerName.trim()) {
+      toast({ title: "Customer required", description: "Select or enter a customer name.", variant: "destructive" });
+      return false;
+    }
+    if (!formData.expectedDeliveryDate) {
+      toast({ title: "Delivery date required", description: "Enter a required delivery date.", variant: "destructive" });
+      return false;
+    }
+    if (new Date(formData.expectedDeliveryDate) < new Date(formData.orderDate)) {
       toast({
-        title: "Validation Error",
-        description: "Please add at least one item to the order",
+        title: "Invalid delivery date",
+        description: "Expected delivery date cannot be earlier than order date.",
         variant: "destructive",
       });
-    } else {
-      // Validate each line item
-      let hasInvalidItem = false;
-      lineItems.forEach((item, index) => {
-        if (!item.itemType) {
-          errors[`item_${index}_itemType`] = "Item type is required";
-          hasInvalidItem = true;
-        }
-        if (!item.itemCode) {
-          errors[`item_${index}_itemCode`] = "Item code is required";
-          hasInvalidItem = true;
-        }
-        if (!item.quantityOrdered || item.quantityOrdered <= 0) {
-          errors[`item_${index}_quantity`] = "Quantity must be greater than 0";
-          hasInvalidItem = true;
-        }
+      return false;
+    }
+    const validItems = lineItems.filter((item) => item.itemCode && integer(item.quantityOrdered) > 0);
+    if (validItems.length === 0) {
+      toast({ title: "Items required", description: "Add at least one valid line item.", variant: "destructive" });
+      return false;
+    }
+    return true;
+  };
+
+
+const allocateInventoryForOrder = async (items: LineItem[]) => {
+  try {
+    for (const item of items) {
+      if (!item.itemCode || item.quantityOrdered <= 0) continue;
+
+      await axios.post("/api/inventory/allocate", {
+        itemCode: item.itemCode,
+        quantity: item.quantityOrdered,
       });
-
-      if (hasInvalidItem) {
-        toast({
-          title: "Validation Error",
-          description: "Please fill all required fields for each item",
-          variant: "destructive",
-        });
-      }
     }
+  } catch (error) {
+    console.error("Error allocating inventory:", error);
+  }
+};
 
-    setFieldErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
+  const createOrderFromComposer = async (status: string) => {
+  if (!validateComposer()) return;
 
-  const validateDeliveryTab = (): boolean => {
-    const errors: { [key: string]: string } = {};
-
-    if (!formData.dispatchMode?.trim()) {
-      errors.dispatchMode = "Dispatch mode is required";
-    }
-    if (!formData.expectedDispatchDate?.trim()) {
-      errors.expectedDispatchDate = "Expected dispatch date is required";
-    }
-
-    setFieldErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const validateCurrentTab = (): boolean => {
-    switch (currentTab) {
-      case "customer":
-        return validateCustomerTab();
-      case "order":
-        return validateOrderTab();
-      case "items":
-        return validateItemsTab();
-      case "delivery":
-        return validateDeliveryTab();
-      case "payment":
-        return true; // Payment tab has no required fields
-      default:
-        return true;
-    }
-  };
-
- const handleCreateOrder = async () => {
-  if (!formData.customerName || !formData.orderType) {
+    // ✅ Phone validation (10 digits only)
+  const phoneRegex = /^[0-9]{10}$/;
+  if (!phoneRegex.test(formData.contactNumber)) {
     toast({
-      title: "Error",
-      description: "Please fill in required fields (Customer Name, Order Type).",
+      title: "Invalid phone number",
+      description: "Phone number must be exactly 10 digits.",
       variant: "destructive",
     });
     return;
   }
 
-   const phoneRegex = /^[0-9]{10}$/;
-  if (formData.contactNumber && !phoneRegex.test(formData.contactNumber)) {
-    toast({
-      title: "Invalid Contact Number",
-      description: "Contact number must be exactly 10 digits.",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  // Email validation
+  // ✅ Email validation
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (formData.email && !emailRegex.test(formData.email)) {
     toast({
-      title: "Invalid Email",
+      title: "Invalid email",
       description: "Please enter a valid email address.",
       variant: "destructive",
     });
     return;
   }
 
-  // Stock validations
-  const itemsWithInsufficientStock = lineItems.filter((item) => {
-    if (item.quantityOrdered <= 0) return false;
-    const inventoryItem = inventoryItems.find((i: any) => i.item_code === item.itemCode);
-    const availableStock = inventoryItem?.available_quantity || 0;
-    return availableStock < item.quantityOrdered;
-  });
-
-  const itemsBelowReorder = lineItems.filter((item) => {
-    if (item.quantityOrdered <= 0) return false;
-    const inventoryItem = inventoryItems.find((i: any) => i.item_code === item.itemCode);
-    const availableStock = inventoryItem?.available_quantity || 0;
-    const reorderPoint = inventoryItem?.reorder_point || 0;
-    return availableStock < reorderPoint && availableStock >= item.quantityOrdered;
-  });
-
-  if (itemsWithInsufficientStock.length > 0) {
-    toast({
-      title: "Low Stock Warning",
-      description: `Items with insufficient stock: ${itemsWithInsufficientStock.map(i => i.itemCode).join(", ")}. Order created - please review inventory.`,
-      variant: "default",
-    });
-  }
-
-  if (itemsBelowReorder.length > 0) {
-    toast({
-      title: "Reorder Point Warning",
-      description: `Items below reorder point: ${itemsBelowReorder.map(i => i.itemCode).join(", ")}. Consider restocking.`,
-      variant: "default",
-    });
-  }
-
-  const totalAmount = lineItems.reduce((sum, item) => sum + item.totalAmount, 0);
-
-const newOrder = {
-  // Auto-increment id, do NOT send 'id'
-  order_no: formData.orderNo,                       // optional, backend can auto-generate
-  order_date: formData.orderDate,
-  order_type: formData.orderType,
-  customer: formData.customerName,
-  contact_person: formData.contactPerson,
-  contact_number: formData.contactNumber,
-  email: formData.email,
-  billing_address: formData.billingAddress,
-  shipping_address: formData.shippingAddress,
-  reference_no: formData.referenceNo,
-  priority: formData.priority,
-  remarks: formData.remarks,
-  expected_delivery_date: formData.expectedDeliveryDate,
-  dispatch_mode: formData.dispatchMode,
-  transporter_name: formData.transporterName,
-  vehicle_no: formData.vehicleNo,
-  expected_dispatch_date: formData.expectedDispatchDate,
-  delivery_status: formData.deliveryStatus,
-  warehouse_location: formData.warehouseLocation,
-  location: formData.location,
-  payment_type: formData.paymentType,
-  payment_terms: formData.paymentTerms,
-  advance_amount: formData.advanceAmount,
-  invoice_required: formData.invoiceRequired === "Yes", // convert to boolean
-  status: "Awaiting Confirmation",
-
-  // Items mapped correctly
-  items: lineItems.map(item => ({
-    item_type: item.itemType,
+ const items = lineItems
+  .filter((item) => item.itemCode && item.quantityOrdered > 0)
+  .map((item) => ({
     item_code: item.itemCode,
     item_name: item.itemName,
+    item_type: item.itemType,
     uom: item.uom,
-    quantity: item.quantityOrdered,  // map quantityOrdered → quantity
+    quantity: item.quantityOrdered,
     rate: item.rate,
     tax: item.tax,
     total_amount: item.totalAmount,
-    item_location: item.rackLocation,
-    available_stock: item.availableStock,
-  }))
-};
+  }));
+
+  const newOrder = {
+    id: formData.orderNo || generateSONumber(),
+    order_date: formData.orderDate,
+    order_type: formData.orderType,
+    customer: formData.customerName,
+    contact_person: formData.contactPerson,
+    contact_number: formData.contactNumber,
+    email: formData.email,
+    billing_address: formData.billingAddress,
+    shipping_address: formData.shippingAddress,
+    reference_no: formData.referenceNo,
+    priority: formData.priority,
+    remarks: formData.remarks,
+    items,
+    dispatch_mode: formData.dispatchMode,
+    transporter_name: formData.transporterName,
+    vehicle_no: formData.vehicleNo,
+    expected_dispatch_date: formData.expectedDispatchDate,
+    expected_delivery_date: formData.expectedDeliveryDate,
+    delivery_status: formData.deliveryStatus,
+    warehouse_location: formData.warehouseLocation,
+    location: formData.location,
+    payment_type: formData.paymentType,
+    payment_terms: formData.paymentTerms,
+    advance_amount: Number(formData.advanceAmount || 0),
+    balance_amount:
+      totalSummary.total - Number(formData.advanceAmount || 0),
+    invoice_required: formData.invoiceRequired,
+    status,
+  };
+
   try {
-     console.log("NEW ORDER PAYLOAD:", newOrder);
-    // Save order to backend
-    const response = await axios.post("/api/orders", newOrder);
+    // ✅ Laravel API call (NO full URL)
+    const res = await axios.post("/api/orders", newOrder);
 
-    if (response.status === 201) {
-      // Optional: Update frontend state
-      setOrders([...orders, response.data]);
-      setUsedItemCodes(new Set());
+    setOrders((prev) => [...prev, res.data]);
 
-      // Clear draft
-      localStorage.removeItem("orderFormDraft");
+    if (status !== "Draft") {
+      await allocateInventoryForOrder(items);
+    }
 
-      toast({
-        title: "Sales Order Created",
-        description: `${response.data.order_no} has been created and awaiting confirmation.`,
+    toast({
+      title: "Order created",
+      description: `${newOrder.id} saved successfully.`,
+    });
+
+    resetComposer();
+    setWorkspaceView("orders");
+  } catch (error) {
+    console.error(error);
+    toast({
+      title: "Error",
+      description: "Failed to create order",
+      variant: "destructive",
+    });
+  }
+};
+
+
+const fetchOrders = async () => {
+  try {
+    const res = await axios.get("/api/orders");
+
+    const data = res.data?.data ?? [];
+
+    setOrders(Array.isArray(data) ? data : []);
+  } catch (error) {
+    console.error("❌ FETCH ERROR:", error);
+    setOrders([]);
+  }
+};
+
+
+
+useEffect(() => {
+  fetchOrders();
+}, []);
+
+  const runValidation = () => {
+    setValidationRun(true);
+    toast({ title: "Validation complete", description: "Stock and MRP recommendations are up to date." });
+  };
+
+  const filteredOrders = useMemo(() => {
+  if (!Array.isArray(orders)) return [];
+
+  return orders.filter((order) => {
+    const matchesSearch =
+      order.customer?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order.id?.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesStatus =
+      statusFilter === "all" || order.status === statusFilter;
+
+    const matchesType =
+      typeFilter === "all" || order.orderType === typeFilter;
+
+    return matchesSearch && matchesStatus && matchesType;
+  });
+}, [orders, searchTerm, statusFilter, typeFilter]);
+
+
+
+  const selectedCloneOrder = useMemo(
+    () => orders.find((order) => order.id === selectedCloneId) || orders[orders.length - 1] || null,
+    [orders, selectedCloneId],
+  );
+
+  const pendingOrders = useMemo(
+    () => orders.filter((order) => ["Awaiting Confirmation", "Confirmed", "Processing"].includes(order.status)),
+    [orders],
+  );
+
+ const validationRows = useMemo(() => {
+  return pendingOrders.flatMap((order) =>
+    (order.items ?? []).map((item) => {
+      const assessment = getLineAssessment(item);
+      return { order, item, assessment };
+    }),
+  );
+}, [pendingOrders, inventoryItems]);
+
+  const purchaseNeeds = useMemo(() => {
+    return validationRows.filter(({ item, assessment }) => {
+      const type = normalizeItemType(item.itemType || assessment.inventory?.item_type);
+      return assessment.gap > 0 && type !== "Product";
+    });
+  }, [validationRows]);
+
+  const excessRows = useMemo(() => {
+    const demandMap = new Map<string, number>();
+    orders.filter((order) => order.status !== "Cancelled").forEach((order) => {
+      (order.items ?? []).forEach((item) => {
+        demandMap.set(item.itemCode, (demandMap.get(item.itemCode) || 0) + integer(item.quantityOrdered));
       });
+    });
 
-      // Reset form and line items
-      setFormData({
-        customerName: "",
-        customerCode: "",
+   return (Array.isArray(inventoryItems) ? inventoryItems : [])
+  .map((inventory) => {
+        const code = inventory.item_code;
+        const available = getAvailableStock(code);
+        const netOrders = demandMap.get(code) || 0;
+        const excessQty = available - netOrders;
+        return {
+          code,
+          name: inventory.item_name,
+          type: normalizeItemType(inventory.item_type),
+          available,
+          allocated: integer(inventory.allocated_quantity || 0),
+          netOrders,
+          excessQty,
+          excessValue: excessQty * Number(inventory.unit_cost || 0),
+        };
+      })
+      .filter((row) => row.excessQty > 0)
+      .sort((a, b) => b.excessQty - a.excessQty);
+  }, [inventoryItems, orders]);
+
+  const dashboardStats = useMemo(() => {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const monthOrders = orders.filter((order) => {
+  if (!order.orderDate) return false;
+  return String(order.orderDate).startsWith(currentMonth);
+});
+    const overdue = orders.filter(
+      (order) => order.expectedDispatchDate && order.expectedDispatchDate < todayISO() && !["Delivered", "Cancelled"].includes(order.status),
+    );
+    return {
+      monthOrders: monthOrders.length,
+      orderValue: monthOrders.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + item.totalAmount, 0), 0),
+      pendingDelivery: orders.filter((order) => !["Delivered", "Cancelled"].includes(order.deliveryStatus)).length,
+      overdue: overdue.length,
+    };
+  }, [orders]);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortField(field);
+    setSortDirection("asc");
+  };
+
+  const sortIcon = (field: SortField) => {
+    if (sortField !== field) return <ArrowUpDown className="h-4 w-4" />;
+    return sortDirection === "asc" ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />;
+  };
+
+  const exportOrders = () => {
+    const rows = filteredOrders.map((order) => ({
+      "Order ID": order.id,
+      Customer: order.customer,
+      "Order Date": order.orderDate,
+      "Order Type": order.orderType,
+      Priority: order.priority,
+      Status: order.status,
+      "Delivery Status": order.deliveryStatus,
+      Total: order.items.reduce((sum, item) => sum + item.totalAmount, 0),
+      Items: order.items.length,
+      Location: order.location,
+    }));
+
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Orders");
+    XLSX.writeFile(workbook, `orders_${todayISO()}.xlsx`);
+    toast({ title: "Exported", description: "Orders exported successfully." });
+  };
+
+  const printOrders = () => window.print();
+
+
+const handleOrderStatusChange = async (
+  orderId: string,
+  nextStatus: string
+) => {
+  const current = orders.find((order) => order.id === orderId);
+  if (!current) return;
+
+  try {
+    if (
+      current.status === "Awaiting Confirmation" &&
+      nextStatus === "Processing"
+    ) {
+      for (const item of current.items) {
+        // 1. Fetch current stock
+        const stockRes = await axios.get(
+          `/api/inventory-stock/${item.itemCode}`
+        );
+
+        const currentStock = stockRes.data;
+
+        const allocated = Number(
+          currentStock?.allocated_quantity || 0
+        );
+        const committed = Number(
+          currentStock?.committed_quantity || 0
+        );
+
+        const qty = Number(item.quantityOrdered);
+
+        // 2. Update stock
+        await axios.put("/api/inventory-stock/update", {
+          itemCode: item.itemCode,
+          allocated_quantity: Math.max(0, allocated - qty),
+          committed_quantity: committed + qty,
+        });
+      }
+    }
+
+    // 3. Update UI state
+    setOrders((prev) =>
+      prev.map((order) =>
+        order.id === orderId
+          ? { ...order, status: nextStatus }
+          : order
+      )
+    );
+
+    toast({
+      title: "Status updated",
+      description: `${orderId} is now ${nextStatus}.`,
+    });
+  } catch (error) {
+    console.error("Error updating order status:", error);
+    toast({
+      title: "Error",
+      description: "Failed to update order status.",
+    });
+  }
+};
+
+  const startClone = (order: Order) => {
+    setSelectedCloneId(order.id);
+    setWorkspaceView("clone");
+  };
+
+  const cloneIntoComposer = (order: Order) => {
+    setFormData({
+      customerName: order.customer,
+      customerCode: "",
+      contactPerson: order.contactPerson,
+      contactNumber: order.contactNumber,
+      email: order.email,
+      billingAddress: order.billingAddress,
+      shippingAddress: order.shippingAddress,
+      orderNo: generateSONumber(),
+      orderDate: todayISO(),
+      expectedDeliveryDate: order.expectedDispatchDate || order.orderDate,
+      orderType: order.orderType,
+      referenceNo: order.referenceNo,
+      priority: order.priority,
+      remarks: order.remarks,
+      dispatchMode: order.dispatchMode,
+      transporterName: order.transporterName,
+      vehicleNo: order.vehicleNo,
+      expectedDispatchDate: order.expectedDispatchDate,
+      deliveryStatus: "Awaiting",
+      warehouseLocation: order.warehouseLocation,
+      location: order.location,
+      paymentType: order.paymentType,
+      paymentTerms: order.paymentTerms,
+      advanceAmount: order.advanceAmount,
+      balanceAmount: order.balanceAmount,
+      invoiceRequired: order.invoiceRequired,
+    });
+    setLineItems(
+      order.items.map((item) => ({
+        ...item,
+        id: crypto.randomUUID(),
+        bomComponents: item.bomComponents || [],
+      })),
+    );
+    setWorkspaceView("new");
+    toast({ title: "Order cloned", description: `${order.id} copied into the composer.` });
+  };
+
+  const createRegularTemplate = () => {
+    const inventory = getInventoryRecord(regularForm.itemCode);
+    if (!regularForm.customer || !regularForm.itemCode) {
+      toast({ title: "Missing fields", description: "Customer and product are required.", variant: "destructive" });
+      return;
+    }
+
+    setRegularOrders((prev) => [
+      {
+        id: crypto.randomUUID(),
+        templateNumber: generateRegularNumber(),
+        customer: regularForm.customer,
+        itemCode: inventory?.item_code || regularForm.itemCode,
+        itemName: inventory?.item_name || regularForm.itemCode,
+        quantity: integer(regularForm.quantity),
+        frequency: regularForm.frequency,
+        nextOrderDate: regularForm.nextOrderDate,
+        lastOrdered: "—",
+        status: "Active",
+        price: Number(regularForm.price || inventory?.unit_cost || 0),
+      },
+      ...prev,
+    ]);
+    setRegularDialogOpen(false);
+    setRegularForm({ customer: "", itemCode: "", quantity: 1, frequency: "Weekly", nextOrderDate: todayISO(), price: 0 });
+    toast({ title: "Template created", description: "Regular order template saved." });
+  };
+
+  const fireRegularOrder = (template: RegularOrderTemplate) => {
+    const inventory = getInventoryRecord(template.itemCode);
+    const itemType = normalizeItemType(inventory?.item_type || "Material");
+    setOrders((prev) => [
+      ...prev,
+      {
+        id: generateSONumber(),
+        orderDate: todayISO(),
+        orderType: "Regular",
+        customer: template.customer,
         contactPerson: "",
         contactNumber: "",
         email: "",
         billingAddress: "",
         shippingAddress: "",
-        orderNo: generateSONumber(),
-        orderDate: new Date().toISOString().split("T")[0],
-        expectedDeliveryDate: "",
-        orderType: "Sales Order",
         referenceNo: "",
         priority: "Normal",
-        remarks: "",
+        remarks: `Auto-generated from ${template.templateNumber}`,
+        items: [
+          {
+            ...createEmptyLineItem(itemType),
+            itemCode: template.itemCode,
+            itemName: template.itemName,
+            quantityOrdered: integer(template.quantity),
+            rate: Number(template.price || inventory?.unit_cost || 0),
+            availableStock: getAvailableStock(template.itemCode),
+            stockValidated: getAvailableStock(template.itemCode) >= integer(template.quantity),
+            totalAmount: integer(template.quantity) * Number(template.price || inventory?.unit_cost || 0) * 1.18,
+          },
+        ],
         dispatchMode: "Courier",
         transporterName: "",
         vehicleNo: "",
-        expectedDispatchDate: "",
+        expectedDispatchDate: template.nextOrderDate,
         deliveryStatus: "Awaiting",
         warehouseLocation: "",
         location: "",
         paymentType: "Credit",
         paymentTerms: "Net 30 days",
         advanceAmount: 0,
-        invoiceRequired: "Yes",
-      });
+        balanceAmount: integer(template.quantity) * Number(template.price || inventory?.unit_cost || 0) * 1.18,
+        invoiceRequired: "1",
+        status: "Awaiting Confirmation",
+      },
+    ]);
 
-      setLineItems([{
-        id: "1",
-        itemType: "",
-        itemCode: "",
-        itemName: "",
-        uom: "pcs",
-        quantityOrdered: 0,
-        availableStock: 0,
-        rackLocation: "",
-        batchNo: "",
-        expiryDate: "",
-        rate: 0,
-        tax: 18,
-        totalAmount: 0,
-        stockValidated: false,
-      }]);
-
-      setIsDialogOpen(false);
-      setCurrentTab("customer");
-      setCompletedTabs(new Set());
-    } else {
-      throw new Error("Failed to create order");
-    }
-  } catch (error: any) {
-    console.error("Error creating order:", error);
-    toast({
-      title: "Order Creation Failed",
-      description: error?.response?.data?.message || "Failed to create order",
-      variant: "destructive",
-    });
-  }
-};
-
-  // Export to PDF (uses browser print)
-  const exportToPDF = () => {
-    toast({
-      title: "Export Started",
-      description: "Opening print dialog...",
-    });
-    setTimeout(() => {
-      window.print();
-    }, 100);
-  };
-
-  // Print orders
-  const handlePrint = () => {
-    window.print();
-  };
-
-  // Export to Excel (XLSX)
-  const exportToExcel = () => {
-    try {
-      // Prepare data for export
-      const exportData = sortedOrders.map((order) => ({
-        "Order ID": order.id,
-        "Order Date": order.orderDate,
-//        "Order Type": order.orderType,
-        Customer: order.customer,
-        "Contact Person": order.contactPerson,
-        "Contact Number": order.contactNumber,
-        Email: order.email,
-        Location: order.location,
-        "Reference No": order.referenceNo,
-        Priority: order.priority,
-        Status: order.status,
-        "Total Items": order.items.length,
-        "Dispatch Mode": order.dispatchMode,
-        "Expected Dispatch": order.expectedDispatchDate,
-        "Delivery Status": order.deliveryStatus,
-//        "Payment Type": order.paymentType,
-//        "Payment Terms": order.paymentTerms,
-        "Advance Amount": order.advanceAmount,
-
-        "Invoice Required": order.invoiceRequired,
-        Remarks: order.remarks,
-      }));
-
-      // Create workbook and worksheet
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(exportData);
-
-      // Set column widths
-      const columnWidths = [
-        { wch: 15 }, // Order ID
-        { wch: 12 }, // Order Date
-        { wch: 15 }, // Order Type
-        { wch: 20 }, // Customer
-        { wch: 15 }, // Contact Person
-        { wch: 15 }, // Contact Number
-        { wch: 25 }, // Email
-        { wch: 15 }, // Location
-        { wch: 15 }, // Reference No
-        { wch: 10 }, // Priority
-        { wch: 15 }, // Status
-        { wch: 12 }, // Total Items
-        { wch: 15 }, // Dispatch Mode
-        { wch: 15 }, // Expected Dispatch
-        { wch: 15 }, // Delivery Status
-        { wch: 12 }, // Payment Type
-        { wch: 15 }, // Payment Terms
-        { wch: 15 }, // Advance Amount
-        { wch: 15 }, // Invoice Required
-        { wch: 30 }, // Remarks
-      ];
-      ws["!cols"] = columnWidths;
-
-      // Add worksheet to workbook
-      XLSX.utils.book_append_sheet(wb, ws, "Orders");
-
-      // Generate filename with current date
-      const date = new Date().toISOString().split("T")[0];
-      const filename = `Orders_${date}.xlsx`;
-
-      // Write file
-      XLSX.writeFile(wb, filename);
-
-      toast({
-        title: "Export Complete",
-        description: `Orders exported to ${filename} successfully.`,
-      });
-    } catch (error) {
-      console.error("Export error:", error);
-      toast({
-        title: "Export Failed",
-        description: "Failed to export orders to Excel.",
-        variant: "destructive",
-      });
-    }
-  };
-
-
-  // Fetch orders from backend
-const fetchOrders = async () => {
-  try {
-    const res = await fetch("/api/orders");
-    if (!res.ok) throw new Error(`Error fetching orders: ${res.statusText}`);
-
-    const result = await res.json();
-    const ordersArray = result.data || [];
-
-    const mappedOrders = ordersArray.map((order: any) => ({
-      id: order.id,
-      orderNo: order.order_no,
-      orderDate: order.order_date,
-      customer: order.customer,
-      expectedDispatchDate: order.expected_dispatch_date,
-      deliveryStatus: order.delivery_status,
-      location: order.location,
-      priority: order.priority,
-      status: order.status,
-      items: [
-        {
-          itemType: order.item_type,
-          itemCode: order.item_code,
-          itemName: order.item_name,
-          uom: order.uom,
-          quantityOrdered: Number(order.quantity),
-          rate: Number(order.rate),
-          tax: Number(order.tax),
-          totalAmount: Number(order.total_amount),
-          itemLocation: order.item_location,
-          availableStock: Number(order.available_stock),
-        },
-      ],
-      orderTotal: Number(order.total_amount),
-    }));
-
-    // Store all orders
-    setOrders(mappedOrders);
-  } catch (error: any) {
-    console.error("Error fetching orders:", error);
-    toast({
-      title: "Failed to fetch orders",
-      description: error.message || "Something went wrong",
-      variant: "destructive",
-    });
-  }
-};
-// Refetch whenever tab changes
-useEffect(() => {
-  fetchOrders();
-}, [filterStatus]);
-
-
-
-const handleAIInsights = async () => {
-  setIsLoadingInsights(true);
-  setShowInsights(true);
-  setInsights("");
-
-  try {
-    // Call your Laravel API endpoint for AI insights
-    const response = await axios.post("/api/order-insights", {
-      orders: sortedOrders,
-    });
-
-    const data = response.data;
-
-    if (!data?.insights) {
-      toast({
-        title: "AI Insights Failed",
-        description: "Failed to generate insights",
-        variant: "destructive",
-      });
-      setShowInsights(false);
-      return;
-    }
-
-    setInsights(data.insights);
-    toast({
-      title: "AI Insights Generated",
-      description: "Successfully analyzed your orders.",
-    });
-  } catch (error: unknown) {
-    console.error("Error generating AI insights:", error);
-
-    const message =
-      axios.isAxiosError(error) && error.response?.data?.message
-        ? error.response.data.message
-        : "Failed to generate insights";
-
-    toast({
-      title: "AI Insights Failed",
-      description: message,
-      variant: "destructive",
-    });
-    setShowInsights(false);
-  } finally {
-    setIsLoadingInsights(false);
-  }
-};
-  // Import from Excel
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      toast({
-        title: "Import Started",
-        description: `Importing ${file.name}...`,
-      });
-      // Import logic would go here
-      setTimeout(() => {
-        toast({
-          title: "Import Complete",
-          description: "Orders imported successfully.",
-        });
-      }, 1000);
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    const variants: Record<string, any> = {
-      "Awaiting Confirmation": "secondary",
-      Pending: "secondary",
-      Processing: "default",
-      Shipped: "outline",
-      Delivered: "outline",
-      Packed: "default",
-    };
-    return <Badge variant={variants[status] || "default"}>{status}</Badge>;
-  };
-
-  const getPriorityBadge = (priority: string) => {
-    const colors: Record<string, string> = {
-      Urgent: "text-destructive",
-      High: "text-destructive",
-      Normal: "text-muted-foreground",
-      Scheduled: "text-muted-foreground",
-    };
-    return <span className={`font-medium ${colors[priority]}`}>{priority}</span>;
-  };
-
-  // Handle order status change
-const handleOrderStatusChange = async (orderId: string, newStatus: string) => {
-  const order = orders.find((o) => o.id === orderId);
-  if (!order) return;
-
-  const oldStatus = order.status;
-
-  try {
-    if (oldStatus === "Awaiting Confirmation" && newStatus === "Processing") {
-
-      for (const item of order.items) {
-        if (item.itemCode && item.quantityOrdered > 0) {
-
-          try {
-            const { data: currentStock } = await axios.get(
-              `/api/inventory-stock/${item.itemCode}`
-            );
-
-            const currentAllocated = currentStock?.allocated_quantity || 0;
-            const currentCommitted = currentStock?.committed_quantity || 0;
-
-            await axios.put(`/api/inventory-stock/${item.itemCode}`, {
-              allocated_quantity: Math.max(0, currentAllocated - item.quantityOrdered),
-              committed_quantity: currentCommitted + item.quantityOrdered,
-            });
-
-          } catch (inventoryError) {
-            console.warn(`Inventory not found for ${item.itemCode}`);
-            continue; // skip this item but continue others
-          }
-
-        }
-      }
-
-      toast({
-        title: "Status Updated",
-        description: `Order ${order.orderNo} moved to Processing.`,
-      });
-    }
-
-    // Update UI
-    setOrders((prevOrders) =>
-      prevOrders.map((o) =>
-        o.id === orderId ? { ...o, status: newStatus } : o
-      )
+    setRegularOrders((prev) =>
+      prev.map((item) =>
+        item.id === template.id ? { ...item, lastOrdered: todayISO(), nextOrderDate: template.nextOrderDate } : item,
+      ),
     );
+    toast({ title: "Regular order created", description: `${template.templateNumber} generated a new order.` });
+  };
 
-    // Update backend
-    await axios.put(`/api/orders/${orderId}/status`, { status: newStatus });
-
-  } catch (error: any) {
-    console.error("Error updating order status:", error);
-
-    toast({
-      title: "Status Update Failed",
-      description:
-        error?.response?.data?.message || "Failed to update order status",
-      variant: "destructive",
+  const openRFQ = (item: LineItem, shortage: number) => {
+    setRfqItem({
+      item_code: item.itemCode,
+      item_name: item.itemName,
+      description: item.itemName,
+      quantity: integer(shortage),
     });
-  }
-};
-
-  const handleSort = (field: "date" | "amount" | "customer" | "status") => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-    } else {
-      setSortField(field);
-      setSortDirection("asc");
-    }
+    setRfqDialogOpen(true);
   };
 
-  const getSortIcon = (field: "date" | "amount" | "customer" | "status") => {
-    if (sortField !== field) {
-      return <ArrowUpDown className="ml-1 h-4 w-4 inline" />;
-    }
-    return sortDirection === "asc" ? (
-      <ArrowUp className="ml-1 h-4 w-4 inline" />
-    ) : (
-      <ArrowDown className="ml-1 h-4 w-4 inline" />
-    );
-  };
-
-  const filteredOrders = Array.isArray(orders)
-  ? orders.filter((order) => {
-      // 1️⃣ Search term match
-      const matchesSearch =
-        order.customer?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.id?.toLowerCase().includes(searchTerm.toLowerCase());
-
-      // 2️⃣ Status filter
-      const matchesStatus =
-        filterStatus === "Open"
-          ? order.status !== "Delivered"
-          : order.status === "Delivered";
-
-      // 3️⃣ Date range filter
-      const orderDate = order.orderDate ? new Date(order.orderDate) : null;
-      const matchesDateRange =
-        (!startDate || (orderDate && orderDate >= startDate)) &&
-        (!endDate || (orderDate && orderDate <= endDate));
-
-      // 4️⃣ Amount range filter
-      const orderTotal =
-        Array.isArray(order.items)
-          ? order.items.reduce((sum, item) => sum + (item.totalAmount || 0), 0)
-          : 0;
-      const matchesAmountRange =
-        (!minAmount || orderTotal >= parseFloat(minAmount)) &&
-        (!maxAmount || orderTotal <= parseFloat(maxAmount));
-
-      // 5️⃣ Delivery status filter
-      const matchesDeliveryStatus =
-        deliveryStatusFilter === "all" || order.deliveryStatus === deliveryStatusFilter;
-
-      return matchesSearch && matchesStatus && matchesDateRange && matchesAmountRange && matchesDeliveryStatus;
-    })
-  : []; // fallback to empty array if orders is not an array
-
-  // Apply sorting
-  const sortedOrders = [...filteredOrders].sort((a, b) => {
-    if (!sortField) return 0;
-
-    let comparison = 0;
-
-    switch (sortField) {
-      case "date":
-        comparison = new Date(a.orderDate).getTime() - new Date(b.orderDate).getTime();
-        break;
-      case "amount":
-        const aTotal = a.items?.reduce((sum, item) => sum + item.totalAmount, 0) || 0;
-        const bTotal = b.items?.reduce((sum, item) => sum + item.totalAmount, 0) || 0;
-        comparison = aTotal - bTotal;
-        break;
-      case "customer":
-        comparison = a.customer.localeCompare(b.customer);
-        break;
-      case "status":
-        comparison = (a.status ?? "").localeCompare(b.status ?? "");
-        break;
-    }
-
-    return sortDirection === "asc" ? comparison : -comparison;
-  });
-
-  // Pagination calculations
-  const totalPages = Math.ceil(sortedOrders.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedOrders = sortedOrders.slice(startIndex, endIndex);
-
-  // Reset to page 1 when filters change
   useEffect(() => {
-    setCurrentPage(1);
-  }, [
-    searchTerm,
-    filterStatus,
-    startDate,
-    endDate,
-    minAmount,
-    maxAmount,
-    deliveryStatusFilter,
-    sortField,
-    sortDirection,
-  ]);
-
-  const totalAmount = sortedOrders.reduce((sum, order) => {
-    return sum + (order.items?.reduce((itemSum, item) => itemSum + item.totalAmount, 0) || 0);
-  }, 0);
-
-  const toggleOrderSelection = (orderId: string) => {
-    const newSelected = new Set(selectedOrders);
-    if (newSelected.has(orderId)) {
-      newSelected.delete(orderId);
-    } else {
-      newSelected.add(orderId);
+    if (location.state?.autoCreateOrder && location.state?.orderData && location.state?.lineItems) {
+      const { orderData, lineItems: returnedLineItems, bomData } = location.state;
+      setFormData(orderData);
+      setLineItems(returnedLineItems);
+      toast({ title: "BOM ready", description: `BOM ${bomData.itemCode} added back to this order.` });
+      window.history.replaceState({}, document.title);
+      setWorkspaceView("new");
     }
-    setSelectedOrders(newSelected);
+  }, [location.state]);
+
+  const counts = {
+    orders: orders.length,
+    regular: regularOrders.length,
+    purchase: purchaseNeeds.length,
   };
 
-  const toggleAllOrders = () => {
-    if (selectedOrders.size === filteredOrders.length) {
-      setSelectedOrders(new Set());
-    } else {
-      setSelectedOrders(new Set(filteredOrders.map((o) => o.id)));
-    }
+  const recentOrders = [...orders].sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime()).slice(0, 5);
+
+  const renderValidationBadge = (state: ValidationState, label: string) => {
+    const classes: Record<ValidationState, string> = {
+      available: "border-success/20 bg-success/10 text-success",
+      partial: "border-warning/20 bg-warning/10 text-warning",
+      purchase: "border-primary/20 bg-primary/10 text-primary",
+      produce: "border-accent/20 bg-accent/10 text-accent",
+      missing: "border-border bg-muted text-muted-foreground",
+    };
+    return <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold", classes[state])}>{label}</span>;
   };
 
- // console.warn({lineItems})
-  return (
-    <Layout>
-      <div className="flex flex-col h-full">
-        {/* Main Module Tabs */}
-        <div className="bg-background border-b border-border px-6 py-2">
-          <Tabs value={mainTab} onValueChange={setMainTab}>
-            <TabsList className="bg-muted">
-              <TabsTrigger value="orders" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-                Orders
-              </TabsTrigger>
-              <TabsTrigger value="packages" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-                Packages
-              </TabsTrigger>             
-            </TabsList>
-          </Tabs>
-        </div>
+  const renderWorkspaceSidebar = () => (
+    <aside className="w-full border-b border-border bg-card lg:w-64 lg:border-b-0 lg:border-r">
+      <div className="px-4 py-4">
+        <h2 className="text-sm font-semibold text-foreground">Order Booking</h2>
+        <p className="mt-1 text-xs text-muted-foreground">Sales planning, validation, purchasing, and follow-up in one workspace.</p>
+      </div>
+      <div className="flex gap-2 overflow-x-auto px-3 pb-3 lg:block lg:space-y-1 lg:overflow-visible lg:px-3 lg:pb-4">
+        {ORDER_VIEWS.map((view) => {
+          const Icon = view.icon;
+          const active = workspaceView === view.id;
+          const count = view.countKey ? counts[view.countKey as keyof typeof counts] : undefined;
+          return (
+            <button
+              key={view.id}
+              type="button"
+              onClick={() => setWorkspaceView(view.id)}
+              className={cn(
+                "flex min-w-fit items-center gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors lg:w-full",
+                active
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-transparent bg-transparent text-muted-foreground hover:border-border hover:bg-muted/60 hover:text-foreground",
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              <span className="flex-1 whitespace-nowrap">{view.label}</span>
+              {typeof count === "number" && (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{count}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </aside>
+  );
 
-        {mainTab === "packages" ? (
-          <div className="flex-1 p-6 overflow-auto">
-            <OrderPackagesTab orders={orders} />
-          </div>
-        ) : mainTab === "refunds" ? (
-          <div className="flex-1 p-6 overflow-auto">
-          
-          </div>
-        ) : (
-        <>
-        {/* Filter Bar */}
-        <div className="bg-background border-b border-border px-6 py-3">
-          <div className="flex items-center justify-between mb-3">
-            <FilterBar
-              filters={["Open", "Done"]}
-              activeFilter={filterStatus}
-              onFilterChange={(filter) => setFilterStatus(filter as "Open" | "Done")}
-            />
-            <div className="flex items-center gap-3">
-              <Select value={locationFilter} onValueChange={setLocationFilter}>
-                <SelectTrigger className="w-48">
-                  <MapPin className="h-4 w-4 mr-2" />
+  const renderComposer = () => (
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="space-y-6">
+        <section className="overflow-hidden rounded-lg border bg-card shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-portal-fieldset px-5 py-4">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Order Header</h3>
+              <p className="mt-1 text-xs text-muted-foreground">Customer, delivery commitment, commercial terms.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="rounded-md border bg-background px-3 py-1.5 font-mono text-xs text-muted-foreground">{formData.orderNo}</span>
+              <Select
+                value={formData.orderType}
+                onValueChange={(value) => {
+                  setFormData((prev) => ({ ...prev, orderType: value }));
+                  setLineItems((prev) =>
+                    prev.map((item) => (item.itemCode ? item : { ...item, itemType: getDefaultItemType(value) })),
+                  );
+                }}
+              >
+                <SelectTrigger className="w-[150px] bg-background">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="All locations">All locations</SelectItem>
-                  <SelectItem value="Warehouse A">Warehouse A</SelectItem>
-                  <SelectItem value="Warehouse B">Warehouse B</SelectItem>
+                  <SelectItem value="Sales">Sales</SelectItem>
+                  <SelectItem value="Manufacturing">Manufacturing</SelectItem>
+                  <SelectItem value="Sample">Sample</SelectItem>
+                  <SelectItem value="Export">Export</SelectItem>
                 </SelectContent>
               </Select>
-              <Dialog
-                open={isDialogOpen}
-                onOpenChange={(open) => {
-                  setIsDialogOpen(open);
-                  if (!open) {
-                    setCurrentTab("customer");
-                    setCompletedTabs(new Set());
-                  }
-                }}
-              >
-                <DialogTrigger asChild>
-                  <Button
-                    onClick={() => {
-                      setCurrentTab("customer");
-                      setCompletedTabs(new Set());
-                    }}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Sales order
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
-                  <DialogHeader>
-                    <DialogTitle>Create New Order</DialogTitle>
-                  <DialogDescription>
-                        </DialogDescription>
-                      </DialogHeader>
-
-                  <Tabs value={currentTab} onValueChange={handleTabChange} className="w-full">
-                    <TabsList className="grid w-full grid-cols-5">
-                      <TabsTrigger value="customer" className="flex-col gap-1 h-auto py-2">
-                        <div className="flex items-center gap-2">
-                          <span>Customer Info</span>
-                          {completedTabs.has("customer") && <Check className="h-3 w-3" />}
-                        </div>
-                        <div className="w-full space-y-1">
-                          <Progress value={getTabProgress("customer").percentage} className="h-1" />
-                          <span className="text-[10px] text-muted-foreground">
-                            {getTabProgress("customer").completed}/{getTabProgress("customer").total}
-                          </span>
-                        </div>
-                      </TabsTrigger>
-                      <TabsTrigger value="order" className="flex-col gap-1 h-auto py-2">
-                        <div className="flex items-center gap-2">
-                          <span>Order Details</span>
-                          {completedTabs.has("order") && <Check className="h-3 w-3" />}
-                        </div>
-                        <div className="w-full space-y-1">
-                          <Progress value={getTabProgress("order").percentage} className="h-1" />
-                          <span className="text-[10px] text-muted-foreground">
-                            {getTabProgress("order").completed}/{getTabProgress("order").total}
-                          </span>
-                        </div>
-                      </TabsTrigger>
-                      <TabsTrigger value="items" className="flex-col gap-1 h-auto py-2">
-                        <div className="flex items-center gap-2">
-                          <span>Item Details</span>
-                          {completedTabs.has("items") && <Check className="h-3 w-3" />}
-                        </div>
-                        <div className="w-full space-y-1">
-                          <Progress value={getTabProgress("items").percentage} className="h-1" />
-                          <span className="text-[10px] text-muted-foreground">
-                            {getTabProgress("items").completed}/{getTabProgress("items").total}
-                          </span>
-                        </div>
-                      </TabsTrigger>
-                      <TabsTrigger value="delivery" className="flex-col gap-1 h-auto py-2">
-                        <div className="flex items-center gap-2">
-                          <span>Delivery</span>
-                          {completedTabs.has("delivery") && <Check className="h-3 w-3" />}
-                        </div>
-                        <div className="w-full space-y-1">
-                          <Progress value={getTabProgress("delivery").percentage} className="h-1" />
-                          <span className="text-[10px] text-muted-foreground">
-                            {getTabProgress("delivery").completed}/{getTabProgress("delivery").total}
-                          </span>
-                        </div>
-                      </TabsTrigger>
-                      <TabsTrigger value="payment" className="flex-col gap-1 h-auto py-2">
-                        <div className="flex items-center gap-2">
-                          <span>Payment</span>
-                          {completedTabs.has("payment") && <Check className="h-3 w-3" />}
-                        </div>
-                        <div className="w-full space-y-1">
-                          <Progress value={getTabProgress("payment").percentage} className="h-1" />
-                          <span className="text-[10px] text-muted-foreground">
-                            {getTabProgress("payment").completed}/{getTabProgress("payment").total}
-                          </span>
-                        </div>
-                      </TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="customer" className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2 col-span-2">
-                          <Label>Customer Name *</Label>
-                          <Popover open={customerPopoverOpen} onOpenChange={setCustomerPopoverOpen}>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant="outline"
-                                role="combobox"
-                                aria-expanded={customerPopoverOpen}
-                                className={cn(
-                                  "w-full justify-between",
-                                  fieldErrors.customerName && "border-destructive",
-                                )}
-                              >
-                                {formData.customerName || "Select customer..."}
-                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-full p-0 bg-background z-50">
-                              <Command>
-                                <CommandInput placeholder="Search customer..." />
-                                <CommandList>
-                                  <CommandEmpty>No customer found.</CommandEmpty>
-                                  <CommandGroup>
-                                    {customers.map((customer: any) => (
-                                      <CommandItem
-                                        key={customer.id}
-                                        value={customer.customer_name}
-                                        onSelect={() => {
-                                          setFormData({
-                                            ...formData,
-                                            customerName: customer.customer_name,
-                                            customerCode: customer.customer_code || "",
-                                            email: customer.email || "",
-                                            contactNumber: customer.mobile || "",
-                                            contactPerson: customer.contact_person || "",
-                                            billingAddress: customer.billing_address || "",
-                                            shippingAddress: customer.shipping_address || "",                                            
-                                          });
-                                          setCustomerPopoverOpen(false);
-                                          // Clear error when value is selected
-                                          if (fieldErrors.customerName) {
-                                            setFieldErrors({ ...fieldErrors, customerName: "" });
-                                          }
-                                        }}
-                                      >
-                                        <Check
-                                          className={cn(
-                                            "mr-2 h-4 w-4",
-                                            formData.customerName === customer.customer_name
-                                              ? "opacity-100"
-                                              : "opacity-0",
-                                          )}
-                                        />
-                                        {customer.customer_name} ({customer.customer_code})
-                                      </CommandItem>
-                                    ))}
-                                  </CommandGroup>
-                                </CommandList>
-                              </Command>
-                            </PopoverContent>
-                          </Popover>
-                          {fieldErrors.customerName && (
-                            <p className="text-sm text-destructive flex items-center gap-1">
-                              <AlertCircle className="h-3 w-3" />
-                              {fieldErrors.customerName}
-                            </p>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="customerCode">Customer Code / ID</Label>
-                          <Input
-                            id="customerCode"
-                            value={formData.customerCode}
-                            onChange={(e) => setFormData({ ...formData, customerCode: e.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="contactPerson">Contact Person *</Label>
-                          <Input
-                            id="contactPerson"
-                            value={formData.contactPerson}
-                            onChange={(e) => {
-                              setFormData({ ...formData, contactPerson: e.target.value });
-                              if (fieldErrors.contactPerson) {
-                                setFieldErrors({ ...fieldErrors, contactPerson: "" });
-                              }
-                            }}
-                            className={fieldErrors.contactPerson ? "border-destructive" : ""}
-                          />
-                          {fieldErrors.contactPerson && (
-                            <p className="text-sm text-destructive flex items-center gap-1">
-                              <AlertCircle className="h-3 w-3" />
-                              {fieldErrors.contactPerson}
-                            </p>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="contactNumber">Contact Number *</Label>
-                          <Input
-                            id="contactNumber"
-                            value={formData.contactNumber}
-                            onChange={(e) => {
-                              setFormData({ ...formData, contactNumber: e.target.value });
-                              if (fieldErrors.contactNumber) {
-                                setFieldErrors({ ...fieldErrors, contactNumber: "" });
-                              }
-                            }}
-                            className={fieldErrors.contactNumber ? "border-destructive" : ""}
-                          />
-                          {fieldErrors.contactNumber && (
-                            <p className="text-sm text-destructive flex items-center gap-1">
-                              <AlertCircle className="h-3 w-3" />
-                              {fieldErrors.contactNumber}
-                            </p>
-                          )}
-                        </div>
-                        <div className="space-y-2 col-span-2">
-                          <Label htmlFor="email">Email ID</Label>
-                          <Input
-                            id="email"
-                            type="email"
-                            value={formData.email}
-                            onChange={(e) => {
-                              setFormData({ ...formData, email: e.target.value });
-                              if (fieldErrors.email) {
-                                setFieldErrors({ ...fieldErrors, email: "" });
-                              }
-                            }}
-                            className={fieldErrors.email ? "border-destructive" : ""}
-                          />
-                          {fieldErrors.email && (
-                            <p className="text-sm text-destructive flex items-center gap-1">
-                              <AlertCircle className="h-3 w-3" />
-                              {fieldErrors.email}
-                            </p>
-                          )}
-                        </div>
-                        <div className="space-y-2 col-span-2">
-                          <Label htmlFor="billingAddress">Billing Address</Label>
-                          <Textarea
-                            id="billingAddress"
-                            value={formData.billingAddress}
-                            onChange={(e) => setFormData({ ...formData, billingAddress: e.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-2 col-span-2">
-                          <Label htmlFor="shippingAddress">Shipping Address</Label>
-                          <Textarea
-                            id="shippingAddress"
-                            value={formData.shippingAddress}
-                            onChange={(e) => setFormData({ ...formData, shippingAddress: e.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-2 col-span-2">
-                          <Label htmlFor="location">Location *</Label>
-                          <Input
-                            id="location"
-                            value={formData.location}
-                            onChange={(e) => {
-                              setFormData({ ...formData, location: e.target.value });
-                              if (fieldErrors.location) {
-                                setFieldErrors({ ...fieldErrors, location: "" });
-                              }
-                            }}
-                            placeholder="Enter location"
-                            className={fieldErrors.location ? "border-destructive" : ""}
-                          />
-                          {fieldErrors.location && (
-                            <p className="text-sm text-destructive flex items-center gap-1">
-                              <AlertCircle className="h-3 w-3" />
-                              {fieldErrors.location}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="order" className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="orderNo">Order ID</Label>
-                          <Input id="orderNo" value={formData.orderNo} disabled className="bg-muted" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="orderType">Order Type *</Label>
-                          <Select
-                            value={formData.orderType}
-                            onValueChange={(value) => {
-                              setFormData({ ...formData, orderType: value });
-
-                              // Auto-update item type for all line items based on order type
-                              const defaultItemType =
-                                value === "Sales" ? "Component" : value === "Manufacturing" ? "Product" : "";
-                              if (defaultItemType) {
-                                setLineItems(lineItems.map((item) => ({ ...item, itemType: defaultItemType })));
-                              }
-
-                              if (fieldErrors.orderType) {
-                                setFieldErrors({ ...fieldErrors, orderType: "" });
-                              }
-                            }}
-                          >
-                            <SelectTrigger className={fieldErrors.orderType ? "border-destructive" : ""}>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent className="bg-background z-50">
-                              <SelectItem value="Sales">Sales</SelectItem>
-                              <SelectItem value="Manufacturing">Manufacturing</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {fieldErrors.orderType && (
-                            <p className="text-sm text-destructive flex items-center gap-1">
-                              <AlertCircle className="h-3 w-3" />
-                              {fieldErrors.orderType}
-                            </p>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="orderDate">Order Date *</Label>
-                          <Input
-                            id="orderDate"
-                            type="date"
-                            value={formData.orderDate}
-                            onChange={(e) => {
-                              setFormData({ ...formData, orderDate: e.target.value });
-                              if (fieldErrors.orderDate) {
-                                setFieldErrors({ ...fieldErrors, orderDate: "" });
-                              }
-                            }}
-                            className={fieldErrors.orderDate ? "border-destructive" : ""}
-                          />
-                          {fieldErrors.orderDate && (
-                            <p className="text-sm text-destructive flex items-center gap-1">
-                              <AlertCircle className="h-3 w-3" />
-                              {fieldErrors.orderDate}
-                            </p>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="expectedDeliveryDate">Expected Delivery Date *</Label>
-                          <Input
-                            id="expectedDeliveryDate"
-                            type="date"
-                            value={formData.expectedDeliveryDate}
-                            onChange={(e) => {
-                              setFormData({ ...formData, expectedDeliveryDate: e.target.value });
-                              if (fieldErrors.expectedDeliveryDate) {
-                                setFieldErrors({ ...fieldErrors, expectedDeliveryDate: "" });
-                              }
-                            }}
-                            className={fieldErrors.expectedDeliveryDate ? "border-destructive" : ""}
-                          />
-                          {fieldErrors.expectedDeliveryDate && (
-                            <p className="text-sm text-destructive flex items-center gap-1">
-                              <AlertCircle className="h-3 w-3" />
-                              {fieldErrors.expectedDeliveryDate}
-                            </p>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="referenceNo">Reference No.</Label>
-                          <Input
-                            id="referenceNo"
-                            value={formData.referenceNo}
-                            onChange={(e) => setFormData({ ...formData, referenceNo: e.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="priority">Priority *</Label>
-                          <Select
-                            value={formData.priority}
-                            onValueChange={(value) => {
-                              setFormData({ ...formData, priority: value });
-                              if (fieldErrors.priority) {
-                                setFieldErrors({ ...fieldErrors, priority: "" });
-                              }
-                            }}
-                          >
-                            <SelectTrigger className={fieldErrors.priority ? "border-destructive" : ""}>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent className="bg-background z-50">
-                              <SelectItem value="Normal">Normal</SelectItem>
-                              <SelectItem value="Urgent">Urgent</SelectItem>
-                              <SelectItem value="Scheduled">Scheduled</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {fieldErrors.priority && (
-                            <p className="text-sm text-destructive flex items-center gap-1">
-                              <AlertCircle className="h-3 w-3" />
-                              {fieldErrors.priority}
-                            </p>
-                          )}
-                        </div>
-                        <div className="space-y-2 col-span-2">
-                          <Label htmlFor="remarks">Remarks</Label>
-                          <Textarea
-                            id="remarks"
-                            value={formData.remarks}
-                            onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-                          />
-                        </div>
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="items" className="space-y-4">
-                      <div className="flex justify-between items-center mb-4">
-                        <h3 className="font-semibold">Add Items to Order</h3>
-                        <Button onClick={addLineItem} size="sm" variant="outline">
-                          <Plus className="mr-2 h-4 w-4" />
-                          Add Item Row
-                        </Button>
-                      </div>
-                      <div className="space-y-4 max-h-[500px] overflow-y-auto">
-                        {lineItems.map((item, index) => (
-                          <Card key={item.id} className="p-4 bg-muted/30">
-                            <div className="flex justify-between items-center mb-3">
-                              <h4 className="font-medium text-sm">Item #{index + 1}</h4>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeLineItem(item.id)}
-                                disabled={lineItems.length === 1}
-                                className="text-destructive hover:text-destructive"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                            <div className="grid grid-cols-3 gap-4">
-                              {/* Item Type Selection */}
-                              <div className="space-y-2">
-                                <Label>Item Type *</Label>
-                                <Select
-                                  disabled
-                                  value={item.itemType}
-                                  onValueChange={(value) => {
-                                    updateLineItem(item.id, "itemType", value);
-                                    // Reset item code when type changes
-                                    if (item.itemCode) {
-                                      updateLineItem(item.id, "itemCode", "");
-                                    }
-                                    // Clear error when value is selected
-                                    if (fieldErrors[`item_${index}_itemType`]) {
-                                      const newErrors = { ...fieldErrors };
-                                      delete newErrors[`item_${index}_itemType`];
-                                      setFieldErrors(newErrors);
-                                    }
-                                  }}
-                                >
-                                  <SelectTrigger
-                                    className={fieldErrors[`item_${index}_itemType`] ? "border-destructive" : ""}
-                                  >
-                                    <SelectValue placeholder="Select type..." />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="Component">Component</SelectItem>
-                                    <SelectItem value="Product">Product</SelectItem>
-                                    <SelectItem value="Service">Service</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                {fieldErrors[`item_${index}_itemType`] && (
-                                  <p className="text-sm text-destructive flex items-center gap-1">
-                                    <AlertCircle className="h-3 w-3" />
-                                    {fieldErrors[`item_${index}_itemType`]}
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Item Selection Row */}
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <Label>Item Code *</Label>
-                                  {item.itemType === "Product" && (
-                                    <div className="flex gap-1">
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant={
-                                          !itemUsabilityFilter[item.id] || itemUsabilityFilter[item.id] === "all"
-                                            ? "default"
-                                            : "outline"
-                                        }
-                                        className="h-7 px-2 text-xs"
-                                        onClick={() =>
-                                          setItemUsabilityFilter({ ...itemUsabilityFilter, [item.id]: "all" })
-                                        }
-                                      >
-                                        All
-                                      </Button>
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant={itemUsabilityFilter[item.id] === "buy" ? "default" : "outline"}
-                                        className="h-7 px-2 text-xs"
-                                        onClick={() =>
-                                          setItemUsabilityFilter({ ...itemUsabilityFilter, [item.id]: "buy" })
-                                        }
-                                      >
-                                        Buy
-                                      </Button>
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant={itemUsabilityFilter[item.id] === "make" ? "default" : "outline"}
-                                        className="h-7 px-2 text-xs"
-                                        onClick={() =>
-                                          setItemUsabilityFilter({ ...itemUsabilityFilter, [item.id]: "make" })
-                                        }
-                                      >
-                                        Make
-                                      </Button>
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="flex gap-2">
-                                  <Popover
-  open={itemCodePopoverOpen[item.id] ?? false}
-  onOpenChange={(open) =>
-    setItemCodePopoverOpen(prev => ({
-      ...prev,
-      [item.id]: open,
-    }))
-  }
->
-                                    <PopoverTrigger asChild>
-                                      <Button
-  variant="outline"
-  role="combobox"
-  aria-expanded={itemCodePopoverOpen[item.id] ?? false}
-  className={cn(
-    "w-full justify-between min-w-0",
-    fieldErrors[`item_${index}_itemCode`] && "border-destructive",
-  )}
-  disabled={!item.itemType}
->
-  <span className="truncate text-left">
-    {item.itemCode || (item.itemType ? "Select item..." : "Select type first")}
-  </span>
-
-  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-</Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-[400px] p-0">
-  <Command>
-    <CommandInput placeholder="Search item..." />
-    <CommandList>
-      <CommandEmpty>
-        <div className="p-4 text-center">
-          <p className="text-sm text-muted-foreground mb-3">No item found.</p>
-          <Button
-            size="sm"
-            onClick={() => {
-              setCurrentEditingItemId(item.id);
-              setCreateItemOpen(true);
-              setItemCodePopoverOpen({ ...itemCodePopoverOpen, [item.id]: true });
-            }}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Create New Item
-          </Button>
-        </div>
-      </CommandEmpty>
-
-   <CommandGroup>
-  {Array.isArray(inventoryItems) &&
-    inventoryItems
-      .filter((invItem) => {
-        if (invItem.item_type !== item.itemType) return false;
-
-        if (item.itemType === "Product") {
-          const filter = itemUsabilityFilter[item.id] || "all";
-          if (filter === "buy" && !invItem.usability_buy) return false;
-          if (filter === "make" && !invItem.usability_make) return false;
-        }
-        return true;
-      })
-      .map((invItem, index) => (
-        <CommandItem
-          key={invItem.id}
-          value={String(invItem.itemCode ?? invItem.id ?? `item-${invItem.id}`)}
-          onSelect={() => {
-            console.log("Selected item:", invItem);
-
-            updateLineItem(item.id, "itemCode", invItem.itemCode ?? "");
-            updateLineItem(item.id, "itemName", invItem.itemName ?? "");
-            updateLineItem(item.id, "uom", invItem.uom || "pcs");
-            updateLineItem(item.id, "rate", invItem.unit_cost || 0);
-
-            setItemCodePopoverOpen(prev => ({ ...prev, [item.id]: false }));
-
-            const errorKey = `item_${index}_itemCode`;
-            if (fieldErrors[errorKey]) {
-              setFieldErrors(prev => {
-                const newErrors = { ...prev };
-                delete newErrors[errorKey];
-                return newErrors;
-              });
-            }
-          }}
-        >
-          <Check
-            className={cn(
-              "mr-2 h-4 w-4",
-              item.itemCode === invItem.itemCode ? "opacity-100" : "opacity-0"
-            )}
-          />
-          <div>
-            <div className="font-medium">{invItem.itemCode || "— no code —"}</div>
-            <div className="text-sm text-muted-foreground">{invItem.itemName || "— no name —"}</div>
-          </div>
-        </CommandItem>
-      ))}
-</CommandGroup>
-    </CommandList>
-  </Command>
-</PopoverContent>
-
-
-                                  </Popover>
-
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button variant="outline" size="icon" onClick={() => setCreateItemOpen(true)}>
-                                          <Plus className="h-4 w-4" />
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent>
-                                        <p>Add New Item</p>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                </div>
-                                {fieldErrors[`item_${index}_itemCode`] && (
-                                  <p className="text-sm text-destructive flex items-center gap-1">
-                                    <AlertCircle className="h-3 w-3" />
-                                    {fieldErrors[`item_${index}_itemCode`]}
-                                  </p>
-                                )}
-                              </div>
-
-                               <div className="space-y-2">
-                                <Label>Item Name</Label>
-                                <div className="flex gap-2 items-center">
-                                  <Input value={item.itemName} disabled className="bg-muted flex-1" />
-                                  {item.itemCode && (
-                                    <TooltipProvider>
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Button
-                                            variant="outline"
-                                            size="icon"
-                                            onClick={() => {
-                                              navigate("/api/bom", {
-                                                state: { itemCode: item.itemCode, itemName: item.itemName },
-                                              });
-                                            }}
-                                          >
-                                            <ExternalLink className="h-4 w-4" />
-                                          </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                          <p>View/Create BOM</p>
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    </TooltipProvider>
-                                  )}
-                                </div>
-                              </div>
-
-
-                              <div className="space-y-2">
-                                <Label>Unit / UOM</Label>
-                                <Input value={item.uom} disabled className="bg-muted" />
-                              </div>
-
-                              {/* Stock and Quantity Row */}
-                              <div className="space-y-2">
-                                <Label>Available Stock</Label>
-                                <div className="flex items-center gap-2">
-                                  <Input type="number" value={item.availableStock} disabled className="bg-muted" />
-                                  {item.quantityOrdered > 0 && item.availableStock >= item.quantityOrdered && (
-                                    <Badge variant="outline" className="text-green-600 whitespace-nowrap">
-                                      <CheckCircle2 className="h-3 w-3 mr-1" />
-                                      In Stock
-                                    </Badge>
-                                  )}
-                                  {item.quantityOrdered > 0 && item.availableStock < item.quantityOrdered && (
-                                    <>
-                                      <Badge variant="destructive" className="whitespace-nowrap">
-                                        <AlertCircle className="h-3 w-3 mr-1" />
-                                        Low Stock
-                                      </Badge>
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => {
-                                          setRfqItem({
-                                            item_code: item.itemCode,
-                                            item_name: item.itemName,
-                                            description: item.itemName,
-                                            quantity: item.quantityOrdered - item.availableStock,
-                                          });
-                                          setRfqDialogOpen(true);
-                                        }}
-                                        className="h-7"
-                                      >
-                                        Buy
-                                      </Button>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label>Quantity *</Label>
-                                <Input
-                                  type="number"
-                                  min="1"
-                                  value={item.quantityOrdered || ""}
-                                  onChange={(e) => {
-                                    updateLineItem(item.id, "quantityOrdered", Number(e.target.value));
-                                    // Clear error when value is entered
-                                    if (fieldErrors[`item_${index}_quantity`]) {
-                                      const newErrors = { ...fieldErrors };
-                                      delete newErrors[`item_${index}_quantity`];
-                                      setFieldErrors(newErrors);
-                                    }
-                                  }}
-                                  placeholder="0"
-                                  className={fieldErrors[`item_${index}_quantity`] ? "border-destructive" : ""}
-                                />
-                                {fieldErrors[`item_${index}_quantity`] && (
-                                  <p className="text-sm text-destructive flex items-center gap-1">
-                                    <AlertCircle className="h-3 w-3" />
-                                    {fieldErrors[`item_${index}_quantity`]}
-                                  </p>
-                                )}
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label>Location</Label>
-                                <Input value={item.rackLocation} disabled className="bg-muted" />
-                              </div>
-
-                              {/* Pricing Row */}
-                              <div className="space-y-2">
-                                <Label>Rate / Price (₹)</Label>
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  value={item.rate || ""}
-                                  onChange={(e) => updateLineItem(item.id, "rate", Number(e.target.value))}
-                                  placeholder="0.00"
-                                />
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label>Tax (GST %)</Label>
-                                <Select
-                                  value={String(item.tax)}
-                                  onValueChange={(value) => updateLineItem(item.id, "tax", Number(value))}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="0">0% (Exempt)</SelectItem>
-                                    <SelectItem value="5">5% GST</SelectItem>
-                                    <SelectItem value="12">12% GST</SelectItem>
-                                    <SelectItem value="18">18% GST</SelectItem>
-                                    <SelectItem value="28">28% GST</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label>Total Amount (₹)</Label>
-                                <Input
-                                  type="number"
-                                  value={item.totalAmount.toFixed(2)}
-                                  disabled
-                                  className="bg-muted font-semibold"
-                                />
-                              </div>
-                            </div>
-
-                            {/* BOM Components Section - Only for Product items */}
-                            {item.itemType === "Product" && item.itemCode && (
-                              <div className="mt-6 pt-6 border-t">
-                                <div className="mb-4">
-                                  <h4 className="text-sm font-semibold mb-1">Line Details</h4>
-                                  <p className="text-xs text-muted-foreground">Bill of Materials Components</p>
-                                </div>
-
-                                {item.bomLoading && (
-                                  <div className="flex items-center justify-center py-8">
-                                    <div className="flex items-center gap-2 text-muted-foreground">
-                                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                                      <span className="text-sm">Loading BOM components...</span>
-                                    </div>
-                                  </div>
-                                )}
-
-                                {!item.bomLoading && item.noBOM && (
-                                  <div className="flex items-center justify-center py-8 border rounded-md bg-muted/50">
-                                    <div className="text-center">
-                                      <AlertCircle className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                                      <p className="text-sm font-medium text-muted-foreground">
-                                        No BOM is defined for this product.
-                                      </p>
-                                    </div>
-                                  </div>
-                                )}
-
-                                {!item.bomLoading &&
-                                  !item.noBOM &&
-                                  item.bomComponents &&
-                                  item.bomComponents.length > 0 && (
-                                    <div className="border rounded-md overflow-hidden">
-                                      <Table>
-                                        <TableHeader>
-                                          <TableRow className="bg-muted/50">
-                                            <TableHead className="w-[140px]">Related Item</TableHead>
-                                            <TableHead>Description</TableHead>
-                                            <TableHead className="w-[80px]">UOM</TableHead>
-                                            <TableHead className="w-[120px]">Type</TableHead>
-                                            <TableHead className="w-[100px] text-right">Available Qty</TableHead>
-                                            <TableHead className="w-[100px] text-right">Required Qty</TableHead>
-                                          </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                          {item.bomComponents.map((comp, idx) => (
-                                            <TableRow key={idx}>
-                                              <TableCell className="font-mono text-sm">{comp.component}</TableCell>
-                                              <TableCell className="text-sm">{comp.description}</TableCell>
-                                              <TableCell className="text-sm">{comp.uom}</TableCell>
-                                              <TableCell className="text-sm">{comp.type}</TableCell>
-                                              <TableCell className="text-right">
-                                                <div className="flex items-center justify-end gap-2">
-                                                  <span className="text-sm">{comp.availableQty}</span>
-                                                  {comp.availableQty < comp.requiredQty && (
-                                                    <Badge variant="destructive" className="text-xs">
-                                                      Low
-                                                    </Badge>
-                                                  )}
-                                                </div>
-                                              </TableCell>
-                                              <TableCell className="text-right font-medium text-sm">
-                                                {comp.requiredQty}
-                                              </TableCell>
-                                            </TableRow>
-                                          ))}
-                                        </TableBody>
-                                      </Table>
-                                    </div>
-                                  )}
-                              </div>
-                            )}
-                          </Card>
-                        ))}
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="delivery" className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="dispatchMode">Dispatch Mode *</Label>
-                          <Select
-                            value={formData.dispatchMode}
-                            onValueChange={(value) => {
-                              setFormData({ ...formData, dispatchMode: value });
-                              if (fieldErrors.dispatchMode) {
-                                setFieldErrors({ ...fieldErrors, dispatchMode: "" });
-                              }
-                            }}
-                          >
-                            <SelectTrigger className={fieldErrors.dispatchMode ? "border-destructive" : ""}>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent className="bg-background z-50">
-                              <SelectItem value="Courier">Courier</SelectItem>
-                              <SelectItem value="Transport">Transport</SelectItem>
-                              <SelectItem value="Pickup">Pickup</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {fieldErrors.dispatchMode && (
-                            <p className="text-sm text-destructive flex items-center gap-1">
-                              <AlertCircle className="h-3 w-3" />
-                              {fieldErrors.dispatchMode}
-                            </p>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="transporterName">Transporter Name</Label>
-                          <Input
-                            id="transporterName"
-                            value={formData.transporterName}
-                            onChange={(e) => setFormData({ ...formData, transporterName: e.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="vehicleNo">Vehicle No.</Label>
-                          <Input
-                            id="vehicleNo"
-                            value={formData.vehicleNo}
-                            onChange={(e) => setFormData({ ...formData, vehicleNo: e.target.value })}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="expectedDispatchDate">Expected Dispatch Date *</Label>
-                          <Input
-                            id="expectedDispatchDate"
-                            type="date"
-                            value={formData.expectedDispatchDate}
-                            onChange={(e) => {
-                              setFormData({ ...formData, expectedDispatchDate: e.target.value });
-                              if (fieldErrors.expectedDispatchDate) {
-                                setFieldErrors({ ...fieldErrors, expectedDispatchDate: "" });
-                              }
-                            }}
-                            className={fieldErrors.expectedDispatchDate ? "border-destructive" : ""}
-                          />
-                          {fieldErrors.expectedDispatchDate && (
-                            <p className="text-sm text-destructive flex items-center gap-1">
-                              <AlertCircle className="h-3 w-3" />
-                              {fieldErrors.expectedDispatchDate}
-                            </p>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="deliveryStatus">Delivery Status</Label>
-                          <Select
-                            value={formData.deliveryStatus}
-                            onValueChange={(value) => setFormData({ ...formData, deliveryStatus: value })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Awaiting">Awaiting</SelectItem>
-                              <SelectItem value="Packed">Packed</SelectItem>
-                              <SelectItem value="Shipped">Shipped</SelectItem>
-                              <SelectItem value="Delivered">Delivered</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="warehouseLocation">Warehouse Location</Label>
-                          <Input
-                            id="warehouseLocation"
-                            value={formData.warehouseLocation}
-                            onChange={(e) => setFormData({ ...formData, warehouseLocation: e.target.value })}
-                          />
-                        </div>
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="payment" className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="paymentType">Payment Type *</Label>
-                          <Select
-                            value={formData.paymentType}
-                            onValueChange={(value) => setFormData({ ...formData, paymentType: value })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Cash">Cash</SelectItem>
-                              <SelectItem value="Credit">Credit</SelectItem>
-                              <SelectItem value="Online">Online Transfer</SelectItem>
-                              <SelectItem value="Cheque">Cheque</SelectItem>
-                              <SelectItem value="Other">Other</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="paymentTerms">Payment Terms *</Label>
-                          <Select
-                            value={formData.paymentTerms}
-                            onValueChange={(value) => setFormData({ ...formData, paymentTerms: value })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Immediate">Immediate</SelectItem>
-                              <SelectItem value="Net 15 days">Net 15 days</SelectItem>
-                              <SelectItem value="Net 30 days">Net 30 days</SelectItem>
-                              <SelectItem value="Net 45 days">Net 45 days</SelectItem>
-                              <SelectItem value="Net 60 days">Net 60 days</SelectItem>
-                              <SelectItem value="Net 90 days">Net 90 days</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="advanceAmount">Advance Amount</Label>
-                          <Input
-                            id="advanceAmount"
-                            type="number"
-                            value={formData.advanceAmount}
-                            onChange={(e) => setFormData({ ...formData, advanceAmount: Number(e.target.value) })}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="invoiceRequired">Invoice Required</Label>
-                          <Select
-                            value={formData.invoiceRequired}
-                            onValueChange={(value) => setFormData({ ...formData, invoiceRequired: value })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Yes">Yes</SelectItem>
-                              <SelectItem value="No">No</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                    </TabsContent>
-                  </Tabs>
-
-                  <div className="flex justify-end gap-3 mt-6">
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        // Clear saved draft when canceling
-                        localStorage.removeItem("orderFormDraft");
-                        setIsDialogOpen(false);
-                        setCurrentTab("customer");
-                        setCompletedTabs(new Set());
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    {currentTab !== "payment" ? (
-                      <Button
-                        onClick={() => {
-                          // Validate current tab before moving to next
-                          if (!validateCurrentTab()) {
-                            return;
-                          }
-
-                          // Mark current tab as completed
-                          setCompletedTabs((prev) => new Set([...prev, currentTab]));
-
-                          // Clear errors
-                          setFieldErrors({});
-
-                          // Move to next tab
-                          const tabs = ["customer", "order", "items", "delivery", "payment"];
-                          const currentIndex = tabs.indexOf(currentTab);
-                          if (currentIndex < tabs.length - 1) {
-                            setCurrentTab(tabs[currentIndex + 1]);
-                          }
-                        }}
-                      >
-                        Next
-                      </Button>
-                    ) : (
-                      <Button onClick={handleCreateOrder} disabled={completedTabs.size < 4}>
-                        Create Order
-                      </Button>
-                    )}
-                  </div>
-                </DialogContent>
-              </Dialog>
             </div>
           </div>
-        </div>
-
-        {/* Advanced Filters Collapsible Panel */}
-        <div className="bg-background border-b border-border px-6">
-          <Collapsible open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}>
-            <div className="flex items-center justify-between py-3">
-              <CollapsibleTrigger asChild>
-                <Button variant="ghost" size="sm" className="gap-2">
-                  <Filter className="h-4 w-4" />
-                  Advanced Filters
-                  <ChevronDown className={cn("h-4 w-4 transition-transform", showAdvancedFilters && "rotate-180")} />
-                </Button>
-              </CollapsibleTrigger>
-              {(startDate || endDate || minAmount || maxAmount || deliveryStatusFilter !== "all") && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setStartDate(undefined);
-                    setEndDate(undefined);
-                    setMinAmount("");
-                    setMaxAmount("");
-                    setDeliveryStatusFilter("all");
-                  }}
-                >
-                  Clear Filters
-                </Button>
-              )}
+          <div className="grid gap-4 p-5 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Customer Name *</Label>
+              <Input
+                list="order-customers"
+                value={formData.customerName}
+                onChange={(event) => applyCustomerSelection(event.target.value)}
+                placeholder="Customer or company name"
+              />
+              <datalist id="order-customers">
+                {customers.map((customer: any) => (
+                  <option key={customer.id} value={customer.customer_name} />
+                ))}
+              </datalist>
             </div>
-            <CollapsibleContent className="pb-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Date Range Filter */}
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Order Date Range</Label>
-                  <div className="flex gap-2">
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full justify-start text-left font-normal">
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {startDate ? new Date(startDate).toLocaleDateString() : "From"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar mode="single" selected={startDate} onSelect={setStartDate} initialFocus />
-                      </PopoverContent>
-                    </Popover>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" className="w-full justify-start text-left font-normal">
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {endDate ? new Date(endDate).toLocaleDateString() : "To"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar mode="single" selected={endDate} onSelect={setEndDate} initialFocus />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                </div>
-
-                {/* Amount Range Filter */}
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Amount Range</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      type="number"
-                      placeholder="Min"
-                      value={minAmount}
-                      onChange={(e) => setMinAmount(e.target.value)}
-                      className="w-full"
-                    />
-                    <Input
-                      type="number"
-                      placeholder="Max"
-                      value={maxAmount}
-                      onChange={(e) => setMaxAmount(e.target.value)}
-                      className="w-full"
-                    />
-                  </div>
-                </div>
-
-                {/* Delivery Status Filter */}
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Delivery Status</Label>
-                  <Select value={deliveryStatusFilter} onValueChange={setDeliveryStatusFilter}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Statuses</SelectItem>
-                      <SelectItem value="Pending">Pending</SelectItem>
-                      <SelectItem value="In Transit">In Transit</SelectItem>
-                      <SelectItem value="Delivered">Delivered</SelectItem>
-                      <SelectItem value="Cancelled">Cancelled</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-        </div>
-
-        {/* Main Content */}
-        <div className="flex-1 overflow-auto p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium">{sortedOrders.length} orders</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleAIInsights}
-                disabled={isLoadingInsights || sortedOrders.length === 0}
-              >
-                <Sparkles className="h-4 w-4 mr-2 text-purple-600" />
-                AI insights
-              </Button>
+            <div className="space-y-2">
+              <Label>Customer PO #</Label>
+              <Input value={formData.referenceNo} onChange={(event) => setFormData((prev) => ({ ...prev, referenceNo: event.target.value }))} />
             </div>
-            <div className="flex items-center gap-2">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={exportToPDF}>
-                      <FileText className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Export to PDF</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={exportToExcel}>
-                      <FileSpreadsheet className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Export to Excel (XLSX)</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={handlePrint}>
-                      <Printer className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Print Orders</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+            <div className="space-y-2">
+              <Label>Order Date</Label>
+              <Input type="date" value={formData.orderDate} onChange={(event) => setFormData((prev) => ({ ...prev, orderDate: event.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Required Delivery Date *</Label>
+              <Input
+                type="date"
+                value={formData.expectedDeliveryDate}
+                onChange={(event) => setFormData((prev) => ({ ...prev, expectedDeliveryDate: event.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Payment Terms</Label>
+              <Select value={formData.paymentTerms} onValueChange={(value) => setFormData((prev) => ({ ...prev, paymentTerms: value }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Net 30 days">Net 30 days</SelectItem>
+                  <SelectItem value="Net 45 days">Net 45 days</SelectItem>
+                  <SelectItem value="Net 60 days">Net 60 days</SelectItem>
+                  <SelectItem value="Advance">Advance</SelectItem>
+                  <SelectItem value="COD">COD</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Priority</Label>
+              <Select value={formData.priority} onValueChange={(value) => setFormData((prev) => ({ ...prev, priority: value }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Normal">Normal</SelectItem>
+                  <SelectItem value="High">High</SelectItem>
+                  <SelectItem value="Critical">Critical</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Contact Person</Label>
+              <Input value={formData.contactPerson} onChange={(event) => setFormData((prev) => ({ ...prev, contactPerson: event.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Contact Number</Label>
+              <Input value={formData.contactNumber} onChange={(event) => setFormData((prev) => ({ ...prev, contactNumber: event.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input value={formData.email} onChange={(event) => setFormData((prev) => ({ ...prev, email: event.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Location</Label>
+              <Input value={formData.location} onChange={(event) => setFormData((prev) => ({ ...prev, location: event.target.value }))} />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>Delivery Address / Notes</Label>
+              <Textarea value={formData.remarks} onChange={(event) => setFormData((prev) => ({ ...prev, remarks: event.target.value }))} rows={3} />
             </div>
           </div>
+        </section>
 
-          <div className="rounded-lg border border-border bg-white overflow-hidden">
+        <section className="overflow-hidden rounded-lg border bg-card shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-portal-fieldset px-5 py-4">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Order Line Items</h3>
+              <p className="mt-1 text-xs text-muted-foreground">Add products or materials, then validate stock and MRP actions.</p>
+            </div>
+            <Button size="sm" onClick={addLineItem}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Item
+            </Button>
+          </div>
+          <div className="overflow-x-auto p-3">
             <Table>
               <TableHeader>
-                <TableRow className="bg-gray-50">
-                  <TableHead className="w-[40px]">
-                    <GripVertical className="h-4 w-4 text-muted-foreground" />
-                  </TableHead>
-                  <TableHead className="w-[40px]">
-                    <Checkbox
-                      checked={selectedOrders.size === sortedOrders.length && sortedOrders.length > 0}
-                      onCheckedChange={toggleAllOrders}
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <Button variant="ghost" size="sm" onClick={() => handleSort("date")} className="h-8 px-2">
-                      Created date
-                      {getSortIcon("date")}
-                    </Button>
-                  </TableHead>
-                  <TableHead>Order #</TableHead>
-                  <TableHead>
-                    <Button variant="ghost" size="sm" onClick={() => handleSort("customer")} className="h-8 px-2">
-                      Customer
-                      {getSortIcon("customer")}
-                    </Button>
-                  </TableHead>
-                  <TableHead>
-                    <Button variant="ghost" size="sm" onClick={() => handleSort("amount")} className="h-8 px-2">
-                      Total amount
-                      {getSortIcon("amount")}
-                    </Button>
-                  </TableHead>
-                  <TableHead>Delivery deadline</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Sales items</TableHead>
-                  <TableHead>Production</TableHead>
-                  <TableHead>
-                    <Button variant="ghost" size="sm" onClick={() => handleSort("status")} className="h-8 px-2">
-                      Delivery
-                      {getSortIcon("status")}
-                    </Button>
-                  </TableHead>
-                  <TableHead className="text-center">Actions</TableHead>
+                <TableRow>
+                  <TableHead>#</TableHead>
+                  <TableHead className="min-w-[120px]">Type</TableHead>
+                  <TableHead className="min-w-[170px]">Item Code</TableHead>
+                  <TableHead className="min-w-[220px]">Item Name</TableHead>
+                  <TableHead className="w-[90px] text-right">Qty</TableHead>
+                  <TableHead className="w-[90px]">UOM</TableHead>
+                  <TableHead className="w-[120px] text-right">Rate</TableHead>
+                  <TableHead className="w-[100px] text-right">Tax %</TableHead>
+                  <TableHead className="w-[130px] text-right">Amount</TableHead>
+                  <TableHead className="min-w-[150px]">Stock Status</TableHead>
+                  <TableHead className="w-[60px]" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {/* Total Row */}
-                <TableRow className="font-bold bg-gray-50">
-                  <TableCell colSpan={5} className="text-right pr-4">
-                    Total:
-                  </TableCell>
-                 <TableCell>₹{Number(totalAmount).toFixed(2)}</TableCell>
-                  <TableCell colSpan={5}></TableCell>
-                </TableRow>
+                {lineItems.map((item, index) => {
+                  const assessment = getLineAssessment(item);
+                  return (
+                    <TableRow key={item.id}>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{index + 1}</TableCell>
+                      <TableCell>
+                        <Select value={item.itemType} onValueChange={(value) => updateLineItem(item.id, "itemType", value)}>
+                          <SelectTrigger className="bg-background">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Material">Material</SelectItem>
+                            <SelectItem value="Product">Product</SelectItem>
+                            <SelectItem value="Component">Component</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                      <Select
+  value={item.itemCode || ""}
+ onValueChange={async (value) => {
+  const selected = safeInventoryItems.find(
+    (inv: any) => inv.itemCode === value
+  );
 
-               {sortedOrders.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
-                      No orders found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  paginatedOrders.map((order, index) => {
-                    const orderTotal = order.items?.reduce((sum, item) => sum + item.totalAmount, 0) || 0;
-                    const isOverdue = order.expectedDispatchDate && new Date(order.expectedDispatchDate) < new Date();
+  updateLineItem(item.id, "itemCode", value);
+  updateLineItem(item.id, "itemName", selected?.itemName || "");
+  updateLineItem(item.id, "uom", selected?.uom || "pcs");
+  updateLineItem(item.id, "rate", selected?.unit_cost || 0);
 
-                    return (
-                      <TableRow key={order.id} className="hover:bg-gray-50">
-                        <TableCell>
-                          <GripVertical className="h-4 w-4 text-muted-foreground cursor-move" />
-                        </TableCell>
-                        <TableCell>
-                          <Checkbox
-                            checked={selectedOrders.has(order.id)}
-                            onCheckedChange={() => toggleOrderSelection(order.id)}
-                          />
-                        </TableCell>
-                        <TableCell>{new Date(order.orderDate).toLocaleDateString()}</TableCell>
-                        <TableCell>
-                          <Dialog>
-                            <DialogTrigger asChild>
-                              <Button
-                                variant="link"
-                                className="p-0 h-auto text-blue-600"
-                                onClick={() => setViewOrder(order)}
-                              >
-                                {order.orderNo}
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-                              <DialogHeader>
-                                <DialogTitle>Order Details - {viewOrder?.orderNo}</DialogTitle>
-                              <DialogDescription>
-    </DialogDescription>
-  </DialogHeader>
+  // ✅ mark loading
+  updateLineItem(item.id, "bomLoading", true);
 
-                              {viewOrder && (
-                                <div className="space-y-6">
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                      <Label className="text-muted-foreground">Customer</Label>
-                                      <p className="font-medium">{viewOrder.customer}</p>
-                                    </div>
-                                    <div>
-                                      <Label className="text-muted-foreground">Order Date</Label>
-                                      <p className="font-medium">{viewOrder.orderDate}</p>
-                                    </div>
-                                    <div>
-                                      <Label className="text-muted-foreground">Status</Label>
-                                      <p className="mt-1">{getStatusBadge(viewOrder.status)}</p>
-                                    </div>
-                                    <div>
-                                      <Label className="text-muted-foreground">Priority</Label>
-                                      <p className="font-medium">{viewOrder.priority}</p>
-                                    </div>
-                                    <div>
-                                      <Label className="text-muted-foreground">Location</Label>
-                                      <p className="font-medium">{viewOrder.location || "-"}</p>
-                                    </div>
-                                  </div>
+  // ✅ fetch BOM properly
+  const { components, noBOM } = await fetchBOMComponents(
+    value,
+    item.quantityOrdered || 1
+  );
 
-                                  <div>
-                                    <h4 className="font-semibold mb-3">Order Items</h4>
-                                    <Table>
-                                      <TableHeader>
-                                        <TableRow>
-                                          <TableHead>Item Code</TableHead>
-                                          <TableHead>Item Name</TableHead>
-                                          <TableHead>Quantity</TableHead>
-                                          <TableHead>Rate</TableHead>
-                                          <TableHead>Total</TableHead>
-                                        </TableRow>
-                                      </TableHeader>
-                                      <TableBody>
-                                        {Array.isArray(viewOrder.items) &&
-                                          viewOrder.items.map((item) => (
-                                            <TableRow key={item.id}>
-                                              <TableCell>{item.itemCode}</TableCell>
-                                              <TableCell>{item.itemName}</TableCell>
-                                              <TableCell>{item.quantityOrdered}</TableCell>
-                                              <TableCell>₹{item.rate.toFixed(2)}</TableCell>
-                                              <TableCell>₹{item.totalAmount.toFixed(2)}</TableCell>
-                                            </TableRow>
-                                          ))}
-                                      </TableBody>
-                                    </Table>
-                                  </div>
-                                </div>
-                              )}
-                            </DialogContent>
-                          </Dialog>
-                        </TableCell>
-                        <TableCell>{order.customer}</TableCell>
-                       <TableCell>₹{Number(orderTotal).toFixed(2)}</TableCell>
-                        <TableCell className={isOverdue ? "text-red-600" : ""}>
-                          {order.expectedDispatchDate ? new Date(order.expectedDispatchDate).toLocaleDateString() : "-"}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <MapPin className="h-3 w-3 text-muted-foreground" />
-                            <span>{order.location || "-"}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            className={
-                              order.deliveryStatus === "Delivered"
-                                ? "bg-green-600 text-white hover:bg-green-700"
-                                : order.deliveryStatus === "Packed"
-                                  ? "bg-yellow-500 text-white hover:bg-yellow-600"
-                                  : order.deliveryStatus === "Shipped"
-                                    ? "bg-green-600 text-white hover:bg-green-700"
-                                    : "bg-gray-500 text-white hover:bg-gray-600"
-                            }
-                          >
-                            {order.deliveryStatus === "Awaiting" ? "Expected" : order.deliveryStatus}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Select
-                           value={order.status ?? "Awaiting Confirmation"}
-                            onValueChange={(value) => handleOrderStatusChange(order.id, value)}
-                          >
-                            <SelectTrigger className="w-40">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Awaiting Confirmation">Awaiting Confirmation</SelectItem>
-                              <SelectItem value="Processing">Processing</SelectItem>
-                              <SelectItem value="Shipped">Shipped</SelectItem>
-                              <SelectItem value="Delivered">Delivered</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            className={
-                              order.deliveryStatus === "Delivered"
-                                ? "bg-green-600 text-white hover:bg-green-700"
-                                : order.deliveryStatus === "Packed"
-                                  ? "bg-blue-500 text-white hover:bg-blue-600"
-                                  : order.deliveryStatus === "Shipped"
-                                    ? "bg-purple-500 text-white hover:bg-purple-600"
-                                    : "bg-yellow-500 text-white hover:bg-yellow-600"
-                            }
-                          >
-                            {order.deliveryStatus}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                                  onClick={() => {
-                                    setRefundOrder(order);
-                                    setRefundDialogOpen(true);
-                                  }}
-                                >
-                                  <RotateCcw className="h-4 w-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Create Refund</TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
+  const enrichedComponents = components.map((c: any) => ({
+  ...c,
+  uom: selected?.uom || "",
+}));
+
+  updateLineItem(item.id, "bomComponents", components);
+  updateLineItem(item.id, "noBOM", noBOM);
+  updateLineItem(item.id, "bomLoading", false);
+}}
+>
+  <SelectTrigger className="bg-background">
+    <SelectValue placeholder="Select Item Code" />
+  </SelectTrigger>
+
+  <SelectContent>
+    {safeInventoryItems.map((inventory: any) => (
+      <SelectItem
+        key={inventory.id}
+        value={inventory.itemCode}
+      >
+        {inventory.itemCode} 
+      </SelectItem>
+    ))}
+  </SelectContent>
+</Select>
+                        
+                      </TableCell>
+                      <TableCell>
+                        <Input value={item.itemName} onChange={(event) => updateLineItem(item.id, "itemName", event.target.value)} />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          className="text-right"
+                          min={1}
+                          value={item.quantityOrdered}
+                          onChange={(event) => updateLineItem(item.id, "quantityOrdered", Number(event.target.value))}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input value={item.uom} onChange={(event) => updateLineItem(item.id, "uom", event.target.value)} />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          className="text-right"
+                          value={item.rate}
+                          onChange={(event) => updateLineItem(item.id, "rate", Number(event.target.value))}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          className="text-right"
+                          value={item.tax}
+                          onChange={(event) => updateLineItem(item.id, "tax", Number(event.target.value))}
+                        />
+                      </TableCell>
+                      <TableCell className="text-right font-medium text-foreground">{money(item.totalAmount)}</TableCell>
+                      <TableCell>
+                        {renderValidationBadge(assessment.state, assessment.label)}
+                      </TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="icon" onClick={() => removeLineItem(item.id)} disabled={lineItems.length === 1}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
 
-          {/* Pagination */}
-          {filteredOrders.length > 0 && totalPages > 1 && (
-            <div className="flex items-center justify-between px-6 py-4">
-              <div className="text-sm text-muted-foreground">
-                Showing {startIndex + 1} to {Math.min(endIndex, filteredOrders.length)} of {filteredOrders.length}{" "}
-                orders
+          {lineItems.some((item) => item.itemType === "Product" && item.itemCode) && (
+            <div className="space-y-4 border-t px-5 py-5">
+              {lineItems
+                .filter((item) => item.itemType === "Product" && item.itemCode)
+                .map((item) => (
+                  <div key={`${item.id}-bom`} className="rounded-md border bg-background">
+                    <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+                      <div>
+                        <div className="text-sm font-semibold">{item.itemCode} BOM</div>
+                        <div className="text-xs text-muted-foreground">Component availability rolls with order quantity.</div>
+                      </div>
+                      {!item.noBOM && item.bomComponents && item.bomComponents.length > 0 && (
+                        <Badge variant="outline">{item.bomComponents.length} components</Badge>
+                      )}
+                    </div>
+                    {item.bomLoading ? (
+                      <div className="px-4 py-6 text-sm text-muted-foreground">Loading BOM components…</div>
+                    ) : item.noBOM ? (
+                      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-6">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <AlertCircle className="h-4 w-4" />
+                          No BOM is defined for this product.
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigate("/bom", { state: { itemCode: item.itemCode, itemName: item.itemName } })}
+                        >
+                          <ExternalLink className="mr-2 h-4 w-4" />
+                          Create BOM
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Component</TableHead>
+                              <TableHead>Description</TableHead>
+                              <TableHead>Type</TableHead>
+                              <TableHead className="text-right">Available</TableHead>
+                              <TableHead className="text-right">Required</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {(item.bomComponents || []).map((component) => (
+                              <TableRow key={`${item.id}-${component.component}`}>
+                                <TableCell className="font-mono text-xs">{component.component}</TableCell>
+                                <TableCell>{component.description}</TableCell>
+                                <TableCell>{component.type}</TableCell>
+                                <TableCell className="text-right">{component.availableQty}</TableCell>
+                                <TableCell className="text-right">
+                                  <div className="inline-flex items-center gap-2">
+                                    <span>{component.requiredQty}</span>
+                                    {component.availableQty < component.requiredQty && (
+                                      <Badge variant="outline" className="border-warning/20 bg-warning/10 text-warning">
+                                        Low
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </div>
+                ))}
+            </div>
+          )}
+
+          <div className="border-t px-5 py-5">
+            <div className="rounded-lg border bg-portal-fieldset p-4">
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>Subtotal</span>
+                  <span className="font-mono">{money(totalSummary.subtotal)}</span>
+                </div>
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>Tax</span>
+                  <span className="font-mono">{money(totalSummary.taxAmount)}</span>
+                </div>
+                <div className="flex items-center justify-between border-t pt-2 text-base font-semibold text-foreground">
+                  <span>Total</span>
+                  <span className="font-mono">{money(totalSummary.total)}</span>
+                </div>
               </div>
-              <Pagination>
-                <PaginationContent>
-                  <PaginationItem>
-                    <PaginationPrevious
-                      onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                    />
-                  </PaginationItem>
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                <Button variant="outline" onClick={resetComposer}>Reset</Button>
+                <Button variant="outline" onClick={() => createOrderFromComposer("Draft")}>
+                  <Save className="mr-2 h-4 w-4" />
+                  Save Draft
+                </Button>
+                <Button onClick={() => createOrderFromComposer("Awaiting Confirmation")}>
+                  <Send className="mr-2 h-4 w-4" />
+                  Submit Order
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
 
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
-                    // Show first page, last page, current page, and pages around current
-                    if (page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)) {
-                      return (
-                        <PaginationItem key={page}>
-                          <PaginationLink
-                            onClick={() => setCurrentPage(page)}
-                            isActive={currentPage === page}
-                            className="cursor-pointer"
-                          >
-                            {page}
-                          </PaginationLink>
-                        </PaginationItem>
-                      );
-                    } else if (page === currentPage - 2 || page === currentPage + 2) {
-                      return (
-                        <PaginationItem key={page}>
-                          <PaginationEllipsis />
-                        </PaginationItem>
-                      );
+      <div className="space-y-6">
+        <section className="overflow-hidden rounded-lg border bg-card shadow-sm">
+          <div className="flex items-center justify-between gap-3 border-b bg-portal-fieldset px-5 py-4">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Stock Validation</h3>
+              <p className="mt-1 text-xs text-muted-foreground">Availability after allocations, shortages, and next action.</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={runValidation}>
+              <Sparkles className="mr-2 h-4 w-4" />
+              Validate
+            </Button>
+          </div>
+          <div className="px-5 py-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-md border border-success/20 bg-success/10 p-3">
+                <div className="text-[11px] uppercase tracking-wide text-success">Available</div>
+                <div className="mt-1 text-2xl font-semibold text-success">{validationMetrics.available}</div>
+              </div>
+              <div className="rounded-md border border-warning/20 bg-warning/10 p-3">
+                <div className="text-[11px] uppercase tracking-wide text-warning">Partial</div>
+                <div className="mt-1 text-2xl font-semibold text-warning">{validationMetrics.partial}</div>
+              </div>
+              <div className="rounded-md border border-primary/20 bg-primary/10 p-3">
+                <div className="text-[11px] uppercase tracking-wide text-primary">Buy</div>
+                <div className="mt-1 text-2xl font-semibold text-primary">{validationMetrics.purchase}</div>
+              </div>
+              <div className="rounded-md border border-accent/20 bg-accent/10 p-3">
+                <div className="text-[11px] uppercase tracking-wide text-accent">Produce</div>
+                <div className="mt-1 text-2xl font-semibold text-accent">{validationMetrics.produce}</div>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {lineAssessments.map(({ item, assessment }) => (
+                <div key={`val-${item.id}`} className="rounded-md border bg-background p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium text-foreground">{item.itemName || item.itemCode || "New line item"}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Ordered {assessment.quantity} • Available {assessment.available} • Gap {assessment.gap}
+                      </div>
+                    </div>
+                    {renderValidationBadge(assessment.state, assessment.label)}
+                  </div>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all",
+                        assessment.state === "available" && "bg-success",
+                        assessment.state === "partial" && "bg-warning",
+                        assessment.state === "purchase" && "bg-primary",
+                        assessment.state === "produce" && "bg-accent",
+                        assessment.state === "missing" && "bg-border",
+                      )}
+                      style={{ width: `${assessment.quantity ? Math.min(100, Math.max(0, (assessment.available / assessment.quantity) * 100)) : 0}%` }}
+                    />
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <span>{assessment.action}</span>
+                    {assessment.state === "purchase" && assessment.gap > 0 && (
+                      <Button variant="outline" size="sm" onClick={() => openRFQ(item, assessment.gap)}>
+                        Buy
+                      </Button>
+                    )}
+                    {assessment.state === "produce" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate("/bom", { state: { itemCode: item.itemCode, itemName: item.itemName } })}
+                      >
+                        Open BOM
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-lg border bg-card shadow-sm">
+          <div className="border-b bg-portal-fieldset px-5 py-4">
+            <h3 className="text-sm font-semibold text-foreground">MRP Recommendation</h3>
+            <p className="mt-1 text-xs text-muted-foreground">Recommended next steps from the current order mix.</p>
+          </div>
+          <div className="space-y-3 px-5 py-4 text-sm">
+            {validationRun || lineItems.some((item) => item.itemCode) ? (
+              <>
+                {validationMetrics.available > 0 && (
+                  <div className="rounded-md border border-success/20 bg-success/10 px-3 py-2 text-success">
+                    {validationMetrics.available} item(s) can be fulfilled immediately from stock.
+                  </div>
+                )}
+                {validationMetrics.purchase > 0 && (
+                  <div className="rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-primary">
+                    Raise RFQ / purchase action for {validationMetrics.purchase} material line(s).
+                  </div>
+                )}
+                {validationMetrics.produce > 0 && (
+                  <div className="rounded-md border border-accent/20 bg-accent/10 px-3 py-2 text-accent">
+                    Review BOM and release production for {validationMetrics.produce} product line(s).
+                  </div>
+                )}
+                {validationMetrics.partial > 0 && (
+                  <div className="rounded-md border border-warning/20 bg-warning/10 px-3 py-2 text-warning">
+                    Partial fulfillment detected — split dispatch or expedite replenishment.
+                  </div>
+                )}
+                {validationMetrics.available + validationMetrics.partial + validationMetrics.purchase + validationMetrics.produce === 0 && (
+                  <div className="rounded-md border bg-background px-3 py-2 text-muted-foreground">Add valid lines to see recommendations.</div>
+                )}
+              </>
+            ) : (
+              <div className="rounded-md border bg-background px-3 py-2 text-muted-foreground">Validate items to see MRP recommendations.</div>
+            )}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+
+  const renderAllOrders = () => (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        {[
+          { label: "Total Orders", value: orders.length, tone: "primary" },
+          { label: "Awaiting", value: orders.filter((order) => order.status === "Awaiting Confirmation").length, tone: "warning" },
+          { label: "Confirmed", value: orders.filter((order) => order.status === "Confirmed").length, tone: "accent" },
+          { label: "Processing", value: orders.filter((order) => order.status === "Processing").length, tone: "success" },
+          { label: "Cancelled", value: orders.filter((order) => order.status === "Cancelled").length, tone: "destructive" },
+        ].map((metric) => (
+          <div key={metric.label} className="rounded-lg border bg-card p-4 shadow-sm">
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{metric.label}</div>
+            <div className={cn(
+              "mt-2 text-2xl font-semibold",
+              metric.tone === "primary" && "text-primary",
+              metric.tone === "warning" && "text-warning",
+              metric.tone === "accent" && "text-accent",
+              metric.tone === "success" && "text-success",
+              metric.tone === "destructive" && "text-destructive",
+            )}>
+              {metric.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-card p-4 shadow-sm">
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input className="pl-9" placeholder="Search orders or customers" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+        </div>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="All status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            {["Draft", "Awaiting Confirmation", "Confirmed", "Processing", "Delivered", "Cancelled"].map((status) => (
+              <SelectItem key={status} value={status}>{status}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="All types" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            {Array.from(new Set(orders.map((order) => order.orderType))).filter(Boolean).map((type) => (
+              <SelectItem key={type} value={type}>{type}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button variant="outline" onClick={exportOrders}>
+          <FileSpreadsheet className="mr-2 h-4 w-4" />
+          Export
+        </Button>
+        <Button variant="outline" onClick={printOrders}>
+          <Printer className="mr-2 h-4 w-4" />
+          Print
+        </Button>
+        <Button onClick={() => setWorkspaceView("new")}>
+          <Plus className="mr-2 h-4 w-4" />
+          New Order
+        </Button>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[44px]">
+                  <Checkbox
+                    checked={selectedOrderIds.size > 0 && selectedOrderIds.size === filteredOrders.length}
+                    onCheckedChange={(checked) =>
+                      setSelectedOrderIds(checked ? new Set(filteredOrders.map((order) => order.id)) : new Set())
                     }
-                    return null;
-                  })}
+                  />
+                </TableHead>
+                <TableHead>
+                  <button className="inline-flex items-center gap-1" onClick={() => handleSort("date")}>Order # {sortIcon("date")}</button>
+                </TableHead>
+                <TableHead>
+                  <button className="inline-flex items-center gap-1" onClick={() => handleSort("customer")}>Customer {sortIcon("customer")}</button>
+                </TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead className="text-right">Items</TableHead>
+                <TableHead>
+                  <button className="inline-flex items-center gap-1" onClick={() => handleSort("amount")}>Total {sortIcon("amount")}</button>
+                </TableHead>
+                <TableHead>
+                  <button className="inline-flex items-center gap-1" onClick={() => handleSort("status")}>Status {sortIcon("status")}</button>
+                </TableHead>
+                <TableHead>Priority</TableHead>
+                <TableHead>Delivery</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredOrders.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={10} className="py-12 text-center text-muted-foreground">No orders found.</TableCell>
+                </TableRow>
+              ) : (
+                filteredOrders.map((order) => {
+                 const orderTotal =
+  Array.isArray(order.items)
+    ? order.items.reduce(
+        (sum, item) => sum + (Number(item.total_amount) || 0),
+        0
+      )
+    : 0;
+                  const selected = selectedOrderIds.has(order.id);
+                  return (
+                    <TableRow key={order.id} data-state={selected ? "selected" : undefined}>
+                      <TableCell>
+                        <Checkbox
+                          checked={selected}
+                          onCheckedChange={(checked) =>
+                            setSelectedOrderIds((prev) => {
+                              const next = new Set(prev);
+                              if (checked) next.add(order.id);
+                              else next.delete(order.id);
+                              return next;
+                            })
+                          }
+                        />
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-primary">{order.order_no}</TableCell>
+                      <TableCell>
+                        <div className="font-medium">{order.customer}</div>
+                        <div className="text-xs text-muted-foreground">{order.orderDate}</div>
+                      </TableCell>
+                      <TableCell>{order.order_type}</TableCell>
+                      <TableCell className="text-right">
+  {(order.items ?? []).length}
+</TableCell>
+                      <TableCell className="font-medium text-foreground">{money(orderTotal)}</TableCell>
+                      <TableCell>{renderValidationBadge(order.status === "Cancelled" ? "missing" : order.status === "Processing" ? "produce" : order.status === "Confirmed" ? "available" : "partial", order.status)}</TableCell>
+                      <TableCell>{order.priority}</TableCell>
+                      <TableCell>{order.expected_delivery_date || "—"}</TableCell>
+                      <TableCell>
+                        <div className="flex justify-end gap-2">
+                          <Button variant="ghost" size="icon" onClick={() => setViewOrder(order)}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => startClone(order)}>
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => { setRefundOrder(order); setRefundDialogOpen(true); }}>
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    </div>
+  );
 
-                  <PaginationItem>
-                    <PaginationNext
-                      onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                      className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                    />
-                  </PaginationItem>
-                </PaginationContent>
-              </Pagination>
+  const renderCloneView = () => (
+    <div className="grid gap-6 xl:grid-cols-2">
+      <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+        <div className="border-b bg-portal-fieldset px-5 py-4">
+          <h3 className="text-sm font-semibold">Select Order to Clone</h3>
+        </div>
+        <div className="space-y-3 p-5">
+          {orders.length === 0 ? (
+            <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">No orders available to clone.</div>
+          ) : (
+            [...orders].reverse().map((order) => {
+              const active = selectedCloneOrder?.id === order.id;
+              return (
+                <button
+                  key={order.id}
+                  type="button"
+                  onClick={() => setSelectedCloneId(order.id)}
+                  className={cn(
+                    "flex w-full items-start gap-3 rounded-lg border p-4 text-left transition-colors",
+                    active ? "border-primary bg-primary/10" : "hover:border-border hover:bg-muted/30",
+                  )}
+                >
+                  <div className="rounded-md bg-primary/10 p-2 text-primary">
+                    <Copy className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-mono text-xs text-primary">{order.id}</div>
+                    <div className="mt-1 font-medium text-foreground">{order.customer}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{order.orderType} • {order.items.length} lines • {money(order.items.reduce((sum, item) => sum + item.totalAmount, 0))}</div>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+        <div className="flex items-center justify-between gap-3 border-b bg-portal-fieldset px-5 py-4">
+          <h3 className="text-sm font-semibold">Clone Preview</h3>
+          {selectedCloneOrder && (
+            <Button onClick={() => cloneIntoComposer(selectedCloneOrder)}>
+              <Copy className="mr-2 h-4 w-4" />
+              Clone to Composer
+            </Button>
+          )}
+        </div>
+        <div className="p-5">
+          {!selectedCloneOrder ? (
+            <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">Select an order to preview and clone.</div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-md border bg-background p-3">
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Type</div>
+                  <div className="mt-1 font-medium">{selectedCloneOrder.orderType}</div>
+                </div>
+                <div className="rounded-md border bg-background p-3">
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Status</div>
+                  <div className="mt-1 font-medium">{selectedCloneOrder.status}</div>
+                </div>
+                <div className="rounded-md border bg-background p-3">
+                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Priority</div>
+                  <div className="mt-1 font-medium">{selectedCloneOrder.priority}</div>
+                </div>
+              </div>
+              <div className="overflow-hidden rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">Rate</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {selectedCloneOrder.items.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell>
+                          <div className="font-mono text-xs text-primary">{item.itemCode}</div>
+                          <div className="text-sm text-foreground">{item.itemName}</div>
+                        </TableCell>
+                        <TableCell className="text-right">{item.quantityOrdered}</TableCell>
+                        <TableCell className="text-right">{money(item.rate)}</TableCell>
+                        <TableCell className="text-right">{money(item.totalAmount)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
         </div>
-
-        {/* AI Insights Sheet */}
-        <Sheet open={showInsights} onOpenChange={setShowInsights}>
-          <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
-            <SheetHeader>
-              <SheetTitle className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-primary" />
-                AI Insights
-              </SheetTitle>
-              <SheetDescription>AI-powered analysis of your orders</SheetDescription>
-            </SheetHeader>
-            <div className="mt-6">
-              {isLoadingInsights ? (
-                <div className="flex flex-col items-center justify-center py-12 space-y-4">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-                  <p className="text-muted-foreground">Analyzing your orders...</p>
-                </div>
-              ) : (
-                <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <div className="whitespace-pre-wrap">{insights}</div>
-                </div>
-              )}
-            </div>
-          </SheetContent>
-        </Sheet>
-
-        {/* Create New Item Dialog */}
-        <Dialog open={createItemOpen} onOpenChange={setCreateItemOpen}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Create New Item</DialogTitle>
-             <DialogDescription>
-    </DialogDescription>
-  </DialogHeader>
-
-            <NewItemForm
-              onSuccess={(createdItemCode, createdItemName, itemDetails) => {
-                setCreateItemOpen(false);
-                // If we were editing a specific line item, auto-fill it
-                if (currentEditingItemId && createdItemCode) {
-                  updateLineItem(currentEditingItemId, "itemCode", createdItemCode);
-                }
-                setCurrentEditingItemId(null);
-                toast({
-                  title: "Item Created",
-                  description: "New inventory item created successfully. Redirecting to BOM page...",
-                });
-                // Navigate to BOM page with full order context
-                setTimeout(() => {
-                  navigate("/bom", {
-                    state: {
-                      itemCode: createdItemCode,
-                      itemName: createdItemName,
-                      itemDetails: itemDetails,
-                      orderContext: {
-                        formData: formData,
-                        lineItems: lineItems,
-                        currentLineItemId: currentEditingItemId,
-                      },
-                    },
-                  });
-                }, 500);
-              }}
-              onCancel={() => {
-                setCreateItemOpen(false);
-                setCurrentEditingItemId(null);
-              }}
-            />
-          </DialogContent>
-        </Dialog>
-
-        {/* RFQ Dialog */}
-        <Dialog open={rfqDialogOpen} onOpenChange={setRfqDialogOpen}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Create Request for Quote</DialogTitle>
-            </DialogHeader>
-            <RFQForm
-              initialItem={rfqItem || undefined}
-              onSuccess={() => {
-                setRfqDialogOpen(false);
-                setRfqItem(null);
-                toast({
-                  title: "Success",
-                  description: "RFQ created successfully. You can continue with your order.",
-                });
-              }}
-            />
-          </DialogContent>
-        </Dialog>
-       
-        </>
-        )}
       </div>
-    </Layout>
+    </div>
   );
-};
 
-// New Item Form Component
-const NewItemForm = ({
-  onSuccess,
-  onCancel,
-}: {
-  onSuccess: (itemCode?: string, itemName?: string, itemDetails?: any) => void;
-  onCancel: () => void;
-}) => {
-  const { toast } = useToast();
-  const [formData, setFormData] = useState({
-    itemCode: "",
-    itemName: "",
-    type: "",
-    uom: "",
-    serviceCode: "",
-    defaultSalesPrice: "",
-  });
+  const renderRegularOrders = () => (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-4 shadow-sm">
+        <div>
+          <h3 className="text-sm font-semibold">Regular / Repeat Orders</h3>
+          <p className="mt-1 text-xs text-muted-foreground">Save recurring demand patterns and fire them into new orders.</p>
+        </div>
+        <Dialog open={regularDialogOpen} onOpenChange={setRegularDialogOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Regular Order
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Regular Order Template</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4 py-2 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Customer *</Label>
+                <Input value={regularForm.customer} onChange={(event) => setRegularForm((prev) => ({ ...prev, customer: event.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Product *</Label>
+                <Input list="regular-items" value={regularForm.itemCode} onChange={(event) => setRegularForm((prev) => ({ ...prev, itemCode: event.target.value }))} />
+                <datalist id="regular-items">
+                  {inventoryItems.map((inventory: any) => (
+                    <option key={inventory.id || inventory.item_code} value={inventory.item_code} />
+                  ))}
+                </datalist>
+              </div>
+              <div className="space-y-2">
+                <Label>Qty per Order</Label>
+                <Input type="number" min={1} value={regularForm.quantity} onChange={(event) => setRegularForm((prev) => ({ ...prev, quantity: Number(event.target.value) }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Frequency</Label>
+                <Select value={regularForm.frequency} onValueChange={(value) => setRegularForm((prev) => ({ ...prev, frequency: value }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Weekly">Weekly</SelectItem>
+                    <SelectItem value="Fortnightly">Fortnightly</SelectItem>
+                    <SelectItem value="Monthly">Monthly</SelectItem>
+                    <SelectItem value="Quarterly">Quarterly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Next Order Date</Label>
+                <Input type="date" value={regularForm.nextOrderDate} onChange={(event) => setRegularForm((prev) => ({ ...prev, nextOrderDate: event.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Unit Price</Label>
+                <Input type="number" value={regularForm.price} onChange={(event) => setRegularForm((prev) => ({ ...prev, price: Number(event.target.value) }))} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setRegularDialogOpen(false)}>Cancel</Button>
+              <Button onClick={createRegularTemplate}>Save Template</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
 
-  const generateItemCode = (type: string) => {
-    const prefix = type === "Product" ? "PRD" : "SRV";
-    const timestamp = Date.now().toString().slice(-6);
-    return `${prefix}-${timestamp}`;
-  };
+      <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Template #</TableHead>
+                <TableHead>Customer</TableHead>
+                <TableHead>Product</TableHead>
+                <TableHead>Frequency</TableHead>
+                <TableHead>Next Order Date</TableHead>
+                <TableHead>Last Ordered</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {regularOrders.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">No regular order templates yet.</TableCell>
+                </TableRow>
+              ) : (
+                regularOrders.map((template) => (
+                  <TableRow key={template.id}>
+                    <TableCell className="font-mono text-xs text-primary">{template.templateNumber}</TableCell>
+                    <TableCell>{template.customer}</TableCell>
+                    <TableCell>
+                      <div className="font-mono text-xs text-primary">{template.itemCode}</div>
+                      <div className="text-sm text-muted-foreground">{template.itemName}</div>
+                    </TableCell>
+                    <TableCell>{template.frequency}</TableCell>
+                    <TableCell>{template.nextOrderDate}</TableCell>
+                    <TableCell>{template.lastOrdered || "—"}</TableCell>
+                    <TableCell>{renderValidationBadge(template.status === "Active" ? "available" : "missing", template.status)}</TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => fireRegularOrder(template)}>Create Order</Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setRegularOrders((prev) => prev.filter((item) => item.id !== template.id))}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    </div>
+  );
 
-  const handleTypeChange = (type: string) => {
-    setFormData({ ...formData, type: type, itemCode: generateItemCode(type) });
-  };
+  const renderStockValidation = () => (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {[
+          { label: "Fully Available", value: validationRows.filter((row) => row.assessment.state === "available").length, tone: "success" },
+          { label: "Partial Stock", value: validationRows.filter((row) => row.assessment.state === "partial").length, tone: "warning" },
+          { label: "Need to Purchase", value: validationRows.filter((row) => row.assessment.state === "purchase").length, tone: "primary" },
+          { label: "Need Production", value: validationRows.filter((row) => row.assessment.state === "produce").length, tone: "accent" },
+        ].map((metric) => (
+          <div key={metric.label} className="rounded-lg border bg-card p-4 shadow-sm">
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{metric.label}</div>
+            <div className={cn(
+              "mt-2 text-2xl font-semibold",
+              metric.tone === "success" && "text-success",
+              metric.tone === "warning" && "text-warning",
+              metric.tone === "primary" && "text-primary",
+              metric.tone === "accent" && "text-accent",
+            )}>{metric.value}</div>
+          </div>
+        ))}
+      </div>
 
-  const handleSubmit = async () => {
-    if (!formData.itemCode || !formData.itemName || !formData.type || !formData.uom) {
-      toast({
-        title: "Validation Error",
-        description: "Please fill in all required fields (Type, Item Name, UOM).",
-        variant: "destructive",
-      });
-      return;
+      <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+        <div className="flex items-center justify-between gap-3 border-b bg-portal-fieldset px-5 py-4">
+          <h3 className="text-sm font-semibold">Pending Orders — Stock Validation</h3>
+          <Button variant="outline" size="sm" onClick={runValidation}>Run Full Validation</Button>
+        </div>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Order #</TableHead>
+                <TableHead>Customer</TableHead>
+                <TableHead>Product</TableHead>
+                <TableHead className="text-right">Ordered</TableHead>
+                <TableHead className="text-right">Available</TableHead>
+                <TableHead className="text-right">Open PO</TableHead>
+                <TableHead className="text-right">Gap</TableHead>
+                <TableHead>Action Required</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {validationRows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">No pending orders to validate.</TableCell>
+                </TableRow>
+              ) : (
+                validationRows.map(({ order, item, assessment }) => (
+                  <TableRow key={`${order.id}-${item.id}`}>
+                    <TableCell className="font-mono text-xs text-primary">{order.id}</TableCell>
+                    <TableCell>{order.customer}</TableCell>
+                    <TableCell>{item.itemName || item.itemCode}</TableCell>
+                    <TableCell className="text-right">{assessment.quantity}</TableCell>
+                    <TableCell className="text-right">{assessment.available}</TableCell>
+                    <TableCell className="text-right">{assessment.openPO}</TableCell>
+                    <TableCell className="text-right font-medium">{assessment.gap || "—"}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {renderValidationBadge(assessment.state, assessment.label)}
+                        {assessment.state === "purchase" && assessment.gap > 0 && (
+                          <Button variant="outline" size="sm" onClick={() => openRFQ(item, assessment.gap)}>Buy</Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderPurchaseNeeds = () => (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Items to Purchase</div><div className="mt-2 text-2xl font-semibold text-primary">{purchaseNeeds.length}</div></div>
+        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Estimated Value</div><div className="mt-2 text-2xl font-semibold text-warning">{money(purchaseNeeds.reduce((sum, row) => sum + row.assessment.gap * Number(row.assessment.inventory?.unit_cost || row.item.rate || 0), 0))}</div></div>
+        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Urgent Buys</div><div className="mt-2 text-2xl font-semibold text-destructive">{purchaseNeeds.filter((row) => ["High", "Critical"].includes(row.order.priority)).length}</div></div>
+        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Suppliers</div><div className="mt-2 text-2xl font-semibold text-success">{new Set(purchaseNeeds.map((row) => row.assessment.inventory?.default_supplier).filter(Boolean)).size}</div></div>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+        <div className="flex items-center justify-between gap-3 border-b bg-portal-fieldset px-5 py-4">
+          <h3 className="text-sm font-semibold">Purchase Requirements</h3>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={exportOrders}><Download className="mr-2 h-4 w-4" />Export</Button>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Item Code</TableHead>
+                <TableHead>Item Name</TableHead>
+                <TableHead>Order #</TableHead>
+                <TableHead className="text-right">Required</TableHead>
+                <TableHead className="text-right">Available</TableHead>
+                <TableHead className="text-right">To Purchase</TableHead>
+                <TableHead className="text-right">Est. Cost</TableHead>
+                <TableHead>Urgency</TableHead>
+                <TableHead>Supplier</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {purchaseNeeds.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={10} className="py-12 text-center text-success">All material lines are covered by available stock.</TableCell>
+                </TableRow>
+              ) : (
+                purchaseNeeds.map(({ order, item, assessment }) => (
+                  <TableRow key={`purchase-${order.id}-${item.id}`}>
+                    <TableCell className="font-mono text-xs text-primary">{item.itemCode}</TableCell>
+                    <TableCell>{item.itemName}</TableCell>
+                    <TableCell className="font-mono text-xs">{order.id}</TableCell>
+                    <TableCell className="text-right">{assessment.quantity}</TableCell>
+                    <TableCell className="text-right">{assessment.available}</TableCell>
+                    <TableCell className="text-right font-medium text-primary">{assessment.gap}</TableCell>
+                    <TableCell className="text-right">{money(assessment.gap * Number(assessment.inventory?.unit_cost || item.rate || 0))}</TableCell>
+                    <TableCell>{renderValidationBadge(order.priority === "Critical" ? "missing" : order.priority === "High" ? "partial" : "available", order.priority)}</TableCell>
+                    <TableCell>{assessment.inventory?.default_supplier || "—"}</TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="outline" size="sm" onClick={() => openRFQ(item, assessment.gap)}>Fix / Order</Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderExcessProduction = () => (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Excess Items</div><div className="mt-2 text-2xl font-semibold text-primary">{excessRows.length}</div></div>
+        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Excess Qty Total</div><div className="mt-2 text-2xl font-semibold text-success">{excessRows.reduce((sum, row) => sum + row.excessQty, 0)}</div></div>
+        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Excess Value</div><div className="mt-2 text-2xl font-semibold text-warning">{money(excessRows.reduce((sum, row) => sum + row.excessValue, 0))}</div></div>
+        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Reusable</div><div className="mt-2 text-2xl font-semibold text-accent">{excessRows.filter((row) => row.type !== "Product").length}</div></div>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+        <div className="border-b bg-portal-fieldset px-5 py-4">
+          <h3 className="text-sm font-semibold">Excess Stock / Over-Production Analysis</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Item Code</TableHead>
+                <TableHead>Item Name</TableHead>
+                <TableHead className="text-right">Available</TableHead>
+                <TableHead className="text-right">Allocated</TableHead>
+                <TableHead className="text-right">Net Orders</TableHead>
+                <TableHead className="text-right">Excess Qty</TableHead>
+                <TableHead className="text-right">Excess Value</TableHead>
+                <TableHead>Recommendation</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {excessRows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">No excess stock detected.</TableCell>
+                </TableRow>
+              ) : (
+                excessRows.map((row) => (
+                  <TableRow key={row.code}>
+                    <TableCell className="font-mono text-xs text-primary">{row.code}</TableCell>
+                    <TableCell>{row.name}</TableCell>
+                    <TableCell className="text-right">{row.available}</TableCell>
+                    <TableCell className="text-right">{row.allocated}</TableCell>
+                    <TableCell className="text-right">{row.netOrders}</TableCell>
+                    <TableCell className="text-right font-medium text-primary">{row.excessQty}</TableCell>
+                    <TableCell className="text-right">{money(row.excessValue)}</TableCell>
+                    <TableCell>{renderValidationBadge(row.type === "Product" ? "produce" : "available", row.type === "Product" ? "Reduce production run" : "Use in future orders")}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderDashboard = () => (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Orders This Month</div><div className="mt-2 text-2xl font-semibold text-primary">{dashboardStats.monthOrders}</div></div>
+        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Order Value</div><div className="mt-2 text-2xl font-semibold text-success">{money(dashboardStats.orderValue)}</div></div>
+        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Pending Delivery</div><div className="mt-2 text-2xl font-semibold text-warning">{dashboardStats.pendingDelivery}</div></div>
+        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Overdue</div><div className="mt-2 text-2xl font-semibold text-destructive">{dashboardStats.overdue}</div></div>
+      </div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+          <div className="border-b bg-portal-fieldset px-5 py-4"><h3 className="text-sm font-semibold">Recent Orders</h3></div>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Order #</TableHead>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Total</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recentOrders.map((order) => (
+                  <TableRow key={order.id}>
+                    <TableCell className="font-mono text-xs text-primary">{order.id}</TableCell>
+                    <TableCell>{order.customer}</TableCell>
+                    <TableCell>{money(order.items.reduce((sum, item) => sum + item.totalAmount, 0))}</TableCell>
+                    <TableCell>{order.status}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+        <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+          <div className="border-b bg-portal-fieldset px-5 py-4"><h3 className="text-sm font-semibold">Action Required</h3></div>
+          <div className="space-y-3 p-5">
+            {purchaseNeeds.length > 0 && (
+              <button type="button" onClick={() => setWorkspaceView("purchase")} className="w-full rounded-md border border-primary/20 bg-primary/10 px-4 py-3 text-left text-sm text-primary">
+                {purchaseNeeds.length} material line(s) need purchasing →
+              </button>
+            )}
+            {dashboardStats.overdue > 0 && (
+              <button type="button" onClick={() => setWorkspaceView("orders")} className="w-full rounded-md border border-destructive/20 bg-destructive/10 px-4 py-3 text-left text-sm text-destructive">
+                {dashboardStats.overdue} overdue order(s) need attention →
+              </button>
+            )}
+            {validationRows.filter((row) => row.assessment.state === "produce").length > 0 && (
+              <button type="button" onClick={() => setWorkspaceView("validation")} className="w-full rounded-md border border-accent/20 bg-accent/10 px-4 py-3 text-left text-sm text-accent">
+                {validationRows.filter((row) => row.assessment.state === "produce").length} line(s) require production planning →
+              </button>
+            )}
+            {purchaseNeeds.length === 0 && dashboardStats.overdue === 0 && validationRows.filter((row) => row.assessment.state === "produce").length === 0 && (
+              <div className="rounded-md border border-success/20 bg-success/10 px-4 py-3 text-sm text-success">Everything looks healthy right now.</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderWorkspace = () => {
+    switch (workspaceView) {
+      case "new":
+        return renderComposer();
+      case "orders":
+        return renderAllOrders();
+      case "clone":
+        return renderCloneView();
+      case "regular":
+        return renderRegularOrders();
+      case "validation":
+        return renderStockValidation();
+      case "purchase":
+        return renderPurchaseNeeds();
+      case "excess":
+        return renderExcessProduction();
+      case "dashboard":
+        return renderDashboard();
+      default:
+        return null;
     }
-
-    try {
-  const response = await fetch("/api/inventory-stock", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      item_code: formData.itemCode,
-      item_name: formData.itemName,
-      item_type: formData.type,
-      description: `${formData.type}${formData.serviceCode ? ` - Service Code: ${formData.serviceCode}` : ""}`,
-      location: formData.type === "Product" ? "Main Warehouse" : "Service",
-      unit_cost: parseFloat(formData.defaultSalesPrice) || 0,
-      quantity_on_hand: 0,
-      reorder_point: 0,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json();
-    toast({
-      title: "Error",
-      description: errorData.message || "Failed to create inventory item",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  toast({
-    title: "Item Created",
-    description: `${formData.itemName} has been added to inventory.`,
-  });
-} catch (error: any) {
-  console.error("Error creating inventory item:", error);
-  toast({
-    title: "Error",
-    description: error.message || "Failed to create inventory item",
-    variant: "destructive",
-  });
-}
-
-    onSuccess(formData.itemCode, formData.itemName, {
-      type: formData.type,
-      uom: formData.uom,
-      serviceCode: formData.serviceCode,
-      defaultSalesPrice: formData.defaultSalesPrice,
-    });
   };
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label>Type *</Label>
-          <Select value={formData.type} onValueChange={handleTypeChange}>
-            <SelectTrigger>
-              <SelectValue placeholder="Choose type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Product">Product</SelectItem>
-              <SelectItem value="Service">Service</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label>Item Code *</Label>
-          <Input value={formData.itemCode} disabled className="bg-muted" />
-        </div>
-        <div className="space-y-2 col-span-2">
-          <Label>Item Name *</Label>
-          <Input
-            value={formData.itemName}
-            onChange={(e) => setFormData({ ...formData, itemName: e.target.value })}
-            placeholder="Enter item name"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>UOM (Unit of Measurement) *</Label>
-          <Input
-            value={formData.uom}
-            onChange={(e) => setFormData({ ...formData, uom: e.target.value })}
-            placeholder="e.g., Kg, Pcs, Ltr"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>Service Code</Label>
-          <Input
-            value={formData.serviceCode}
-            onChange={(e) => setFormData({ ...formData, serviceCode: e.target.value })}
-            placeholder="Enter service code"
-          />
-        </div>
-        <div className="space-y-2 col-span-2">
-          <Label>Default Sales Price</Label>
-          <Input
-            type="number"
-            value={formData.defaultSalesPrice}
-            onChange={(e) => setFormData({ ...formData, defaultSalesPrice: e.target.value })}
-            placeholder="0.00"
-          />
+    <Layout>
+      <div className="flex h-full min-h-0 flex-col bg-portal-fieldset lg:flex-row">
+        {renderWorkspaceSidebar()}
+
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="border-b border-border bg-card px-4 py-4 md:px-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Order Booking</div>
+                <h1 className="mt-1 text-xl font-semibold text-foreground">{ORDER_VIEWS.find((view) => view.id === workspaceView)?.label}</h1>
+              </div>
+              <Tabs value={mainTab} onValueChange={(value) => setMainTab(value as MainTab)}>
+                <TabsList>
+                  <TabsTrigger value="orders">Orders</TabsTrigger>
+                  <TabsTrigger value="packages">Packages</TabsTrigger>
+                  <TabsTrigger value="refunds">Refunds</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
+  {mainTab === "packages" ? (
+    <OrderPackagesTab orders={orders} />
+  ) : mainTab === "refunds" ? (
+    <RefundsTab
+      refunds={refunds}
+      onUpdateRefund={(refundId, updates) =>
+        setRefunds((prev) =>
+          prev.map((refund) =>
+            refund.id === refundId
+              ? { ...refund, ...updates }
+              : refund
+          )
+        )
+      }
+      onRestoreInventory={async (refund) => {
+        try {
+          for (const item of refund.items) {
+            if (
+              !item.restoreInventory ||
+              item.quantityRefunded <= 0
+            )
+              continue;
+
+            // 1. Fetch stock
+            const stockRes = await axios.get(
+              `/api/inventory-stock/${item.itemCode}`
+            );
+
+            const currentStock = stockRes.data;
+
+            const currentQty = Number(
+              currentStock?.quantity_on_hand || 0
+            );
+            const currentAllocated = Number(
+              currentStock?.allocated_quantity || 0
+            );
+
+            const qty = Number(item.quantityRefunded);
+
+            // 2. Update stock
+            await axios.put("/api/inventory-stock/update", {
+              itemCode: item.itemCode,
+              quantity_on_hand: currentQty + qty,
+              allocated_quantity: Math.max(
+                0,
+                currentAllocated - qty
+              ),
+            });
+
+            // 3. Insert stock transaction
+            await axios.post("/api/stock-transactions", {
+              item_code: item.itemCode,
+              transaction_type: "Refund Return",
+              quantity: qty,
+              reference_type: "Refund",
+              reference_number: refund.refundNumber,
+              notes: `Refund from order ${refund.orderId}`,
+            });
+          }
+        } catch (error) {
+          console.error("Error restoring inventory:", error);
+        }
+      }}
+    />
+  ) : (
+    renderWorkspace()
+  )}
+</div>
         </div>
       </div>
-      <div className="flex justify-end gap-3 mt-6">
-        <Button variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button onClick={handleSubmit}>Save & Create BOM</Button>
-      </div>
-    </div>
+
+      <Sheet open={Boolean(viewOrder)} onOpenChange={(open) => !open && setViewOrder(null)}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
+          <SheetHeader>
+            <SheetTitle>{viewOrder?.order_no} — {viewOrder?.customer}</SheetTitle>
+          </SheetHeader>
+          {viewOrder && (
+            <div className="space-y-6 py-6">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-md border bg-muted/40 p-3"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Type</div><div className="mt-1 font-medium">{viewOrder.order_type}</div></div>
+                <div className="rounded-md border bg-muted/40 p-3"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Status</div><div className="mt-1 font-medium">{viewOrder.status}</div></div>
+                <div className="rounded-md border bg-muted/40 p-3"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Priority</div><div className="mt-1 font-medium">{viewOrder.priority}</div></div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1 text-sm">
+                  <div className="font-medium">Customer</div>
+                  <div className="text-muted-foreground">{viewOrder.customer}</div>
+                  <div className="text-muted-foreground">{viewOrder.contact_person || "—"}</div>
+                  <div className="text-muted-foreground">{viewOrder.contact_number || "—"}</div>
+                </div>
+                <div className="space-y-1 text-sm">
+                  <div className="font-medium">Delivery</div>
+                  <div className="text-muted-foreground">Dispatch: {viewOrder.expected_delivery_date || "—"}</div>
+                  <div className="text-muted-foreground">Status: {viewOrder.status}</div>
+                  <div className="text-muted-foreground">Mode: {viewOrder.dispatch_mode}</div>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">Rate</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>Stock</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(viewOrder.items || []).map((item) => {
+                      const assessment = getLineAssessment(item);
+                      return (
+                        <TableRow key={item.id}>
+                          <TableCell>
+                            <div className="font-mono text-xs text-primary">{item.item_code}</div>
+                            <div>{item.item_name}</div>
+                          </TableCell>
+                          <TableCell className="text-right">{item.quantity}</TableCell>
+                          <TableCell className="text-right"> {money(Number(item.rate || 0))}</TableCell>
+                          <TableCell className="text-right">{money(Number(item.total_amount || 0))}</TableCell>
+                          <TableCell>{renderValidationBadge(assessment.state, assessment.label)}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button variant="outline" onClick={() => cloneIntoComposer(viewOrder)}>
+                  <Copy className="mr-2 h-4 w-4" />Clone
+                </Button>
+                <Button variant="outline" onClick={() => { setRefundOrder(viewOrder); setRefundDialogOpen(true); }}>
+                  <RotateCcw className="mr-2 h-4 w-4" />Refund
+                </Button>
+                <Button variant="outline" onClick={() => handleOrderStatusChange(viewOrder.id, "Confirmed")}>
+                  <Check className="mr-2 h-4 w-4" />Confirm
+                </Button>
+                <Button onClick={() => handleOrderStatusChange(viewOrder.id, "Processing")}>Move to Processing</Button>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      <Dialog open={rfqDialogOpen} onOpenChange={setRfqDialogOpen}>
+        <DialogContent className="max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create RFQ</DialogTitle>
+          </DialogHeader>
+          <RFQForm initialItem={rfqItem || undefined} onSuccess={() => setRfqDialogOpen(false)} />
+        </DialogContent>
+      </Dialog>
+
+      <RefundDialog open={refundDialogOpen} onOpenChange={setRefundDialogOpen} order={refundOrder} onRefundCreated={(refund) => setRefunds((prev) => [refund, ...prev])} />
+    </Layout>
   );
 };
 

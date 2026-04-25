@@ -10,84 +10,79 @@ use Illuminate\Support\Str;
 
 class BomComponentController extends Controller
 {
-    public function index(Request $request)
+   public function index(Request $request)
 {
-    $request->validate([
-        'bom_id' => 'required|string',
-    ]);
+    // If bom_id is provided → filter
+    if ($request->has('bom_id')) {
+        return response()->json(
+            BomComponent::where('bom_id', $request->bom_id)->get()
+        );
+    }
 
-    $bomId = $request->bom_id;
-
-    $components = BomComponent::where('bom_id', $bomId)->get();
-
-    return response()->json($components);
+    // Otherwise return all
+    return response()->json(BomComponent::all());
 }
+
     public function show($id)
     {
         return BomComponent::findOrFail($id);
     }
 
-    public function store(Request $request)
-    {
-        try {
-            $components = $request->all(); // Expecting an array of components
-            Log::info('Bulk store payload', ['payload' => $components]);
+   public function store(Request $request)
+{
+    try {
+        $data = $request->all();
 
-            $inserted = [];
+        Log::info('Parsed payload', $data);
 
-            foreach ($components as $componentData) {
-                $validator = Validator::make($componentData, [
-                   
-                    'bom_id' => 'required|string',
-                    'item_seq' => 'nullable|integer',
-                    'operation_seq' => 'nullable|integer',
-                    'component' => 'nullable|string',
-                    'description' => 'nullable|string',
-                    'quantity' => 'nullable|integer',
-                    'uom' => 'nullable|string',
-                    'basis' => 'nullable|string',
-                    'type' => 'nullable|string',
-                    'status' => 'nullable|string',
-                    'planning_percent' => 'nullable|integer',
-                    'yield_percent' => 'nullable|integer',
-                    'include_in_cost_rollup' => 'nullable|boolean',
-                    'unit_cost' => 'nullable|numeric',
-                    'total_cost' => 'nullable|numeric',
-                    'created_at' => 'nullable|date',
-                ]);
+        $validator = Validator::make($data, [
+            'bom_id' => 'required|string',
+            'component' => 'required|string',
+            'description' => 'nullable|string',
+            'quantity' => 'required|numeric',
+            'uom' => 'nullable|string',
+            'basis' => 'nullable|string',
+            'type' => 'nullable|string',
+            'item_seq' => 'nullable|integer',
+            'operation_seq' => 'nullable|integer',
+        ]);
 
-                if ($validator->fails()) {
-                    Log::error('Validation failed for component', [
-                        'component' => $componentData,
-                        'errors' => $validator->errors()->all(),
-                    ]);
-
-                    return response()->json([
-                        'error' => 'Validation failed',
-                        'details' => $validator->errors(),
-                    ], 422);
-                }
-
-                $validData = $validator->validated();
-                  $validData['id'] = Str::uuid()->toString(); // ✅ Generate ID
-                $inserted[] = BomComponent::create($validData);
-            }
-
-            return response()->json($inserted, 201);
-
-        } catch (\Exception $e) {
-            Log::error('BOMComponent bulk store failed', [
-                'payload' => $request->all(),
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
+        if ($validator->fails()) {
             return response()->json([
-                'error' => 'Internal Server Error',
-                'message' => $e->getMessage()
-            ], 500);
+                'error' => 'Validation failed',
+                'details' => $validator->errors(),
+            ], 422);
         }
+
+        $valid = $validator->validated();
+
+        // 🔥 SAFE DEFAULTS (THIS FIXES YOUR ERRORS)
+        $valid['id'] = Str::uuid()->toString();
+
+        $valid['basis'] = $valid['basis'] ?? 'Standard';
+        $valid['status'] = $valid['status'] ?? 'Active';
+        $valid['planning_percent'] = $valid['planning_percent'] ?? 100;
+        $valid['yield_percent'] = $valid['yield_percent'] ?? 100;
+        $valid['include_in_cost_rollup'] = $valid['include_in_cost_rollup'] ?? 0;
+
+        $valid['unit_cost'] = $valid['unit_cost'] ?? 0;
+        $valid['total_cost'] = $valid['total_cost'] ?? 0;
+
+        $created = BomComponent::create($valid);
+
+        return response()->json($created, 201);
+
+    } catch (\Exception $e) {
+        Log::error('STORE ERROR', [
+            'msg' => $e->getMessage(),
+        ]);
+
+        return response()->json([
+            'error' => 'Server error',
+            'message' => $e->getMessage()
+        ], 500);
     }
+}
 
     public function deleteByBomId(Request $request)
 {
@@ -150,5 +145,15 @@ public function update(Request $request, $id)
             'message' => $e->getMessage()
         ], 500);
     }
+}
+
+public function destroy($id)
+{
+    $component = BomComponent::findOrFail($id);
+    $component->delete();
+
+    return response()->json([
+        'message' => 'Deleted successfully'
+    ]);
 }
 }
