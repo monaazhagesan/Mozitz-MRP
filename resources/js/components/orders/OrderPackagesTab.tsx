@@ -120,10 +120,10 @@ const OrderPackagesTab = ({ orders }: OrderPackagesTabProps) => {
       if (order.items?.length > 0) {
         const items: PackageItem[] = order.items.map((item, idx) => ({
           id: `pkg-item-${idx}`,
-          itemName: item.itemName,
-          itemCode: item.itemCode,
-          description: "", // can be extended to include actual descriptions
-          ordered: item.quantityOrdered,
+         itemName: item.itemName || item.item_name,
+itemCode: item.itemCode || item.item_code,
+ordered: item.quantityOrdered || item.quantity,
+          description: "", // can be extended to include actual descriptions        
           packed: 0,
           quantityToPack: item.quantityOrdered, // must be >0
           uom: item.uom || "pcs",
@@ -335,6 +335,12 @@ const confirmShipment = async () => {
   }
 };
 
+const selectedOrderData = useMemo(() => {
+  return confirmedOrders.find(
+    (o) => String(o.id) === String(selectedOrder)
+  );
+}, [selectedOrder, confirmedOrders]);
+
 // Mark package as delivered
 const markAsDelivered = async (packageId: string) => {
   try {
@@ -413,7 +419,7 @@ const markAsNotShipped = async (packageId: string) => {
 
   const payload = {
     order_id: selectedOrder,
-    order_number: order.orderNo,
+    order_number: order.orderNo || order.order_no,
     customer_name: order.customer,
     package_slip: packageSlip,
     date: packageDate,
@@ -518,23 +524,23 @@ useEffect(() => {
           <div class="section from-to">
             <div class="address-block">
               <div class="label-title">Ship To</div>
-              <div class="label-value">${pkg.customerName}</div>
+              <div class="label-value">${pkg.customer_name}</div>
               <div style="font-size: 12px; color: #666; margin-top: 5px;">Customer Address Line 1<br/>City, State ZIP</div>
             </div>
           </div>
           <div class="section tracking">
             <div class="label-title">Tracking Number</div>
-            <div class="tracking-number">${pkg.trackingNumber || 'N/A'}</div>
+            <div class="tracking-number">${pkg.tracking_number || 'N/A'}</div>
             <div class="barcode-fallback" title="Barcode"></div>
           </div>
           <div class="section package-info">
             <div>
               <div class="label-title">Package Slip</div>
-              <div class="label-value">${pkg.packageSlip}</div>
+              <div class="label-value">${pkg.package_slip}</div>
             </div>
             <div>
               <div class="label-title">Order Number</div>
-              <div class="label-value">${pkg.orderNumber}</div>
+              <div class="label-value">${pkg.order_number}</div>
             </div>
             <div>
               <div class="label-title">Date</div>
@@ -1001,7 +1007,7 @@ useEffect(() => {
                       ) : (
                         confirmedOrders.map((order) => (
                           <SelectItem key={order.id} value={order.id}>
-                            {order.orderNo} - {order.customer} ({order.status})
+                            {order.orderNo || order.order_no} - {order.customer} ({order.status})
                           </SelectItem>
                         ))
                       )}
@@ -1009,14 +1015,14 @@ useEffect(() => {
                   </Select>
                   <p className="text-xs text-muted-foreground">Only confirmed/approved orders can be packaged</p>
                 </div>
-                <div className="space-y-2">
-                  <Label>Customer</Label>
-                  <Input 
-                    value={selectedOrder ? confirmedOrders.find(o => o.id === selectedOrder)?.customer || "" : ""} 
-                    disabled 
-                    className="h-10 bg-muted" 
-                  />
-                </div>
+               <div className="space-y-2">
+  <Label>Customer</Label>
+  <Input
+    value={selectedOrderData?.customer || selectedOrderData?.customer_name || ""}
+    disabled
+    className="h-10 bg-muted"
+  />
+</div>
               </div>
 
               {/* Package Slip and Date */}

@@ -27,6 +27,9 @@ return new class extends Migration
             $table->decimal('reorder_quantity', 15, 2)->default(0);
 
             $table->decimal('committed_quantity', 15, 2)->default(0);
+
+            $table->decimal('open_po', 15, 2)->default(0);
+            
             $table->string('barcode')->nullable();
             $table->string('item_mode')->nullable();
             $table->string('variant_name')->nullable();

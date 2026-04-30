@@ -45,6 +45,7 @@ class OrderController extends Controller
 
                 Order::create([
                     'order_no' => $request->order_no,
+                    'customer_id' => $request->customer_id,
                     'customer' => $request->customer,
                     'order_type' => $request->order_type,
 

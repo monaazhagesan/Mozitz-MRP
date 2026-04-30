@@ -72,23 +72,31 @@ interface BOMComponent {
 
 interface LineItem {
   id: string;
+
   itemType: string;
   itemCode: string;
   itemName: string;
   uom: string;
+
   quantityOrdered: number;
-  availableStock: number;
-  rackLocation: string;
-  batchNo: string;
-  expiryDate: string;
+  availableStock?: number;     // ✅ make optional
+  rackLocation?: string;       // ✅ make optional
+  batchNo?: string;            // ✅ make optional
+  expiryDate?: string;         // ✅ make optional
+
   rate: number;
   tax: number;
-  totalAmount: number;
-  stockValidated: boolean;
+
+  totalAmount?: number;        // ✅ make optional
+
+  stockValidated?: boolean;    // ✅ make optional
+
   hasBOM?: boolean;
   bomComponents?: BOMComponent[];
   bomLoading?: boolean;
   noBOM?: boolean;
+
+  discount?: number;
 }
 
 interface Order {
@@ -163,6 +171,7 @@ interface RegularOrderTemplate {
 }
 
 interface FormDataState {
+  customerId: number | string;
   customerName: string;
   customerCode: string;
   contactPerson: string;
@@ -273,6 +282,7 @@ const Orders = () => {
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [formData, setFormData] = useState<FormDataState>({
+    customerId: "",
     customerName: "",
     customerCode: "",
     contactPerson: "",
@@ -319,6 +329,7 @@ const Orders = () => {
     nextOrderDate: todayISO(),
     price: 0,
   });
+  
   const [rfqDialogOpen, setRfqDialogOpen] = useState(false);
   const [rfqItem, setRfqItem] = useState<{
     item_code: string;
@@ -332,6 +343,15 @@ const Orders = () => {
   const safeOrders = Array.isArray(orders) ? orders : [];
 const safeInventoryItems = Array.isArray(inventoryItems) ? inventoryItems : [];
 const safeLineItems = Array.isArray(lineItems) ? lineItems : [];
+
+// Add this after your interfaces (around line 100)
+const getOrderField = (order: any, field: string, fallback: any = "—") => {
+  if (!order) return fallback;
+  return order[field] ?? 
+         order[field.replace(/_/g, '')] ??  // try camelCase version
+         order[field.toLowerCase()] ?? 
+         fallback;
+};
 
   useEffect(() => {
     localStorage.setItem("orders", JSON.stringify(orders));
@@ -350,8 +370,6 @@ const safeLineItems = Array.isArray(lineItems) ? lineItems : [];
   try {
     const res = await axios.get("/api/orders/next-so");
 
-    console.log("SO API RESPONSE:", res.data);
-
     return res.data.data;
   } catch (err) {
     console.error("SO GENERATION FAILED:", err.response?.data || err);
@@ -364,6 +382,16 @@ const safeLineItems = Array.isArray(lineItems) ? lineItems : [];
     return `REG-${year}-${String(regularOrders.length + 1).padStart(4, "0")}`;
   };
 
+
+  const calculateOrderValue = (order: any) =>
+  (order.items || []).reduce(
+    (sum: number, item: any) =>
+      sum +
+      (Number(item.quantity || 0) *
+       Number(item.rate || item.price || 0)),
+    0
+  );
+
   useEffect(() => {
   const loadSO = async () => {
     const so = await generateSONumber();
@@ -374,39 +402,61 @@ const safeLineItems = Array.isArray(lineItems) ? lineItems : [];
 }, []);
 
  const inventoryByCode = useMemo(() => {
-  if (!Array.isArray(inventoryItems)) return new Map();
+  if (!Array.isArray(inventoryItems) || inventoryItems.length === 0) {
+    console.log("⚠️ inventoryItems is empty");
+    return new Map();
+  }
 
-  return new Map(
-    inventoryItems.map((item) => [
-      normalizeText(item.item_code),
-      item,
-    ])
-  );
+  const map = new Map();
+  inventoryItems.forEach((item) => {
+    const code1 = normalizeText(item.item_code);
+    const code2 = normalizeText(item.itemCode);
+    
+    if (code1) map.set(code1, item);
+    if (code2 && code2 !== code1) map.set(code2, item);
+  });
+
+  console.log(`✅ Inventory map created with ${map.size} items`);
+  return map;
 }, [inventoryItems]);
 
   const customerByName = useMemo(() => {
     return new Map(customers.map((customer) => [normalizeText(customer.customer_name), customer]));
   }, [customers]);
 
-  const getInventoryRecord = (itemCode: string) => inventoryByCode.get(normalizeText(itemCode));
+  const getInventoryRecord = (itemCode: string) => {
+  if (!itemCode) return null;
+  const normalized = normalizeText(itemCode);
+  return inventoryByCode.get(normalized) || null;
+};
 
-  const getAvailableStock = (itemCode: string) => {
-    const inventory = getInventoryRecord(itemCode);
-    if (!inventory) return 0;
-    if (typeof inventory.available_quantity === "number") return integer(inventory.available_quantity);
-    return integer((inventory.quantity_on_hand || 0) - (inventory.allocated_quantity || 0));
-  };
+ const getAvailableStock = (itemCode: string): number => {
+  if (!itemCode) return 0;
 
+  const inventory = getInventoryRecord(itemCode);
+  if (!inventory) {
+    console.log(`❌ No inventory found for: ${itemCode}`);
+    return 0;
+  }
+
+
+  const available = 
+    Number(inventory.available_quantity) ||
+    Number(inventory.availableQuantity) ||
+    Number(inventory.available_stock) ||
+    (Number(inventory.quantity_on_hand || 0) - Number(inventory.allocated_quantity || 0)) ||
+    Number(inventory.quantity) ||
+    0;
+
+  return Math.max(0, Math.round(available));
+};
 
 const fetchInventory = async () => {
   try {
     const res = await axios.get("/api/inventory-stock");
-
-    console.log("📦 RAW INVENTORY:", res.data);
+    console.log("📦 INVENTORY RAW RESPONSE:", res.data);
 
     const data = res.data?.items ?? [];   // ✅ FIX HERE
-
-    console.log("✅ NORMALIZED INVENTORY:", data);
 
     setInventoryItems(data);
   } catch (error) {
@@ -419,127 +469,203 @@ useEffect(() => {
   fetchInventory();
 }, []);
 
-const fetchBOMComponents = async (
-  bomId: string,
-  orderQuantity: number,
-  itemUOM?: string
-) => {
-  try {
-    if (!bomId) {
-      return { components: [], noBOM: true };
-    }
 
-    // 1. Fetch BOM components directly using bomId
-    const componentsRes = await axios.get("/api/bom-components", {
-      params: {
-        bom_id: bomId,
-      },
+const fetchBOMComponents = async (itemCode: string, qty: number) => {
+  try {
+    console.log("📦 ITEM CODE:", itemCode);
+
+    // 🔹 1. BOM API
+    const res = await axios.get("/api/bom-component", {
+      params: { item_code: itemCode },
     });
 
-    const components = componentsRes.data;
+    const components = res.data;
+
+    console.log("📦 BOM RESPONSE:", components);
 
     if (!Array.isArray(components) || components.length === 0) {
+      console.warn("⚠️ No BOM found");
       return { components: [], noBOM: true };
     }
 
-    // 2. Get component codes
-    const codes = components.map((c: any) => c.component);
-
-    // 3. Fetch stock
+    // 🔹 2. STOCK API
     const stockRes = await axios.get("/api/inventory-stock", {
       params: {
-        item_codes: codes.join(","),
+        item_codes: components.map((c: any) => c.component).join(","),
       },
     });
 
-    const stockData =
-      stockRes.data?.items ||
-      stockRes.data?.data ||
-      stockRes.data ||
-      [];
+    console.log("📦 STOCK RAW RESPONSE:", stockRes.data);
 
-    const safeStockArray = Array.isArray(stockData)
-      ? stockData
-      : [];
+    // 🔹 3. Normalize stock
+    const stockArray = Array.isArray(stockRes.data)
+      ? stockRes.data
+      : stockRes.data?.data || stockRes.data?.stocks || [];
 
-    const availableMap = new Map(
-      safeStockArray.map((item: any) => [
-        item.item_code,
-        Number(item.available_quantity || 0),
+    console.log("📦 STOCK ARRAY:", stockArray);
+
+    // 🔹 4. Build map
+    const stockMap = new Map(
+      stockArray.map((s: any) => [
+        String(s.item_code).trim().toUpperCase(),
+        Number(s.available_quantity || 0),
       ])
     );
 
-    // 4. Final mapping
+    console.log("📦 STOCK MAP:", Object.fromEntries(stockMap));
+
+    // 🔹 5. Final merge
+    const result = components.map((c: any) => {
+      const key = String(c.component).trim().toUpperCase();
+      const available = stockMap.get(key) || 0;
+
+      console.log("🔍 COMPONENT CHECK:", {
+        component: c.component,
+        key,
+        available,
+      });
+
+      return {
+        component: c.component,
+        description: c.description,
+        type: c.type,
+        uom: c.uom || "NOS",
+
+        bomQuantity: Number(c.quantity),
+        requiredQty: Number(c.quantity) * qty,
+
+             availableQty: stockMap.get(key) || 0,
+
+      };
+    });
+
+    console.log("📦 FINAL COMPONENTS:", result);
+
     return {
+      components: result,
       noBOM: false,
-      components: components.map((component: any) => ({
-        component: component.component,
-        description: component.description,
-        uom: component.uom || component.base_uom || "NOS",
-        type: normalizeItemType(component.type),
-        bomQuantity: Number(component.quantity),
-        availableQty: availableMap.get(component.component) || 0,
-        requiredQty: Number(component.quantity) * orderQuantity,
-      })),
     };
-  } catch (error) {
-    console.error("Error fetching BOM components:", error);
+  } catch (err) {
+    console.error("❌ BOM fetch error:", err);
     return { components: [], noBOM: true };
   }
 };
 
+const getLineAssessment = (item: LineItem) => {
+  const code = (item.itemCode || item.item_code || "").trim();
 
-  const getLineAssessment = (item: LineItem) => {
-    const inventory = getInventoryRecord(item.itemCode);
-    const available = item.itemCode ? getAvailableStock(item.itemCode) : 0;
-    const quantity = integer(item.quantityOrdered);
-    const gap = Math.max(0, quantity - Math.max(0, available));
-    const reorderPoint = integer(inventory?.reorder_point || 0);
-    const type = normalizeItemType(item.itemType || inventory?.item_type);
+  // Get fresh inventory record
+  const inventory = code ? getInventoryRecord(code) : null;
+  
+  // Get available stock - use the most reliable method
+  const available = code ? getAvailableStock(code) : 0;
 
-    let state: ValidationState = "missing";
-    let label = "Select item";
-    let action = "Choose an item code to run validation.";
+  const quantity = integer(item.quantityOrdered ?? item.quantity ?? 0);
+  const gap = Math.max(0, quantity - available);
 
-    if (!item.itemCode) {
-      state = "missing";
-      label = "Missing item";
-      action = "Add an item code.";
-    } else if (quantity <= 0) {
-      state = "missing";
-      label = "Missing qty";
-      action = "Enter quantity greater than zero.";
-    } else if (gap <= 0) {
-      state = "available";
-      label = reorderPoint > 0 && available < reorderPoint ? "Below reorder" : "Stock OK";
-      action = reorderPoint > 0 && available < reorderPoint ? "Monitor stock and restock soon." : "Can be fulfilled from stock.";
-    } else if (available > 0) {
-      state = "partial";
-      label = `Partial ${available}/${quantity}`;
-      action = `Short by ${gap}. Split delivery or trigger replenishment.`;
-    } else if (type === "Product") {
-      state = "produce";
-      label = `Produce ${quantity}`;
-      action = "Create or update the BOM / production plan.";
-    } else {
-      state = "purchase";
-      label = `Buy ${quantity}`;
-      action = "Raise RFQ or purchase request.";
-    }
+ const openPO = integer(inventory?.open_po ?? 0);
 
+  const reorderPoint = integer(inventory?.reorder_point || inventory?.reorderPoint || 0);
+
+  const rawType = item.itemType || inventory?.item_type || inventory?.itemType || "";
+  const type = normalizeItemType(rawType);
+
+  const isProduct = type === "Product";
+
+  if (!code) {
     return {
-      state,
-      label,
-      action,
+      state: "missing" as ValidationState,
+      label: "Missing item",
+      action: "Add an item code.",
       available,
       gap,
       quantity,
       reorderPoint,
       inventory,
       type,
-      openPO: 0,
+      openPO,
     };
+  }
+
+  if (quantity <= 0) {
+    return {
+      state: "missing" as ValidationState,
+      label: "Missing qty",
+      action: "Enter quantity greater than zero.",
+      available,
+      gap: 0,
+      quantity,
+      reorderPoint,
+      inventory,
+      type,
+      openPO,
+    };
+  }
+
+  // FULL STOCK
+  if (available >= quantity) {
+    return {
+      state: "available" as ValidationState,
+      label: reorderPoint > 0 && available < reorderPoint ? "Below reorder" : "Stock OK",
+      action: reorderPoint > 0 && available < reorderPoint 
+        ? "Monitor stock and restock soon." 
+        : "Can be fulfilled from stock.",
+      available,
+      gap,
+      quantity,
+      reorderPoint,
+      inventory,
+      type,
+      openPO,
+    };
+  }
+
+  // PARTIAL STOCK
+  if (available > 0) {
+    return {
+      state: "partial" as ValidationState,
+      label: `Partial ${available}/${quantity}`,
+      action: `Short by ${gap}. Split delivery or trigger replenishment.`,
+      available,
+      gap,
+      quantity,
+      reorderPoint,
+      inventory,
+      type,
+      openPO,
+    };
+  }
+
+  // PRODUCE (for Products)
+  if (isProduct) {
+    return {
+      state: "produce" as ValidationState,
+      label: `Produce ${quantity}`,
+      action: "Trigger BOM-based production plan.",
+      available,
+      gap,
+      quantity,
+      reorderPoint,
+      inventory,
+      type,
+      openPO,
+    };
+  }
+
+  // PURCHASE (for Materials/Components)
+  return {
+    state: "purchase" as ValidationState,
+    label: `Buy ${gap}`,
+    action: "Raise RFQ or purchase request.",
+    available,
+    gap,
+    quantity,
+    reorderPoint,
+    inventory,
+    type,
+    openPO,
   };
+};
 
   const lineAssessments = useMemo(() => lineItems.map((item) => ({ item, assessment: getLineAssessment(item) })), [lineItems, inventoryItems]);
 
@@ -568,8 +694,9 @@ const fetchBOMComponents = async (
     }));
   }, [totalSummary.total]);
 
-  const resetComposer = () => {
+ const resetComposer = async () => {
     const defaultType = getDefaultItemType("Sales");
+    const newSONumber = await generateSONumber();
     setFormData({
       customerName: "",
       customerCode: "",
@@ -578,7 +705,7 @@ const fetchBOMComponents = async (
       email: "",
       billingAddress: "",
       shippingAddress: "",
-      orderNo: generateSONumber(),
+      orderNo: newSONumber || `SO-${Date.now()}`,
       orderDate: todayISO(),
       expectedDeliveryDate: "",
       orderType: "Sales",
@@ -602,25 +729,59 @@ const fetchBOMComponents = async (
     setValidationRun(false);
   };
 
-  const applyCustomerSelection = (name: string) => {
-    const customer = customerByName.get(normalizeText(name));
-    if (!customer) {
-      setFormData((prev) => ({ ...prev, customerName: name }));
-      return;
+ const applyCustomerSelection = async (id: number) => {
+
+
+  try {
+
+    const res = await fetch(`/api/customers/${id}`);
+
+    if (!res.ok) {
+      throw new Error("Customer not found");
     }
 
-    setFormData((prev) => ({
-      ...prev,
-      customerName: customer.customer_name,
-      customerCode: customer.customer_code || "",
-      email: customer.email || "",
-      contactNumber: customer.phone || "",
-      contactPerson: customer.contact_person || "",
-      billingAddress: customer.billing_address || "",
-      shippingAddress: customer.shipping_address || customer.billing_address || "",
-      location: customer.country || prev.location,
-    }));
-  };
+    const customer = await res.json();
+
+
+    setFormData((prev) => {
+      const updated = {
+        ...prev,
+customerId: id,
+
+       customerName:
+  customer.customer ??
+  customer.customer_name ??
+  prev.customerName ?? "",
+
+        customerCode: customer.customer_code || "",
+        email: customer.email || "",
+
+        // ✅ FIXED CONTACT NUMBER (safe mapping)
+        contactNumber:
+          customer.contact_number ||
+          customer.phone ||
+          customer.mobile ||
+          customer.phone_number ||
+          "",
+
+        contactPerson: customer.contact_person || "",
+
+        billingAddress: customer.billing_address || "",
+
+        shippingAddress:
+          customer.shipping_address || customer.billing_address || "",
+
+        location: customer.country || prev.location,
+      };
+
+      console.log("🧾 Updated form data:", updated);
+
+      return updated;
+    });
+  } catch (error) {
+    console.error("❌ Customer fetch error:", error);
+  }
+};
 
   const syncItemCode = async (id: string, code: string) => {
     const inventory = getInventoryRecord(code);
@@ -788,6 +949,7 @@ const allocateInventoryForOrder = async (items: LineItem[]) => {
 
   const newOrder = {
     id: formData.orderNo || generateSONumber(),
+    customer_id: formData.customerId,
     order_date: formData.orderDate,
     order_type: formData.orderType,
     customer: formData.customerName,
@@ -848,8 +1010,28 @@ const allocateInventoryForOrder = async (items: LineItem[]) => {
 const fetchOrders = async () => {
   try {
     const res = await axios.get("/api/orders");
+    
+    console.log("🔵 FULL RESPONSE:", res);
+    console.log("🟢 RESPONSE DATA:", res.data);
 
-    const data = res.data?.data ?? [];
+    let data = res.data?.data ?? res.data ?? [];
+
+    // Normalize inconsistent keys from backend
+    data = data.map((order: any) => ({
+      ...order,
+      id: order.id || order.order_no || order.orderNo,
+      order_no: order.order_no || order.id || order.orderNo,
+      orderDate: order.orderDate || order.order_date || order.created_at,
+      order_type: order.order_type || order.orderType || "Sales",
+      customer: order.customer || order.customer_name || "",
+      status: order.status || "Draft",
+      priority: order.priority || "Normal",
+      expected_delivery_date: order.expected_delivery_date || order.expectedDeliveryDate || "",
+      deliveryStatus: order.deliveryStatus || order.delivery_status || "Awaiting",
+      // Add more if needed
+    }));
+
+    console.log("🟣 FINAL NORMALIZED ORDERS ARRAY:", data);
 
     setOrders(Array.isArray(data) ? data : []);
   } catch (error) {
@@ -858,35 +1040,91 @@ const fetchOrders = async () => {
   }
 };
 
-
+useEffect(() => {
+  console.log("FETCHING CUSTOMERS...");
+  fetch("/api/customers")
+    .then((res) => res.json())
+    .then((data) => {
+      console.log("API RESPONSE:", data);
+      setCustomers(data);
+    });
+}, []);
 
 useEffect(() => {
   fetchOrders();
 }, []);
+
+
+const fetchCustomers = async () => {
+  try {
+    const res = await fetch("/api/customers");
+    const data = await res.json();
+
+    console.log("API RESPONSE11:", data);
+
+    setCustomers(data.data || data);
+  } catch (error) {
+    console.error("Error fetching customers:", error);
+  }
+};
+
+useEffect(() => {
+  fetchCustomers();
+}, []);
+
+const deleteRegularTemplate = async (id: string) => {
+  try {
+    const res = await fetch(`/api/regular-template/${id}`, {
+      method: "DELETE",
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to delete template");
+    }
+
+    setRegularOrders((prev) =>
+      prev.filter((item) => item.id !== id)
+    );
+
+    toast({
+      title: "Template deleted",
+      description: "Regular order template removed successfully.",
+    });
+  } catch (error: any) {
+    toast({
+      title: "Error",
+      description: error.message,
+      variant: "destructive",
+    });
+  }
+};
+
+
 
   const runValidation = () => {
     setValidationRun(true);
     toast({ title: "Validation complete", description: "Stock and MRP recommendations are up to date." });
   };
 
-  const filteredOrders = useMemo(() => {
+ const filteredOrders = useMemo(() => {
   if (!Array.isArray(orders)) return [];
+
+  const search = (searchTerm || "").toLowerCase();
 
   return orders.filter((order) => {
     const matchesSearch =
-      order.customer?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.id?.toLowerCase().includes(searchTerm.toLowerCase());
+      (order?.customer || "").toLowerCase().includes(search) ||
+      (order?.id || "").toString().toLowerCase().includes(search);
 
     const matchesStatus =
-      statusFilter === "all" || order.status === statusFilter;
+      statusFilter === "all" || order?.status === statusFilter;
 
     const matchesType =
-      typeFilter === "all" || order.orderType === typeFilter;
+      typeFilter === "all" || order?.orderType === typeFilter;
 
     return matchesSearch && matchesStatus && matchesType;
   });
 }, [orders, searchTerm, statusFilter, typeFilter]);
-
 
 
   const selectedCloneOrder = useMemo(
@@ -944,22 +1182,38 @@ useEffect(() => {
       .sort((a, b) => b.excessQty - a.excessQty);
   }, [inventoryItems, orders]);
 
-  const dashboardStats = useMemo(() => {
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    const monthOrders = orders.filter((order) => {
-  if (!order.orderDate) return false;
-  return String(order.orderDate).startsWith(currentMonth);
-});
-    const overdue = orders.filter(
-      (order) => order.expectedDispatchDate && order.expectedDispatchDate < todayISO() && !["Delivered", "Cancelled"].includes(order.status),
-    );
-    return {
-      monthOrders: monthOrders.length,
-      orderValue: monthOrders.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + item.totalAmount, 0), 0),
-      pendingDelivery: orders.filter((order) => !["Delivered", "Cancelled"].includes(order.deliveryStatus)).length,
-      overdue: overdue.length,
-    };
-  }, [orders]);
+ const dashboardStats = useMemo(() => {
+  const currentMonth = new Date().toISOString().slice(0, 7);
+
+  const monthOrders = orders.filter((order) => {
+    if (!order.orderDate) return false;
+    return String(order.orderDate).startsWith(currentMonth);
+  });
+
+  const orderValue = monthOrders.reduce((sum, order) => {
+    const itemsTotal = (order.items || []).reduce((itemSum, item) => {
+      return itemSum + (Number(item.total_amount) || 0);
+    }, 0);
+
+    return sum + itemsTotal;
+  }, 0);
+
+  const overdue = orders.filter(
+    (order) =>
+      order.expectedDispatchDate &&
+      order.expectedDispatchDate < todayISO() &&
+      !["Delivered", "Cancelled"].includes(order.status)
+  );
+
+  return {
+    monthOrders: monthOrders.length,
+    orderValue,
+    pendingDelivery: orders.filter(
+      (order) => !["Delivered", "Cancelled"].includes(order.deliveryStatus)
+    ).length,
+    overdue: overdue.length,
+  };
+}, [orders]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -976,18 +1230,31 @@ useEffect(() => {
   };
 
   const exportOrders = () => {
-    const rows = filteredOrders.map((order) => ({
-      "Order ID": order.id,
-      Customer: order.customer,
-      "Order Date": order.orderDate,
-      "Order Type": order.orderType,
-      Priority: order.priority,
-      Status: order.status,
-      "Delivery Status": order.deliveryStatus,
-      Total: order.items.reduce((sum, item) => sum + item.totalAmount, 0),
-      Items: order.items.length,
-      Location: order.location,
-    }));
+  const rows = filteredOrders.map((order) => ({
+    "Order ID": order?.id || "",
+    Customer: order?.customer || "",
+    "Order Date": order?.order_date || order?.orderDate || "",
+
+    "Order Type": order?.order_type || order?.orderType || "",
+    Priority: order?.priority || "",
+    Status: order?.status || "",
+    "Delivery Status": order?.deliveryStatus || "",
+
+    // ✅ FIX: correct total field mapping
+    Total: (order?.items || []).reduce(
+      (sum, item) =>
+        sum + Number(item?.total_amount || item?.totalAmount || 0),
+      0
+    ),
+
+    Items: (order?.items || []).length || 0,
+    Location: order?.location || "",
+  }));
+
+  console.log("Export Rows:", rows);
+
+  // your CSV/Excel logic continues here...
+
 
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.json_to_sheet(rows);
@@ -1007,28 +1274,22 @@ const handleOrderStatusChange = async (
   if (!current) return;
 
   try {
+    // 1️⃣ stock update logic
     if (
       current.status === "Awaiting Confirmation" &&
       nextStatus === "Processing"
     ) {
       for (const item of current.items) {
-        // 1. Fetch current stock
         const stockRes = await axios.get(
           `/api/inventory-stock/${item.itemCode}`
         );
 
         const currentStock = stockRes.data;
 
-        const allocated = Number(
-          currentStock?.allocated_quantity || 0
-        );
-        const committed = Number(
-          currentStock?.committed_quantity || 0
-        );
-
+        const allocated = Number(currentStock?.allocated_quantity || 0);
+        const committed = Number(currentStock?.committed_quantity || 0);
         const qty = Number(item.quantityOrdered);
 
-        // 2. Update stock
         await axios.put("/api/inventory-stock/update", {
           itemCode: item.itemCode,
           allocated_quantity: Math.max(0, allocated - qty),
@@ -1037,7 +1298,12 @@ const handleOrderStatusChange = async (
       }
     }
 
-    // 3. Update UI state
+    // 2️⃣ 🔥 UPDATE BACKEND ORDER STATUS (MISSING PART)
+   await axios.put(`/api/orders/${orderId}/status`, {
+      status: nextStatus,
+    });
+
+    // 3️⃣ update UI
     setOrders((prev) =>
       prev.map((order) =>
         order.id === orderId
@@ -1048,7 +1314,7 @@ const handleOrderStatusChange = async (
 
     toast({
       title: "Status updated",
-      description: `${orderId} is now ${nextStatus}.`,
+      description: `${current.order_no} is now ${nextStatus}.`,
     });
   } catch (error) {
     console.error("Error updating order status:", error);
@@ -1058,79 +1324,165 @@ const handleOrderStatusChange = async (
     });
   }
 };
-
   const startClone = (order: Order) => {
     setSelectedCloneId(order.id);
     setWorkspaceView("clone");
   };
 
-  const cloneIntoComposer = (order: Order) => {
-    setFormData({
-      customerName: order.customer,
-      customerCode: "",
-      contactPerson: order.contactPerson,
-      contactNumber: order.contactNumber,
-      email: order.email,
-      billingAddress: order.billingAddress,
-      shippingAddress: order.shippingAddress,
-      orderNo: generateSONumber(),
-      orderDate: todayISO(),
-      expectedDeliveryDate: order.expectedDispatchDate || order.orderDate,
-      orderType: order.orderType,
-      referenceNo: order.referenceNo,
-      priority: order.priority,
-      remarks: order.remarks,
-      dispatchMode: order.dispatchMode,
-      transporterName: order.transporterName,
-      vehicleNo: order.vehicleNo,
-      expectedDispatchDate: order.expectedDispatchDate,
-      deliveryStatus: "Awaiting",
-      warehouseLocation: order.warehouseLocation,
-      location: order.location,
-      paymentType: order.paymentType,
-      paymentTerms: order.paymentTerms,
-      advanceAmount: order.advanceAmount,
-      balanceAmount: order.balanceAmount,
-      invoiceRequired: order.invoiceRequired,
+const cloneIntoComposer = async (row: any) => {
+  const newSONumber = await generateSONumber();
+
+  // 🔥 ALWAYS PICK CORRECT SOURCE
+  const order =
+    row.items ? row : row.data ? row.data[0] : row;
+
+  console.log("CLONING ORDER:", order); // DEBUG
+
+  setFormData({
+    customerId: order.customer_id ?? "",   // 🔥 ADD THIS
+     customerName: order.customer ?? order.customer_name ?? "",
+
+    customerCode: "",
+    contactPerson: order.contact_person ?? "",
+    contactNumber: order.contact_number ?? "",
+    email: order.email ?? "",
+
+    billingAddress: order.billing_address ?? "",
+    shippingAddress: order.shipping_address ?? "",
+
+    orderNo: newSONumber || `SO-${Date.now()}`,
+    orderDate: todayISO(),
+
+    expectedDeliveryDate:
+      order.expected_delivery_date || order.order_date,
+
+    orderType: order.order_type ?? "",
+    referenceNo: order.reference_no ?? "",
+    priority: order.priority ?? "",
+    remarks: order.remarks ?? "",
+
+    dispatchMode: order.dispatch_mode ?? "",
+    transporterName: order.transporter_name ?? "",
+    vehicleNo: order.vehicle_no ?? "",
+    expectedDispatchDate: order.expected_dispatch_date ?? "",
+
+    deliveryStatus: "Awaiting",
+    warehouseLocation: order.warehouse_location ?? "",
+    location: order.location ?? "",
+
+    paymentType: order.payment_type ?? "",
+    paymentTerms: order.payment_terms ?? "",
+
+    advanceAmount: Number(order.advance_amount ?? 0),
+    balanceAmount: Number(order.balance_amount ?? 0),
+    invoiceRequired: order.invoice_required ?? 0,
+  });
+
+  setLineItems([
+    {
+      id: crypto.randomUUID(),
+
+      itemCode: order.item_code,
+      itemName: order.item_name,
+      itemType: order.item_type,
+
+      quantityOrdered: Number(order.quantity ?? 0),
+      uom: order.uom ?? "",
+      rate: Number(order.rate ?? 0),
+      tax: Number(order.tax ?? 0),
+      totalAmount: Number(order.total_amount ?? 0),
+
+      bomComponents: order.items?.[0]?.bomComponents ?? [],
+      discount: Number(order.discount ?? 0),
+    },
+  ]);
+
+  setWorkspaceView("new");
+
+  toast({
+    title: "Order cloned",
+    description: `${order.order_no} copied into the composer.`,
+  });
+};
+
+ const createRegularTemplate = async () => {
+  const inventory = getInventoryRecord(regularForm.itemCode);
+
+  if (!regularForm.customer || !regularForm.itemCode) {
+    toast({
+      title: "Missing fields",
+      description: "Customer and product are required.",
+      variant: "destructive",
     });
-    setLineItems(
-      order.items.map((item) => ({
-        ...item,
-        id: crypto.randomUUID(),
-        bomComponents: item.bomComponents || [],
-      })),
-    );
-    setWorkspaceView("new");
-    toast({ title: "Order cloned", description: `${order.id} copied into the composer.` });
+    return;
+  }
+
+  const payload = {
+    template_number: generateRegularNumber(),
+    customer: regularForm.customer,
+    item_code: inventory?.item_code || regularForm.itemCode,
+    item_name: inventory?.item_name || regularForm.itemCode,
+    quantity: Number(regularForm.quantity),
+    frequency: regularForm.frequency,
+    next_order_date: regularForm.nextOrderDate,
+    price: Number(regularForm.price || inventory?.unit_cost || 0),
   };
 
-  const createRegularTemplate = () => {
-    const inventory = getInventoryRecord(regularForm.itemCode);
-    if (!regularForm.customer || !regularForm.itemCode) {
-      toast({ title: "Missing fields", description: "Customer and product are required.", variant: "destructive" });
-      return;
+  try {
+    const res = await fetch("/api/regular-template", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to create template");
     }
 
+    const data = await res.json();
+
+    // update UI state
     setRegularOrders((prev) => [
       {
-        id: crypto.randomUUID(),
-        templateNumber: generateRegularNumber(),
-        customer: regularForm.customer,
-        itemCode: inventory?.item_code || regularForm.itemCode,
-        itemName: inventory?.item_name || regularForm.itemCode,
-        quantity: integer(regularForm.quantity),
-        frequency: regularForm.frequency,
-        nextOrderDate: regularForm.nextOrderDate,
+        id: data.data.id,
+        templateNumber: data.data.template_number,
+        customer: data.data.customer,
+        itemCode: data.data.item_code,
+        itemName: data.data.item_name,
+        quantity: data.data.quantity,
+        frequency: data.data.frequency,
+        nextOrderDate: data.data.next_order_date,
         lastOrdered: "—",
-        status: "Active",
-        price: Number(regularForm.price || inventory?.unit_cost || 0),
+        status: data.data.status,
+        price: data.data.price,
       },
       ...prev,
     ]);
+
     setRegularDialogOpen(false);
-    setRegularForm({ customer: "", itemCode: "", quantity: 1, frequency: "Weekly", nextOrderDate: todayISO(), price: 0 });
-    toast({ title: "Template created", description: "Regular order template saved." });
-  };
+    setRegularForm({
+      customer: "",
+      itemCode: "",
+      quantity: 1,
+      frequency: "Weekly",
+      nextOrderDate: todayISO(),
+      price: 0,
+    });
+
+    toast({
+      title: "Template created",
+      description: "Regular order template saved successfully.",
+    });
+  } catch (error) {
+    toast({
+      title: "Error",
+      description: error.message,
+      variant: "destructive",
+    });
+  }
+};
 
   const fireRegularOrder = (template: RegularOrderTemplate) => {
     const inventory = getInventoryRecord(template.itemCode);
@@ -1215,16 +1567,31 @@ const handleOrderStatusChange = async (
 
   const recentOrders = [...orders].sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime()).slice(0, 5);
 
-  const renderValidationBadge = (state: ValidationState, label: string) => {
-    const classes: Record<ValidationState, string> = {
-      available: "border-success/20 bg-success/10 text-success",
-      partial: "border-warning/20 bg-warning/10 text-warning",
-      purchase: "border-primary/20 bg-primary/10 text-primary",
-      produce: "border-accent/20 bg-accent/10 text-accent",
-      missing: "border-border bg-muted text-muted-foreground",
-    };
-    return <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold", classes[state])}>{label}</span>;
+  const renderValidationBadge = (state: ValidationState, label: string = "Unknown") => {
+  const safeState: ValidationState = 
+    ["available", "partial", "purchase", "produce", "missing"].includes(state as any) 
+      ? (state as ValidationState) 
+      : "missing";
+
+  const safeLabel = (label || "—").toString().trim();
+
+  const classes: Record<ValidationState, string> = {
+    available: "border-success/20 bg-success/10 text-success",
+    partial: "border-warning/20 bg-warning/10 text-warning",
+    purchase: "border-primary/20 bg-primary/10 text-primary",
+    produce: "border-accent/20 bg-accent/10 text-accent",
+    missing: "border-border bg-muted text-muted-foreground",
   };
+
+  return (
+    <span className={cn(
+      "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+      classes[safeState]
+    )}>
+      {safeLabel}
+    </span>
+  );
+};
 
   const renderWorkspaceSidebar = () => (
     <aside className="w-full border-b border-border bg-card lg:w-64 lg:border-b-0 lg:border-r">
@@ -1294,20 +1661,26 @@ const handleOrderStatusChange = async (
             </div>
           </div>
           <div className="grid gap-4 p-5 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Customer Name *</Label>
-              <Input
-                list="order-customers"
-                value={formData.customerName}
-                onChange={(event) => applyCustomerSelection(event.target.value)}
-                placeholder="Customer or company name"
-              />
-              <datalist id="order-customers">
-                {customers.map((customer: any) => (
-                  <option key={customer.id} value={customer.customer_name} />
-                ))}
-              </datalist>
-            </div>
+          <div className="space-y-2">
+  <label>Customer Name *</label>
+
+  <select
+    className="w-full border rounded px-3 py-2"
+    value={formData.customerId}   // 🔥 ADD THIS
+    onChange={(e) => {
+      console.log("SELECTED ID:", e.target.value);
+      applyCustomerSelection(Number(e.target.value));
+    }}
+  >
+    <option value="">Select customer</option>
+
+    {customers?.map((customer: any) => (
+      <option key={customer.id} value={customer.id}>
+        {customer.customer_name}
+      </option>
+    ))}
+  </select>
+</div>
             <div className="space-y-2">
               <Label>Customer PO #</Label>
               <Input value={formData.referenceNo} onChange={(event) => setFormData((prev) => ({ ...prev, referenceNo: event.target.value }))} />
@@ -1407,7 +1780,7 @@ const handleOrderStatusChange = async (
                 {lineItems.map((item, index) => {
                   const assessment = getLineAssessment(item);
                   return (
-                    <TableRow key={item.id}>
+                   <TableRow key={item.id || item.item_code}>
                       <TableCell className="font-mono text-xs text-muted-foreground">{index + 1}</TableCell>
                       <TableCell>
                         <Select value={item.itemType} onValueChange={(value) => updateLineItem(item.id, "itemType", value)}>
@@ -1430,9 +1803,13 @@ const handleOrderStatusChange = async (
   );
 
   updateLineItem(item.id, "itemCode", value);
+  updateLineItem(item.id, "item_code", value); 
   updateLineItem(item.id, "itemName", selected?.itemName || "");
   updateLineItem(item.id, "uom", selected?.uom || "pcs");
   updateLineItem(item.id, "rate", selected?.unit_cost || 0);
+
+    updateLineItem(item.id, "available", selected?.available_quantity || 0);
+
 
   // ✅ mark loading
   updateLineItem(item.id, "bomLoading", true);
@@ -1561,26 +1938,41 @@ const handleOrderStatusChange = async (
                               <TableHead className="text-right">Required</TableHead>
                             </TableRow>
                           </TableHeader>
-                          <TableBody>
-                            {(item.bomComponents || []).map((component) => (
-                              <TableRow key={`${item.id}-${component.component}`}>
-                                <TableCell className="font-mono text-xs">{component.component}</TableCell>
-                                <TableCell>{component.description}</TableCell>
-                                <TableCell>{component.type}</TableCell>
-                                <TableCell className="text-right">{component.availableQty}</TableCell>
-                                <TableCell className="text-right">
-                                  <div className="inline-flex items-center gap-2">
-                                    <span>{component.requiredQty}</span>
-                                    {component.availableQty < component.requiredQty && (
+                        <TableBody>
+  {(item.bomComponents || []).map((component) => {
+    const available = Number(component.availableQty || 0);
+    const required = Number(component.requiredQty || 0);
+
+    return (
+      <TableRow key={`${item.id}-${component.component}`}>
+        <TableCell className="font-mono text-xs">
+          {component.component}
+        </TableCell>
+
+        <TableCell>{component.description}</TableCell>
+
+        <TableCell>{component.type}</TableCell>
+
+        {/* AVAILABLE */}
+        <TableCell className="text-right">
+          {available}
+        </TableCell>
+
+        {/* REQUIRED + STATUS */}
+        <TableCell className="text-right">
+          <div className="inline-flex items-center gap-2">
+            <span>{required}</span>
+            {component.availableQty < component.requiredQty && (
                                       <Badge variant="outline" className="border-warning/20 bg-warning/10 text-warning">
                                         Low
                                       </Badge>
                                     )}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
+          </div>
+        </TableCell>
+      </TableRow>
+    );
+  })}
+</TableBody>
                         </Table>
                       </div>
                     )}
@@ -1659,9 +2051,11 @@ const handleOrderStatusChange = async (
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-sm font-medium text-foreground">{item.itemName || item.itemCode || "New line item"}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        Ordered {assessment.quantity} • Available {assessment.available} • Gap {assessment.gap}
-                      </div>
+                     <div className="mt-1 text-xs text-muted-foreground">
+  Ordered {assessment.quantity} • 
+  Available <span className="font-medium text-foreground">{assessment.available}</span> • 
+  Gap <span className={assessment.gap > 0 ? "text-destructive" : ""}>{assessment.gap}</span>
+</div>
                     </div>
                     {renderValidationBadge(assessment.state, assessment.label)}
                   </div>
@@ -1871,7 +2265,9 @@ const handleOrderStatusChange = async (
                           }
                         />
                       </TableCell>
-                      <TableCell className="font-mono text-xs text-primary">{order.order_no}</TableCell>
+                     <TableCell className="font-mono text-xs text-primary">
+  {getOrderField(order, "order_no") || getOrderField(order, "id")}
+</TableCell>
                       <TableCell>
                         <div className="font-medium">{order.customer}</div>
                         <div className="text-xs text-muted-foreground">{order.orderDate}</div>
@@ -1881,8 +2277,15 @@ const handleOrderStatusChange = async (
   {(order.items ?? []).length}
 </TableCell>
                       <TableCell className="font-medium text-foreground">{money(orderTotal)}</TableCell>
-                      <TableCell>{renderValidationBadge(order.status === "Cancelled" ? "missing" : order.status === "Processing" ? "produce" : order.status === "Confirmed" ? "available" : "partial", order.status)}</TableCell>
-                      <TableCell>{order.priority}</TableCell>
+<TableCell>
+  {renderValidationBadge(
+    getOrderField(order, "status") === "Cancelled" ? "missing" 
+      : getOrderField(order, "status") === "Processing" ? "produce" 
+      : getOrderField(order, "status") === "Confirmed" ? "available" 
+      : "partial",
+    getOrderField(order, "status", "Unknown")
+  )}
+</TableCell>                     <TableCell>{order.priority}</TableCell>
                       <TableCell>{order.expected_delivery_date || "—"}</TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-2">
@@ -1934,10 +2337,17 @@ const handleOrderStatusChange = async (
                     <Copy className="h-4 w-4" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="font-mono text-xs text-primary">{order.id}</div>
+                    <div className="font-mono text-xs text-primary">{order.order_no}</div>
                     <div className="mt-1 font-medium text-foreground">{order.customer}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{order.orderType} • {order.items.length} lines • {money(order.items.reduce((sum, item) => sum + item.totalAmount, 0))}</div>
-                  </div>
+<div className="mt-1 text-xs text-muted-foreground">
+  {order.order_type} • {order.items.length} lines •{" "}
+  {money(
+    order.items.reduce(
+      (sum, item) => sum + Number(item.total_amount || 0),
+      0
+    )
+  )}
+</div>                  </div>
                 </button>
               );
             })
@@ -1963,7 +2373,7 @@ const handleOrderStatusChange = async (
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="rounded-md border bg-background p-3">
                   <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Type</div>
-                  <div className="mt-1 font-medium">{selectedCloneOrder.orderType}</div>
+                  <div className="mt-1 font-medium">{selectedCloneOrder.order_type}</div>
                 </div>
                 <div className="rounded-md border bg-background p-3">
                   <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Status</div>
@@ -1984,19 +2394,32 @@ const handleOrderStatusChange = async (
                       <TableHead className="text-right">Amount</TableHead>
                     </TableRow>
                   </TableHeader>
-                  <TableBody>
-                    {selectedCloneOrder.items.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell>
-                          <div className="font-mono text-xs text-primary">{item.itemCode}</div>
-                          <div className="text-sm text-foreground">{item.itemName}</div>
-                        </TableCell>
-                        <TableCell className="text-right">{item.quantityOrdered}</TableCell>
-                        <TableCell className="text-right">{money(item.rate)}</TableCell>
-                        <TableCell className="text-right">{money(item.totalAmount)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
+                 <TableBody>
+  {selectedCloneOrder?.items?.map((item: any) => (
+    <TableRow key={item.id || item.item_code}>
+      <TableCell>
+        <div className="font-mono text-xs text-primary">
+          {item.item_code}
+        </div>
+        <div className="text-sm text-foreground">
+          {item.item_name}
+        </div>
+      </TableCell>
+
+      <TableCell className="text-right">
+        {item.quantity ?? 0}
+      </TableCell>
+
+      <TableCell className="text-right">
+        {money(Number(item.rate) || 0)}
+      </TableCell>
+
+      <TableCell className="text-right">
+        {money(Number(item.total_amount) || 0)}
+      </TableCell>
+    </TableRow>
+  ))}
+</TableBody>
                 </Table>
               </div>
             </div>
@@ -2025,19 +2448,62 @@ const handleOrderStatusChange = async (
               <DialogTitle>Regular Order Template</DialogTitle>
             </DialogHeader>
             <div className="grid gap-4 py-2 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Customer *</Label>
-                <Input value={regularForm.customer} onChange={(event) => setRegularForm((prev) => ({ ...prev, customer: event.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Product *</Label>
-                <Input list="regular-items" value={regularForm.itemCode} onChange={(event) => setRegularForm((prev) => ({ ...prev, itemCode: event.target.value }))} />
-                <datalist id="regular-items">
-                  {inventoryItems.map((inventory: any) => (
-                    <option key={inventory.id || inventory.item_code} value={inventory.item_code} />
-                  ))}
-                </datalist>
-              </div>
+             <div className="space-y-2">
+  <Label>Customer *</Label>
+
+ <select
+  value={regularForm.customer}
+  onChange={(event) =>
+    setRegularForm((prev) => ({
+      ...prev,
+      customer: event.target.value,
+    }))
+  }
+  className="w-full border rounded-md p-2"
+>
+  <option value="">Select Customer</option>
+
+  {customers?.length > 0 &&
+    customers.map((customer) => (
+      <option key={customer.id} value={customer.name || customer.customer_name}>
+        {customer.name || customer.customer_name}
+      </option>
+    ))}
+</select>
+</div>
+             <div className="space-y-2">
+  <Label>Product *</Label>
+
+  <select
+  value={regularForm.itemCode}
+  onChange={(event) => {
+    const code = event.target.value;
+
+    const selectedItem = inventoryItems.find(
+      (item) => item.item_code === code
+    );
+
+    setRegularForm((prev) => ({
+      ...prev,
+      itemCode: code,
+      itemName: selectedItem?.item_name || "",
+      price: Number(selectedItem?.rate || 0),
+    }));
+  }}
+  className="w-full border rounded-md p-2"
+>
+  <option value="">Select Product</option>
+
+  {inventoryItems?.map((inventory) => (
+    <option
+      key={inventory.id || inventory.item_code}
+      value={inventory.item_code}
+    >
+      {inventory.itemCode} 
+    </option>
+  ))}
+</select>
+</div>
               <div className="space-y-2">
                 <Label>Qty per Order</Label>
                 <Input type="number" min={1} value={regularForm.quantity} onChange={(event) => setRegularForm((prev) => ({ ...prev, quantity: Number(event.target.value) }))} />
@@ -2060,8 +2526,16 @@ const handleOrderStatusChange = async (
               </div>
               <div className="space-y-2">
                 <Label>Unit Price</Label>
-                <Input type="number" value={regularForm.price} onChange={(event) => setRegularForm((prev) => ({ ...prev, price: Number(event.target.value) }))} />
-              </div>
+<Input
+  type="number"
+  value={regularForm.price}
+  onChange={(event) =>
+    setRegularForm((prev) => ({
+      ...prev,
+      price: Number(event.target.value),
+    }))
+  }
+/>              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setRegularDialogOpen(false)}>Cancel</Button>
@@ -2108,12 +2582,12 @@ const handleOrderStatusChange = async (
                       <div className="flex justify-end gap-2">
                         <Button variant="outline" size="sm" onClick={() => fireRegularOrder(template)}>Create Order</Button>
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setRegularOrders((prev) => prev.filter((item) => item.id !== template.id))}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+          variant="ghost"
+          size="icon"
+          onClick={() => deleteRegularTemplate(template.id)}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -2174,13 +2648,13 @@ const handleOrderStatusChange = async (
                 </TableRow>
               ) : (
                 validationRows.map(({ order, item, assessment }) => (
-                  <TableRow key={`${order.id}-${item.id}`}>
-                    <TableCell className="font-mono text-xs text-primary">{order.id}</TableCell>
+                 <TableRow key={`${order.id || "o"}-${item.id || item.item_code}`}>
+                    <TableCell className="font-mono text-xs text-primary">{order.order_no}</TableCell>
                     <TableCell>{order.customer}</TableCell>
-                    <TableCell>{item.itemName || item.itemCode}</TableCell>
+                    <TableCell>{item.item_name || item.item_code}</TableCell>
                     <TableCell className="text-right">{assessment.quantity}</TableCell>
                     <TableCell className="text-right">{assessment.available}</TableCell>
-                    <TableCell className="text-right">{assessment.openPO}</TableCell>
+                    <TableCell className="text-right">{assessment.openPO ?? assessment.open_po ?? 0}</TableCell>
                     <TableCell className="text-right font-medium">{assessment.gap || "—"}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap items-center gap-2">
@@ -2238,11 +2712,11 @@ const handleOrderStatusChange = async (
                   <TableCell colSpan={10} className="py-12 text-center text-success">All material lines are covered by available stock.</TableCell>
                 </TableRow>
               ) : (
-                purchaseNeeds.map(({ order, item, assessment }) => (
-                  <TableRow key={`purchase-${order.id}-${item.id}`}>
-                    <TableCell className="font-mono text-xs text-primary">{item.itemCode}</TableCell>
-                    <TableCell>{item.itemName}</TableCell>
-                    <TableCell className="font-mono text-xs">{order.id}</TableCell>
+                purchaseNeeds.map(({ order, item, assessment }, index) => (
+  <TableRow key={`purchase-${order.id}-${item.itemCode}-${index}`}>
+                    <TableCell className="font-mono text-xs text-primary">{item.item_code}</TableCell>
+                    <TableCell>{item.item_name}</TableCell>
+                    <TableCell className="font-mono text-xs">{order.order_no}</TableCell>
                     <TableCell className="text-right">{assessment.quantity}</TableCell>
                     <TableCell className="text-right">{assessment.available}</TableCell>
                     <TableCell className="text-right font-medium text-primary">{assessment.gap}</TableCell>
@@ -2295,8 +2769,8 @@ const handleOrderStatusChange = async (
                   <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">No excess stock detected.</TableCell>
                 </TableRow>
               ) : (
-                excessRows.map((row) => (
-                  <TableRow key={row.code}>
+                excessRows.map((row, index) => (
+  <TableRow key={`${row.code}-${index}`}>
                     <TableCell className="font-mono text-xs text-primary">{row.code}</TableCell>
                     <TableCell>{row.name}</TableCell>
                     <TableCell className="text-right">{row.available}</TableCell>
@@ -2339,9 +2813,16 @@ const handleOrderStatusChange = async (
               <TableBody>
                 {recentOrders.map((order) => (
                   <TableRow key={order.id}>
-                    <TableCell className="font-mono text-xs text-primary">{order.id}</TableCell>
+                    <TableCell className="font-mono text-xs text-primary">{order.order_no}</TableCell>
                     <TableCell>{order.customer}</TableCell>
-                    <TableCell>{money(order.items.reduce((sum, item) => sum + item.totalAmount, 0))}</TableCell>
+                    <TableCell>
+  {money(
+    (order.items || []).reduce(
+      (sum, item) => sum + (Number(item.total_amount) || 0),
+      0
+    )
+  )}
+</TableCell>
                     <TableCell>{order.status}</TableCell>
                   </TableRow>
                 ))}
@@ -2496,7 +2977,7 @@ const handleOrderStatusChange = async (
       <Sheet open={Boolean(viewOrder)} onOpenChange={(open) => !open && setViewOrder(null)}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
           <SheetHeader>
-            <SheetTitle>{viewOrder?.order_no} — {viewOrder?.customer}</SheetTitle>
+            <SheetTitle>{getOrderField(viewOrder, "order_no") || getOrderField(viewOrder, "id")} — {viewOrder?.customer}</SheetTitle>
           </SheetHeader>
           {viewOrder && (
             <div className="space-y-6 py-6">
@@ -2536,7 +3017,7 @@ const handleOrderStatusChange = async (
                     {(viewOrder.items || []).map((item) => {
                       const assessment = getLineAssessment(item);
                       return (
-                        <TableRow key={item.id}>
+                       <TableRow key={item.id || item.item_code}>
                           <TableCell>
                             <div className="font-mono text-xs text-primary">{item.item_code}</div>
                             <div>{item.item_name}</div>

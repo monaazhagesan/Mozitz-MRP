@@ -10,7 +10,7 @@ use Illuminate\Support\Str;
 
 class BomComponentController extends Controller
 {
-   public function index(Request $request)
+    public function index(Request $request)
 {
     // If bom_id is provided → filter
     if ($request->has('bom_id')) {
@@ -21,6 +21,29 @@ class BomComponentController extends Controller
 
     // Otherwise return all
     return response()->json(BomComponent::all());
+}
+
+   public function Detail(Request $request)
+{
+    $itemCode = $request->item_code;
+
+    if (!$itemCode) {
+        return response()->json([]);
+    }
+
+    // 1. Find BOM header
+    $bomHeader = \DB::table('bom_headers')
+        ->where('item_code', $itemCode)
+        ->first();
+
+    if (!$bomHeader) {
+        return response()->json([]);
+    }
+
+    // 2. Fetch components using BOM UUID
+    $components = BomComponent::where('bom_id', $bomHeader->id)->get();
+
+    return response()->json($components);
 }
 
     public function show($id)

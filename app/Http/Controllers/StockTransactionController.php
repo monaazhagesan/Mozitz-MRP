@@ -55,6 +55,7 @@ class StockTransactionController extends Controller
             'quantity' => 'required|numeric',
             'unit_cost' => 'nullable|numeric',
             'notes' => 'nullable|string',
+            'additional_info' => 'nullable|string',
         ]);
 
         $transaction = StockTransaction::create($validated);
@@ -71,4 +72,13 @@ class StockTransactionController extends Controller
         $transaction = StockTransaction::findOrFail($id);
         return response()->json($transaction);
     }
+
+    public function destroy($id)
+{
+    StockTransaction::findOrFail($id)->delete();
+
+    return response()->json([
+        'message' => 'Deleted successfully'
+    ]);
+}
 }

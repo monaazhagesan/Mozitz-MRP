@@ -22,6 +22,7 @@ class StockTransaction extends Model
         'unit_cost',
         'transaction_date',
         'notes',
+        'additional_info',
     ];
 
     protected $casts = [

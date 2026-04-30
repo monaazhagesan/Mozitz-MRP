@@ -16,11 +16,14 @@ class InventoryStock extends Model
         'quantity_on_hand',
         'allocated_quantity',
         'committed_quantity',
+        'available_quantity',
         'unit_cost',
         'selling_price',
         'reorder_point',
         'lead_time_days',
         'safety_stock',
+        'open_po',
+        'last_transaction_date',
     ];
 
     protected $casts = [
@@ -37,12 +40,5 @@ class InventoryStock extends Model
         'variant_attributes' => 'array',
     ];
 
-    public function getAvailableQuantityAttribute()
-    {
-        return max(0, 
-            $this->quantity_on_hand 
-            - $this->allocated_quantity 
-            - $this->committed_quantity
-        );
-    }
+   
 }

@@ -50,6 +50,7 @@ class InventoryStockController extends Controller
 
             'uom' => $item->uom ?? '',
             'defaultSupplier' => $item->default_supplier ?? '-',
+            'open_po' => (float) ($item->open_po ?? 0),
 
             'unit_cost' => $unitCost,
             'defaultSalesPrice' => $sellingPrice,
@@ -115,6 +116,8 @@ class InventoryStockController extends Controller
         $data['quantity_on_hand'] = (float) ($data['quantity_on_hand'] ?? 0);
         $data['allocated_quantity'] = (float) ($data['allocated_quantity'] ?? 0);
         $data['committed_quantity'] = (float) ($data['committed_quantity'] ?? 0);
+        $data['available_quantity'] = $data['quantity_on_hand'] - $data['committed_quantity'];
+        $data['open_po'] = (float) ($data['open_po'] ?? 0);
 
         // ✅ AUTO ITEM CODE
         if (empty($data['item_code'])) {
@@ -135,9 +138,6 @@ class InventoryStockController extends Controller
             $data['item_code'] = $prefix . '-' . str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
         }
 
-        // ❌ DO NOT STORE calculated fields
-        unset($data['available_quantity']);
-
         // ✅ BOOLEAN FIX
         foreach ([
             'auto_reorder',
@@ -151,6 +151,7 @@ class InventoryStockController extends Controller
             $data[$field] = filter_var($request->input($field), FILTER_VALIDATE_BOOLEAN);
         }
 
+    
         $item = InventoryStock::create($data);
 
         return response()->json($item, 201);
@@ -181,6 +182,7 @@ class InventoryStockController extends Controller
         foreach ([
             'quantity_on_hand',
             'allocated_quantity',
+            'open_po',
             'committed_quantity',
             'unit_cost',
             'selling_price'
@@ -216,11 +218,11 @@ class InventoryStockController extends Controller
             );
         }
 
-        if (!empty($data['last_transaction_date'])) {
-            $data['last_transaction_date'] =
-                Carbon::parse($data['last_transaction_date'])
-                    ->format('Y-m-d H:i:s');
-        }
+        if ($request->filled('last_transaction_date')) {
+    $data['last_transaction_date'] = Carbon::parse($request->input('last_transaction_date'))
+        ->timezone('Asia/Kolkata')
+        ->format('Y-m-d H:i:s');
+}
 
         $item->update($data);
 
@@ -255,12 +257,13 @@ class InventoryStockController extends Controller
     {
         return $request->validate([
             'item_code' => 'nullable|string|max:50',
-            'item_name' => 'required|string|max:100',
+            'item_name' => 'nullable|string|max:100',
             'sku' => 'nullable|string|max:50',
             'description' => 'nullable|string|max:500',
             'item_type' => 'nullable|string|in:Product,Component,Material,N/A',
             'quantity_on_hand' => 'nullable|numeric|min:0',
             'allocated_quantity' => 'nullable|numeric|min:0',
+            'open_po' => 'nullable|numeric|min:0',
             
             'unit_cost' => 'nullable|numeric|min:0',
             'selling_price' => 'nullable|numeric|min:0',

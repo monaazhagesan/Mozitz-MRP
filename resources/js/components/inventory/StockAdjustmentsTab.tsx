@@ -47,7 +47,7 @@ const StockAdjustmentsTab = () => {
   const [editingAdjustment, setEditingAdjustment] = useState<StockAdjustment | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [adjustmentToDelete, setAdjustmentToDelete] = useState<StockAdjustment | null>(null);
-  
+
   // Form state
   const [adjustmentNumber, setAdjustmentNumber] = useState("");
   const [adjustmentDate, setAdjustmentDate] = useState(format(new Date(), "yyyy-MM-dd'T'HH:mm"));
@@ -59,30 +59,32 @@ const StockAdjustmentsTab = () => {
 
   // Load inventory items
   useEffect(() => {
-  const fetchInventory = async () => {
-    try {
-      // Fetch inventory items
-      const { data } = await axios.get("/api/inventory-stock"); // replace with your endpoint
-      if (Array.isArray(data)) {
-        // Sort by item_code
-        const sortedData = data.sort((a, b) => (a.item_code > b.item_code ? 1 : -1));
-        setInventoryItems(sortedData);
+    const fetchInventory = async () => {
+      try {
+        const { data } = await axios.get("/api/inventory-stock");
+
+        // ✅ FIX: use data.items (NOT data)
+        if (Array.isArray(data.items)) {
+          const sortedData = data.items.sort((a: any, b: any) =>
+            (a.itemCode || "").localeCompare(b.itemCode || "")
+          );
+
+          setInventoryItems(sortedData);
+        }
+
+        await loadAdjustments();
+      } catch (error: any) {
+        console.error("Error fetching inventory:", error);
+        toast({
+          title: "Error",
+          description: error.message || "Failed to load inventory",
+          variant: "destructive",
+        });
       }
+    };
 
-      // Load adjustments after inventory
-      await loadAdjustments();
-    } catch (error: any) {
-      console.error("Error fetching inventory:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to load inventory",
-        variant: "destructive",
-      });
-    }
-  };
-
-  fetchInventory();
-}, []);
+    fetchInventory();
+  }, []);
 
   const loadAdjustments = () => {
     // Load from localStorage for now (can be migrated to Supabase later)
@@ -148,39 +150,51 @@ const StockAdjustmentsTab = () => {
 
   // Filter inventory items for suggestions
   const filteredInventoryItems = itemSearchTerm.trim()
-    ? inventoryItems.filter(
-        (inv) =>
-          (inv.item_code.toLowerCase().includes(itemSearchTerm.toLowerCase()) ||
-            inv.item_name.toLowerCase().includes(itemSearchTerm.toLowerCase())) &&
-          !adjustmentItems.some((ai) => ai.itemCode === inv.item_code)
-      )
+    ? inventoryItems.filter((inv) => {
+      const code = inv.itemCode?.toLowerCase() || "";
+      const name = inv.itemName?.toLowerCase() || "";
+      const search = itemSearchTerm.toLowerCase();
+
+      return (
+        (code.includes(search) || name.includes(search)) &&
+        !adjustmentItems.some((ai) => ai.itemCode === inv.itemCode)
+      );
+    })
     : [];
 
   const addItemToAdjustment = (inventoryItem: any) => {
     const newItem: AdjustmentItem = {
       id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      itemCode: inventoryItem.item_code,
-      itemName: inventoryItem.item_name,
+
+      // ✅ FIXED fields
+      itemCode: inventoryItem.itemCode,
+      itemName: inventoryItem.itemName,
+
       barcode: inventoryItem.barcode || "",
       adjustmentQty: 0,
-      inStock: inventoryItem.quantity_on_hand || 0,
+
+      // ✅ FIXED fields
+      inStock: inventoryItem.quantityOnHand || 0,
+
       costPerUnit: inventoryItem.unit_cost || 0,
       adjustmentValue: 0,
     };
+
     setAdjustmentItems((prev) => [...prev, newItem]);
     setItemSearchTerm("");
     setShowItemSuggestions(false);
   };
+
 
   const updateItemQty = (itemId: string, qty: number) => {
     setAdjustmentItems((prev) =>
       prev.map((item) =>
         item.id === itemId
           ? {
-              ...item,
-              adjustmentQty: qty,
-              adjustmentValue: qty * item.costPerUnit,
-            }
+            ...item,
+            adjustmentQty: qty,
+            adjustmentValue: qty * item.costPerUnit,
+          }
           : item
       )
     );
@@ -195,103 +209,141 @@ const StockAdjustmentsTab = () => {
   };
 
 
-const handleSaveAdjustment = async (status: "draft" | "completed") => {
-  if (adjustmentItems.length === 0) {
-    toast({
-      title: "No Items",
-      description: "Please add at least one item to the adjustment",
-      variant: "destructive",
-    });
-    return;
-  }
+  const handleSaveAdjustment = async (status: "draft" | "completed") => {
+    if (adjustmentItems.length === 0) {
+      toast({
+        title: "No Items",
+        description: "Please add at least one item to the adjustment",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  const adjustment: StockAdjustment = {
-    id: editingAdjustment?.id || `adj-${Date.now()}`,
-    adjustmentNumber,
-    adjustmentDate,
-    reason,
-    additionalInfo,
-    status,
-    items: adjustmentItems,
-    totalValue: calculateTotal(),
-    createdAt: editingAdjustment?.createdAt || new Date().toISOString(),
+    const adjustment: StockAdjustment = {
+      id: editingAdjustment?.id || `adj-${Date.now()}`,
+      adjustmentNumber,
+      adjustmentDate,
+      reason,
+      additionalInfo,
+      status,
+      items: adjustmentItems,
+      totalValue: calculateTotal(),
+      createdAt: editingAdjustment?.createdAt || new Date().toISOString(),
+    };
+
+    try {
+      // ✅ ONLY run API updates when completing
+      if (status === "completed") {
+        await Promise.all(
+          adjustmentItems.map(async (item) => {
+            const inventoryItem = inventoryItems.find(
+              (inv) => inv.itemCode === item.itemCode
+            );
+
+            if (!inventoryItem) return;
+
+            const newQty =
+              (inventoryItem.quantityOnHand || 0) + item.adjustmentQty;
+
+            // ✅ Update inventory
+            await axios.put(`/api/inventory-stock/${inventoryItem.id}`, {
+              quantity_on_hand: Number(newQty),
+               last_transaction_date: new Date().toISOString().slice(0, 19).replace('T', ' ')
+            });
+
+            // ✅ Create stock transaction
+            await axios.post(`/api/stock-transactions`, {
+              item_code: item.itemCode,
+              transaction_type:
+                item.adjustmentQty > 0 ? "Adjustment In" : "Adjustment Out",
+              quantity: Math.abs(item.adjustmentQty),
+              unit_cost: item.costPerUnit || 0,
+              reference_type: "Stock Adjustment",
+              reference_number: adjustmentNumber,
+              notes: reason,
+              additional_info: additionalInfo,
+            });
+          })
+        );
+      }
+
+      // ✅ Save locally
+      const newAdjustments = editingAdjustment
+        ? adjustments.map((a) =>
+          a.id === editingAdjustment.id ? adjustment : a
+        )
+        : [...adjustments, adjustment];
+
+      saveAdjustments(newAdjustments);
+      handleCloseForm();
+
+      toast({
+        title:
+          status === "completed"
+            ? "Adjustment Completed"
+            : "Adjustment Saved",
+        description:
+          status === "completed"
+            ? `${adjustmentNumber} has been completed and inventory updated`
+            : `${adjustmentNumber} saved as draft`,
+      });
+
+      // ✅ Refresh inventory after completion
+      if (status === "completed") {
+        const response = await axios.get("/api/inventory-stock");
+        if (response.data?.items) {
+          setInventoryItems(response.data.items);
+        }
+      }
+    } catch (error: any) {
+      console.error("Error saving adjustment:", error);
+
+      toast({
+        title: "Error",
+        description:
+          error?.response?.data?.message ||
+          error.message ||
+          "Failed to save adjustment",
+        variant: "destructive",
+      });
+    }
   };
 
+ const handleDeleteAdjustment = async () => {
+  if (!adjustmentToDelete) return;
+
   try {
-    // If completing, update inventory and record stock transactions via API
-    if (status === "completed") {
-      for (const item of adjustmentItems) {
-        const inventoryItem = inventoryItems.find((inv) => inv.item_code === item.itemCode);
-        if (!inventoryItem) continue;
+    // ✅ 1. Call backend API
+    await axios.delete(
+      `/api/stock-transactions/${adjustmentToDelete.id}`
+    );
 
-        const newQty = (inventoryItem.quantity_on_hand || 0) + item.adjustmentQty;
-        const newAvailable = (inventoryItem.available_quantity || 0) + item.adjustmentQty;
-
-        // Update inventory via API
-        await axios.put(`/api/inventory/${inventoryItem.id}`, {
-          quantity_on_hand: newQty,
-          available_quantity: newAvailable,
-          last_transaction_date: new Date().toISOString(),
-        });
-
-        // Record stock transaction via API
-        await axios.post(`/api/stock_transactions`, {
-          item_code: item.itemCode,
-          transaction_type: item.adjustmentQty > 0 ? "Adjustment In" : "Adjustment Out",
-          quantity: Math.abs(item.adjustmentQty),
-          unit_cost: item.costPerUnit,
-          reference_type: "Stock Adjustment",
-          reference_number: adjustmentNumber,
-          notes: reason,
-          date: new Date().toISOString(),
-        });
-      }
-    }
-
-    // Save or update adjustments locally
-    const newAdjustments = editingAdjustment
-      ? adjustments.map((a) => (a.id === editingAdjustment.id ? adjustment : a))
-      : [...adjustments, adjustment];
+    // ✅ 2. Update frontend state after success
+    const newAdjustments = adjustments.filter(
+      (a) => a.id !== adjustmentToDelete.id
+    );
 
     saveAdjustments(newAdjustments);
-    handleCloseForm();
-
-    toast({
-      title: status === "completed" ? "Adjustment Completed" : "Adjustment Saved",
-      description:
-        status === "completed"
-          ? `${adjustmentNumber} has been completed and inventory updated`
-          : `${adjustmentNumber} saved as draft`,
-    });
-
-    // Refresh inventory data from API if completed
-    if (status === "completed") {
-      const response = await axios.get("/api/inventory");
-      if (response.data) setInventoryItems(response.data);
-    }
-  } catch (error: any) {
-    toast({
-      title: "Error",
-      description: error.message || "Failed to save adjustment",
-      variant: "destructive",
-    });
-    console.error("Error saving adjustment:", error);
-  }
-};
-
-  const handleDeleteAdjustment = () => {
-    if (!adjustmentToDelete) return;
-
-    const newAdjustments = adjustments.filter((a) => a.id !== adjustmentToDelete.id);
-    saveAdjustments(newAdjustments);
-    setDeleteDialogOpen(false);
-    setAdjustmentToDelete(null);
 
     toast({
       title: "Deleted",
       description: `${adjustmentToDelete.adjustmentNumber} has been deleted`,
     });
-  };
+
+    // ✅ 3. Reset UI state
+    setDeleteDialogOpen(false);
+    setAdjustmentToDelete(null);
+  } catch (error: any) {
+    console.error("Delete failed:", error);
+
+    toast({
+      title: "Error",
+      description:
+        error?.response?.data?.message || "Failed to delete adjustment",
+      variant: "destructive",
+    });
+  }
+};
 
   const filteredAdjustments = adjustments.filter(
     (adj) =>
@@ -428,8 +480,8 @@ const handleSaveAdjustment = async (status: "draft" | "completed") => {
               {isViewMode
                 ? "Viewing adjustment details"
                 : editingAdjustment
-                ? "Update the adjustment details"
-                : "Create a new stock adjustment"}
+                  ? "Update the adjustment details"
+                  : "Create a new stock adjustment"}
             </DialogDescription>
           </DialogHeader>
 
@@ -489,9 +541,9 @@ const handleSaveAdjustment = async (status: "draft" | "completed") => {
                               onClick={() => addItemToAdjustment(inv)}
                             >
                               <Plus className="h-3 w-3 mr-2" />
-                              {inv.item_code} - {inv.item_name}
+                              {inv.itemCode} - {inv.itemName}
                               <span className="ml-auto text-muted-foreground">
-                                Stock: {inv.quantity_on_hand || 0}
+                                Stock: {inv.quantityOnHand || 0}
                               </span>
                             </Button>
                           ))}

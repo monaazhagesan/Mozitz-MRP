@@ -887,6 +887,7 @@ useEffect(() => {
             variant: "destructive",
           });
         }
+        const availableQuantity = qtyOnHand + expected - committed;
 
         return {
           id: item.id,
@@ -905,7 +906,7 @@ useEffect(() => {
           reorderPoint: item.reorder_point?.toString() || "",
           reorderQty: "",
           quantityOnHand: qtyOnHand,
-          availableQuantity: available,
+          availableQuantity: Math.max(0, availableQuantity),
           expectedQuantity: expected,
           committedQuantity: committed,
           autoReorder: item.auto_reorder || false,

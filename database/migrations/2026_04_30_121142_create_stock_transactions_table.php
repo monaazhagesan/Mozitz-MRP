@@ -18,6 +18,7 @@ class CreateStockTransactionsTable extends Migration
             $table->decimal('unit_cost', 20, 6)->nullable();
             $table->timestampTz('transaction_date')->nullable();
             $table->text('notes')->nullable();
+            $table->text('additional_info')->nullable();
             $table->timestamps();
         });
     }

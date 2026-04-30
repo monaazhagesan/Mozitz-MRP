@@ -33,6 +33,7 @@ class Invoice extends Model
         'total_amount',
         'amount_paid',
         'status',
+        'type',
         'notes',
 
         'account_name',
@@ -58,6 +59,29 @@ class Invoice extends Model
         // Reminder Fields
         'before_due_days',
         'overdue_reminder_days',
+
+                // =========================
+        // NEW MISSING FIELDS (ADDED)
+        // =========================
+
+        'currency',
+        'exchange_rate',
+
+        'order_reference',
+
+        'customer_email',
+        'contact_person',
+
+        'billing_address',
+        'delivery_address',
+
+        'delivery_date',
+        'dispatch_type',
+
+        'shipping_charge',
+        'other_charges',
+
+        'remarks',
         
     ];
 
@@ -75,6 +99,12 @@ class Invoice extends Model
         'before_due_days' => 'integer',
         'overdue_reminder_days' => 'integer',
         'use_digital_signature' => 'boolean',
+                'delivery_date' => 'date',
+
+        'exchange_rate' => 'decimal:4',
+
+        'shipping_charges' => 'decimal:2',
+        'other_charges' => 'decimal:2',
     ];
 
     // Relationships
@@ -89,21 +119,44 @@ class Invoice extends Model
     }
 
     // Auto Status Update
-    public function updateStatus()
-    {
-        $amountDue = $this->total_amount - $this->amount_paid;
-
-        if ($amountDue <= 0) {
-            $this->status = 'Paid';
-        } elseif (now()->gt($this->due_date)) {
-            $this->status = 'Overdue';
-        } elseif ($this->amount_paid > 0) {
-            $this->status = 'Pending';
-        } else {
-            $this->status = 'Sent';
-        }
-
-        $this->save();
+   public function updateStatus()
+{
+    if ($this->status === 'Draft') {
+        return; // ❗ do not override
     }
+
+    $amountDue = $this->total_amount - $this->amount_paid;
+
+    if ($amountDue <= 0) {
+        $this->status = 'Paid';
+    } elseif (now()->gt($this->due_date)) {
+        $this->status = 'Overdue';
+    } elseif ($this->amount_paid > 0) {
+        $this->status = 'Pending';
+    } else {
+        $this->status = 'Sent';
+    }
+
+    $this->save();
+}
     
+     public function isProforma(): bool
+    {
+        return $this->type === 'proforma';
+    }
+
+    public function isInvoice(): bool
+    {
+        return $this->type === 'invoice';
+    }
+
+    public function isRecurring(): bool
+    {
+        return $this->type === 'recurring';
+    }
+
+    public function invoice()
+{
+    return $this->belongsTo(Invoice::class, 'invoice_id', 'id');
+}
 }

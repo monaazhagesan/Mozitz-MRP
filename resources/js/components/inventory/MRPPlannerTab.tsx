@@ -222,8 +222,8 @@ const fetchData = async () => {
   ),
 
   // ✅ IMPORTANT FIX: ensure fallback 0 not null
-  open_po: 0,
-
+ open_po: Number(r.open_po ?? 0),
+ 
  safety_stock: Number(
   r.safety_stock ??
   r.safetyStock ??
@@ -264,10 +264,6 @@ const fetchData = async () => {
       }
     });
 
-    // merge PO
-    mapped.forEach((m) => {
-      m.open_po = openMap.get(m.item_code) ?? 0;
-    });
 
     console.log("✅ FINAL DATA:", mapped);
 
@@ -405,9 +401,12 @@ const saveEdit = async () => {
   item_type: editing.item_type || "Product",
 
   location: editing.location?.trim() || "Default",
+  open_po: Number(editing.open_po ?? 0), 
 
   quantity_on_hand: Number(editing.on_hand ?? 0),
   allocated_quantity: Number(editing.allocated ?? 0),
+   available_quantity:
+    Number(editing.on_hand ?? 0) - Number(editing.allocated ?? 0),
   committed_quantity: Number(editing.bom_req ?? 0),
 
   safety_stock: Number(editing.safety_stock ?? 0),
@@ -415,6 +414,8 @@ const saveEdit = async () => {
   lead_time_days: Number(editing.lead_time_days ?? 0),
   unit_cost: Number(editing.unit_cost ?? 0),
 };
+
+console.log("🚀 SAVE PAYLOAD111:", payload);
 
   try {
     let res;

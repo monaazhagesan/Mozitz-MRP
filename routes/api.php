@@ -38,6 +38,8 @@ use App\Http\Controllers\StockTransactionController;
 use App\Http\Controllers\SupplierPayableController;
 use App\Http\Controllers\PoReturnItemController;
 use App\Http\Controllers\PoReturnController;
+use App\Http\Controllers\RegularOrderTemplateController;
+use App\Http\Controllers\RecurringInvoiceController;
 
 
 
@@ -95,6 +97,7 @@ Route::post('/inventory-stock/allocate', [InventoryStockController::class, 'allo
 Route::post('/inventory-insights', [InventoryInsightsController::class, 'generateInsights']);
 
 Route::get('/bom-components', [BomComponentController::class, 'index']);
+Route::get('/bom-component', [BomComponentController::class, 'Detail']);
 Route::get('/bom-components/{id}', [BomComponentController::class, 'show']);
 Route::post('/bom-components', [BomComponentController::class, 'store']);
 Route::delete('/bom-components', [BomComponentController::class, 'deleteByBomId']);
@@ -225,6 +228,7 @@ Route::patch('/purchase-orders/{id}', [PurchaseOrderController::class, 'updateSt
 Route::get('/stock-transactions', [StockTransactionController::class, 'index']);
 Route::get('/stock-transactions/{id}', [StockTransactionController::class, 'show']);
 Route::post('/stock-transactions', [StockTransactionController::class, 'store']);
+Route::delete('/stock-transactions/{id}', [StockTransactionController::class, 'destroy']);
 
 Route::get('/supplier-payables', [SupplierPayableController::class, 'index']);
 Route::post('/supplier-payables', [SupplierPayableController::class, 'store']);
@@ -237,3 +241,15 @@ Route::get('/po-return-items/{returnId}', [PoReturnItemController::class, 'index
 Route::post('/po-returns', [PoReturnController::class, 'store']);      // create PO Return
 Route::get('/po-returns', [PoReturnController::class, 'index']);       // list all PO Returns
 Route::get('/po-returns/{id}', [PoReturnController::class, 'show']); 
+
+Route::post('/regular-template', [RegularOrderTemplateController::class, 'store']);
+Route::delete('/regular-template/{id}', [RegularOrderTemplateController::class, 'destroy']);
+
+Route::get('/recurring-invoices', [RecurringInvoiceController::class, 'index']);
+Route::post('/recurring-invoices', [RecurringInvoiceController::class, 'store']);
+Route::get('/recurring-invoices/{id}', [RecurringInvoiceController::class, 'show']);
+Route::put('/recurring-invoices/{id}', [RecurringInvoiceController::class, 'update']);
+Route::delete('/recurring-invoices/{id}', [RecurringInvoiceController::class, 'destroy']);
+Route::patch('/recurring-invoices/{id}/status', [RecurringInvoiceController::class, 'toggleStatus']);
+Route::patch('/recurring-invoices/{id}/cancel', [RecurringInvoiceController::class, 'cancel']);
+Route::post('/recurring-invoices/process', [RecurringInvoiceController::class, 'process']);
