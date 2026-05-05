@@ -12,7 +12,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, Search, FileText, Package } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
-   import axios from "axios";
+import axios from "axios";
 
  interface Issue {
   id: string;
@@ -125,97 +125,163 @@ const IssuesTab = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [searchResults, setSearchResults] = useState<(Job | Order)[]>([]);
   const [locations, setLocations] = useState<{ id: string; location_name: string }[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
 
   // Load jobs and orders
- useEffect(() => {
-  const savedJobs = localStorage.getItem("jobs");
-
-  if (savedJobs) {
+useEffect(() => {
+  const fetchJobs = async () => {
     try {
-      const parsed = JSON.parse(savedJobs);
-      if (Array.isArray(parsed)) {
-        setJobs(parsed.map(normalizeJob));
-      } else {
-        setJobs([]);
-      }
+      const res = await axios.get("/api/job-allocations");
+
+      const data =
+        res.data?.data ||
+        res.data;
+
+      setJobs(Array.isArray(data) ? data.map(normalizeJob) : []);
     } catch (error) {
-      console.error("Failed to parse jobs from localStorage:", error);
+      console.error("Error loading jobs:", error);
       setJobs([]);
     }
-  } else {
-    setJobs([]);
-  }
+  };
+
+  fetchJobs();
 }, []);
 
-    const savedOrders = localStorage.getItem("orders");
-    if (savedOrders) {
-      try {
-        const parsed = JSON.parse(savedOrders);
-        setOrders(Array.isArray(parsed) ? parsed : []);
-      } catch {
-        setOrders([]);
-      }
-    }
 
     // Load locations
 
 useEffect(() => {
   const fetchLocations = async () => {
     try {
-      const response = await axios.get("/api/locations"); // Replace with your API endpoint
-      if (response.data) {
-        setLocations(response.data);
+      const response = await axios.get("/api/locations");
+
+      // 🔥 Normalize API response safely
+      const data =
+        response.data?.data ||
+        response.data?.locations ||
+        response.data;
+
+      // ✅ Ensure it's always an array
+      if (Array.isArray(data)) {
+        setLocations(data);
+      } else {
+        setLocations([]);
       }
     } catch (error: any) {
       console.error("Error fetching locations:", error);
+
       toast({
         title: "Error",
         description: error.message || "Failed to load locations",
         variant: "destructive",
       });
+
+      setLocations([]); // fallback safety
     }
   };
 
   fetchLocations();
 }, []);
 
-  // Listen for storage changes
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const savedJobs = localStorage.getItem("jobs");
-      if (savedJobs) {
-        try {
-          const parsed = JSON.parse(savedJobs);
-          setJobs(Array.isArray(parsed) ? parsed.map(normalizeJob) : []);
-        } catch {
-          setJobs([]);
-        }
-      }
 
-      const savedOrders = localStorage.getItem("orders");
-      if (savedOrders) {
-        try {
-          const parsed = JSON.parse(savedOrders);
-          setOrders(Array.isArray(parsed) ? parsed : []);
-        } catch {
-          setOrders([]);
-        }
-      }
-    };
+useEffect(() => {
+  const fetchIssues = async () => {
+    try {
+      const res = await axios.get("/api/material-issues");
 
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
-  }, []);
+      const data =
+        res.data?.data ||
+        res.data?.issues ||
+        res.data ||
+        [];
+
+      const normalized = Array.isArray(data)
+        ? data.map((i: any) => ({
+            id: i.id || crypto.randomUUID(),
+
+            issueNo: i.issue_no || i.issueNo || "",
+            issueDate: i.issue_date || i.issueDate || "",
+            issueType: i.issue_type || i.issueType || "",
+            referenceNo: i.reference_no || i.referenceNo || "",
+            referenceName: i.reference_name || i.referenceName || "",
+            warehouse: i.warehouse || "",
+            issuedBy: i.issued_by || i.issuedBy || "",
+            remarks: i.remarks || "",
+            status: i.status || "Issued",
+            items: i.items || [],
+            createdAt: i.created_at || i.createdAt || "",
+          }))
+        : [];
+
+      setIssues(normalized);
+    } catch (error) {
+      console.error("Error fetching issues:", error);
+      setIssues([]);
+    }
+  };
+
+  fetchIssues();
+}, []);
+
+
+useEffect(() => {
+  const fetchOrders = async () => {
+    try {
+      setOrdersLoading(true);
+
+      const res = await axios.get("/api/orders");
+
+      const data =
+        res.data?.data ||
+        res.data?.orders ||
+        res.data ||
+        [];
+
+      console.log("DEBUG ORDERS:", data);
+
+      const normalized = Array.isArray(data)
+        ? data.map((o: any) => ({
+            ...o,
+            orderNo:
+              o.order_no ||        // ✅ FIX HERE (main field)
+              o.orderNo ||
+              o.order_number ||
+              o.orderNumber ||
+              o.id,
+            customerName:
+              o.customer ||
+              o.customer_name ||
+              o.customerName ||
+              "",
+          }))
+        : [];
+
+      setOrders(normalized);
+    } catch (err) {
+      console.error("Failed to load orders API", err);
+      setOrders([]);
+    } finally {
+      setOrdersLoading(false);
+    }
+  };
+
+  fetchOrders();
+}, []);
+
 
   const generateIssueNo = () => {
-    const prefix = "ISS";
-    const existingNumbers = issues.map((i) => {
-      const match = i.issueNo.match(/ISS-(\d+)/);
-      return match ? parseInt(match[1]) : 0;
-    });
-    const nextNumber = Math.max(0, ...existingNumbers) + 1;
-    return `${prefix}-${String(nextNumber).padStart(5, "0")}`;
-  };
+  const prefix = "ISS";
+
+  const existingNumbers = issues.map((i) => {
+    const issueNo = i?.issueNo || "";   // ✅ safety check
+    const match = issueNo.match(/ISS-(\d+)/);
+    return match ? parseInt(match[1]) : 0;
+  });
+
+  const nextNumber = Math.max(0, ...existingNumbers) + 1;
+
+  return `${prefix}-${String(nextNumber).padStart(5, "0")}`;
+};
 
   const handleSearch = () => {
     const term = searchTerm.toLowerCase();
@@ -283,28 +349,82 @@ const fetchAvailableStock = async (items: IssueItem[]): Promise<IssueItem[]> => 
 };
 
   // Lookup Job by Job No (text input)
-  const handleLookupJob = async () => {
-    if (!jobNoInput.trim()) {
-      setReferenceError("Please enter a Job No");
+  // ✅ FIXED handleLookupJob
+const handleLookupJob = async () => {
+  if (!jobNoInput.trim()) {
+    setReferenceError("Please enter a Job No");
+    return;
+  }
+  setReferenceError("");
+
+  const jobNumberInput = jobNoInput.trim();
+
+  // Get latest jobs from localStorage
+  let latestJobs: Job[] = jobs;
+  const savedJobs = localStorage.getItem("jobs");
+  if (savedJobs) {
+    try {
+      const parsed = JSON.parse(savedJobs);
+      latestJobs = Array.isArray(parsed) ? parsed.map(normalizeJob) : [];
+      setJobs(latestJobs);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  // Find in local jobs
+  const job = latestJobs.find(
+    (j) => getJobNumber(j).toLowerCase() === jobNumberInput.toLowerCase()
+  );
+
+  if (job) {
+    const status = (job.status || "").toLowerCase();
+    if (["completed", "cancelled", "canceled"].includes(status)) {
+      setReferenceError(`Cannot issue to ${job.status} job`);
       return;
     }
-    setReferenceError("");
 
-    const jobNumberInput = jobNoInput.trim();
+    setSelectedReference(job);
+    await loadJobMaterials(job);
+    return;
+  }
 
-    // Always read latest jobs from localStorage (state can be stale within the same tab)
-    let latestJobs: Job[] = jobs;
-    const savedJobs = localStorage.getItem("jobs");
-    if (savedJobs) {
-      try {
-        const parsed = JSON.parse(savedJobs);
-        latestJobs = Array.isArray(parsed) ? parsed.map(normalizeJob) : [];
-        setJobs(latestJobs);
-      } catch {
-        // ignore parse errors; fall back to current state
+  // Fallback: Check backend
+  try {
+    const response = await axios.get("/api/job_allocations", {
+      params: { job_number: jobNumberInput },
+    });
+
+    const allocations = response.data || [];
+
+    if (allocations.length > 0) {
+      const allConsumed = allocations.every((a: any) => a.status === "consumed");
+      if (allConsumed) {
+        setReferenceError("Cannot issue to Completed job");
+        return;
       }
+
+      const dbJob: Job = {
+        id: jobNumberInput,
+        jobNumber: jobNumberInput,
+        itemCode: "",
+        itemName: "",
+        quantity: 1,
+        status: "Pending",
+        bomComponents: [],
+      };
+
+      setSelectedReference(dbJob);
+      await loadJobMaterials(dbJob);
+      return;
     }
 
+    setReferenceError("Job not found");
+  } catch (error: any) {
+    console.error("Error fetching job allocations:", error);
+    setReferenceError("Failed to verify job. Check console.");
+  }
+};
     // First try to find in localStorage (supports both {jobNumber} and {id} shapes)
    const handleJobReference = async () => {
   // First, try to find job in latestJobs
@@ -363,27 +483,61 @@ const fetchAvailableStock = async (items: IssueItem[]): Promise<IssueItem[]> => 
 };
 
   // Lookup Order by Order No (text input)
-  const handleLookupOrder = async () => {
-    if (!orderNoInput.trim()) {
-      setReferenceError("Please enter an Order No");
-      return;
-    }
-    setReferenceError("");
+ const handleLookupOrder = async () => {
+  const input = orderNoInput.trim().toLowerCase();
 
-    const orderNumberInput = orderNoInput.trim();
+  if (!input) {
+    setReferenceError("Please enter an Order No");
+    return;
+  }
 
-    const order = orders.find(
-      (o) => getOrderNumber(o).toLowerCase() === orderNumberInput.toLowerCase()
-    );
+  if (ordersLoading) {
+    setReferenceError("Orders are still loading...");
+    return;
+  }
 
-    if (!order) {
-      setReferenceError("Order not found");
-      return;
-    }
+  if (!Array.isArray(orders) || orders.length === 0) {
+    setReferenceError("No orders loaded. Please refresh.");
+    return;
+  }
 
-    setSelectedReference(order);
-    await loadOrderItems(order);
-  };
+  const order = orders.find((o: any) => {
+    const orderNo =
+      (
+        o.orderNumber ||
+        o.orderNo ||
+        o.order_no ||
+        o.order_number ||
+        o.id ||
+        ""
+      )
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    const customer =
+      (
+        o.customerName ||
+        o.customer ||
+        o.customer_name ||
+        ""
+      )
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    return orderNo === input || customer.includes(input);
+  });
+
+  if (!order) {
+    console.log("DEBUG ORDERS:", orders); // 👈 important debug
+    setReferenceError("Order not found");
+    return;
+  }
+
+  setSelectedReference(order);
+  await loadOrderItems(order);
+};
 
   // Build map of previously-issued qty per item for a given reference (job/order)
   const buildPreviouslyIssuedMap = (refNo: string, type: "job" | "order"): Record<string, number> => {
@@ -578,13 +732,15 @@ const loadJobMaterials = async (job: Job) => {
         const qtyRaw = item.quantityOrdered ?? item.quantity ?? item.qty ?? 0;
         const requiredQty = typeof qtyRaw === "number" ? qtyRaw : parseFloat(qtyRaw) || 0;
         const itemCode = item.itemCode || item.item_code || item.code || "";
+          const availableStock = Number(item.available_stock ?? 0);
         const prev = prevIssued[itemCode] || 0;
 
-        return {
+        return {  
           id: `item-${index}`,
           itemCode,
           itemName: item.itemName || item.item_name || item.name || "",
           requiredQty,
+          availableStock,
           previouslyIssued: prev,
           pendingQty: Math.max(0, requiredQty - prev),
           issuedQty: 0,
@@ -594,8 +750,7 @@ const loadJobMaterials = async (job: Job) => {
     }
 
     // Fetch available stock for all items
-    const itemsWithStock = await fetchAvailableStock(items);
-    setIssueItems(itemsWithStock);
+    setIssueItems(items);
   };
 
   const handleSelectReference = async (ref: Job | Order) => {
@@ -652,236 +807,240 @@ const loadJobMaterials = async (job: Job) => {
     );
   };
 
-  const handleCreateIssue = async () => {
-    if (!selectedReference) {
-      const hasRefInput = issueType === "job" ? jobNoInput.trim() : orderNoInput.trim();
+ const handleCreateIssue = async () => {
+  if (!selectedReference) {
+    const hasRefInput =
+      issueType === "job" ? jobNoInput.trim() : orderNoInput.trim();
+
+    toast({
+      title: "Error",
+      description: hasRefInput
+        ? `Please click the search icon to load the ${
+            issueType === "job" ? "Job" : "Order"
+          } details`
+        : "Please select a Job or Order",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  // ✅ Job validation
+  if (issueType === "job") {
+    const job = selectedReference as Job;
+    if (job.status === "Completed" || job.status === "Cancelled") {
       toast({
         title: "Error",
-        description: hasRefInput
-          ? `Please click the search icon to load the ${issueType === "job" ? "Job" : "Order"} details`
-          : "Please select a Job or Order",
+        description: `Cannot issue to ${job.status} job`,
         variant: "destructive",
       });
       return;
     }
+  }
 
-    // Validate job status again before creating
-    if (issueType === "job") {
-      const job = selectedReference as Job;
-      if (job.status === "Completed" || job.status === "Cancelled") {
-        toast({
-          title: "Error",
-          description: `Cannot issue to ${job.status} job`,
-          variant: "destructive",
-        });
-        return;
-      }
-    }
+  const itemsToIssue = issueItems.filter((item) => item.issuedQty > 0);
 
-    const itemsToIssue = issueItems.filter((item) => item.issuedQty > 0);
-    if (itemsToIssue.length === 0) {
-      toast({
-        title: "Error",
-        description: "Please enter issue quantities for at least one item",
-        variant: "destructive",
-      });
-      return;
-    }
+  if (itemsToIssue.length === 0) {
+    toast({
+      title: "Error",
+      description: "Please enter issue quantities for at least one item",
+      variant: "destructive",
+    });
+    return;
+  }
 
-    // Check for validation errors
-  // Step 1: Check for items with validation errors
-const itemsWithErrors = itemsToIssue.filter((item) => item.error);
+  // ✅ Validation errors
+  const itemsWithErrors = itemsToIssue.filter((item) => item.error);
+  if (itemsWithErrors.length > 0) {
+    toast({
+      title: "Validation Error",
+      description: "Please fix the quantity errors before proceeding",
+      variant: "destructive",
+    });
+    return;
+  }
 
-if (itemsWithErrors.length > 0) {
-  toast({
-    title: "Validation Error",
-    description: "Please fix the quantity errors before proceeding",
-    variant: "destructive",
-  });
-  return;
-}
-
-// Step 1: Re-validate stock availability
-for (const item of itemsToIssue) {
+ for (const item of itemsToIssue) {
   try {
     const res = await axios.get(
-      `/api/inventory-stock/${item.itemCode}`
+      `/api/stock/check?item_code=${item.itemCode}`
     );
 
-    const stockItem = res.data;
+    const stock = res.data;
 
-    const onHand = Math.max(
-      0,
-      Number(stockItem?.quantity_on_hand ?? 0)
-    );
+    const available = Number(stock.availableQuantity || 0);
+    const issuedQty = Number(item.issuedQty || 0);
 
-    if (item.issuedQty > onHand) {
+    console.log("📦 STOCK CHECK API:", {
+      item: item.itemCode,
+      available,
+      issuedQty,
+    });
+
+    if (issuedQty > available) {
       toast({
         title: "Stock Error",
-        description: `Insufficient stock for ${item.itemCode}. Available: ${onHand}`,
+        description: `Insufficient stock for ${item.itemCode}. Available: ${available}`,
         variant: "destructive",
       });
       return;
     }
-  } catch (error: any) {
+
+  } catch (err: any) {
     toast({
-      title: "Stock Fetch Error",
-      description: `Failed to fetch stock for ${item.itemCode}: ${error.message}`,
+      title: "Stock Check Failed",
+      description: err.message,
       variant: "destructive",
     });
     return;
   }
 }
+  // ✅ Get user
+  const getCurrentUser = async () => {
+    try {
+      const res = await axios.get("/api/user", {
+        withCredentials: true,
+      });
 
-// Step 2: Get current user (IMPORTANT FIX)
-const getCurrentUser = async () => {
-  try {
-    const res = await axios.get("/api/user", {
-      withCredentials: true,
-    });
+      return {
+        userEmail: res.data?.email || "Unknown User",
+        userId: res.data?.id || null,
+      };
+    } catch {
+      return { userEmail: "Unknown User", userId: null };
+    }
+  };
 
-    return {
-      userEmail: res.data?.email || "Unknown User",
-      userId: res.data?.id || null,
-    };
-  } catch (error) {
-    console.error("Error fetching user:", error);
+  const { userEmail, userId } = await getCurrentUser();
 
-    return {
-      userEmail: "Unknown User",
-      userId: null,
-    };
-  }
-};
-
-const { userEmail, userId } = await getCurrentUser();
-
-// Step 3: Prepare Issue record
-const newIssue: Issue = {
-  id: crypto.randomUUID(),
-  issueNo: generateIssueNo(),
-  issueDate: format(new Date(), "yyyy-MM-dd"),
-  issueType,
-  referenceNo:
-    issueType === "job"
-      ? (selectedReference as Job).jobNumber
-      : getOrderNumber(selectedReference as Order),
-  referenceName:
-    issueType === "job"
-      ? (selectedReference as Job).itemName
-      : getOrderCustomerName(selectedReference as Order),
-
-  issuedBy: userEmail,
-  warehouse,
-  remarks,
-  status: "Issued",
-  items: itemsToIssue,
-  createdAt: new Date().toISOString(),
-};
-
-// Step 4: Update stock + transactions
-for (const item of itemsToIssue) {
-  try {
-    const res = await axios.get(
-      `/api/inventory-stock/${item.itemCode}`
-    );
-
-    const stockItem = res.data;
-    if (!stockItem) continue;
-
-    const onHand = Number(stockItem.quantity_on_hand || 0);
-    const allocated = Number(stockItem.allocated_quantity || 0);
-    const committed = Number(stockItem.committed_quantity || 0);
-
-    const newOnHand = Math.max(0, onHand - item.issuedQty);
-
-    const newAllocated =
+  // ✅ Prepare issue
+  const newIssue: Issue = {
+    id: crypto.randomUUID(),
+    issueNo: generateIssueNo(),
+    issueDate: format(new Date(), "yyyy-MM-dd"),
+    issueType,
+    referenceNo:
       issueType === "job"
-        ? Math.max(0, allocated - item.issuedQty)
-        : allocated;
+        ? (selectedReference as Job).jobNumber
+        : getOrderNumber(selectedReference as Order),
+    referenceName:
+      issueType === "job"
+        ? (selectedReference as Job).itemName
+        : getOrderCustomerName(selectedReference as Order),
+    issuedBy: userEmail,
+    warehouse,
+    remarks,
+    status: "Issued",
+    items: itemsToIssue,
+    createdAt: new Date().toISOString(),
+  };
 
-    const newAvailable = Math.max(
-      0,
-      newOnHand - newAllocated - committed
-    );
+  // ============================================
+  // ✅ STEP 1: CREATE MATERIAL ISSUE FIRST
+  // ============================================
+  try {
+    const payload = {
+      issue_no: String(newIssue.issueNo),
+      issue_date: newIssue.issueDate,
+      issue_type: newIssue.issueType,
+      reference_no: String(newIssue.referenceNo),
+      reference_name: newIssue.referenceName || "",
+      issued_by: newIssue.issuedBy || "",
+      warehouse: newIssue.warehouse || "",
+      remarks: newIssue.remarks || "",
+      status: newIssue.status || "Issued",
+      items: newIssue.items.map((i: any) => ({
+        item_code: String(i.itemCode),
+        item_name: i.itemName || "",
+        uom: i.uom || "",
+        issued_qty: Number(i.issuedQty || 0),
+      })),
+    };
 
-    // Update stock
-    await axios.patch(
-      `/api/inventory-stock/${item.itemCode}`,
-      {
+    console.log("📤 SENDING MATERIAL ISSUE:", payload);
+
+    await axios.post("/api/material-issues", payload);
+
+    console.log("✅ MATERIAL ISSUE CREATED");
+  } catch (error: any) {
+    console.log("🔥 MATERIAL ISSUE ERROR:", error.response?.data);
+
+    toast({
+      title: "Error",
+      description:
+        error.response?.data?.message ||
+        "Failed to save material issue",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  // ============================================
+  // ✅ STEP 2: UPDATE STOCK
+  // ============================================
+  for (const item of itemsToIssue) {
+    try {
+      const res = await axios.get(
+        `/api/inventory-stock?search=${encodeURIComponent(item.itemCode)}`
+      );
+
+      const stockItem = res.data?.items?.find(
+        (i: any) => i.itemCode === item.itemCode
+      );
+
+      if (!stockItem) throw new Error("Stock not found");
+
+      const stockId = stockItem.id;
+
+      const onHand = Number(stockItem.quantityOnHand || 0);
+      const allocated = Number(stockItem.allocatedQuantity || 0);
+      const committed = Number(stockItem.committedQuantity || 0);
+      const issuedQty = Number(item.issuedQty || 0);
+
+      const newOnHand = Math.max(0, onHand - issuedQty);
+      const newAllocated =
+        issueType === "job"
+          ? Math.max(0, allocated - issuedQty)
+          : allocated;
+
+      await axios.put(`/api/inventory-stock/${stockId}`, {
         quantity_on_hand: newOnHand,
         allocated_quantity: newAllocated,
-        available_quantity: newAvailable,
+        committed_quantity: committed,
         last_transaction_date: new Date().toISOString(),
-      }
-    );
+      });
 
-    // Stock transaction log
-    await axios.post("/api/stock-transactions", {
-      item_code: item.itemCode,
-      transaction_type: "Issue",
-      quantity: -item.issuedQty,
-      reference_type:
-        issueType === "job" ? "Job Issue" : "Order Issue",
-      reference_number: newIssue.referenceNo,
-      notes: `Issued ${item.issuedQty} ${item.uom} to ${issueType} ${
-        newIssue.referenceNo
-      } by ${userEmail}${
-        userId ? ` (${userId})` : ""
-      }. Issue#: ${newIssue.issueNo}`,
-      unit_cost: stockItem.unit_cost ?? 0,
-    });
-  } catch (error: any) {
-    toast({
-      title: "Stock Update Error",
-      description: `Failed to update stock for ${item.itemCode}: ${error.message}`,
-      variant: "destructive",
-    });
-    return;
-  }
-}
-
-// Sync issued quantities back to job card (localStorage jobs)
-    if (issueType === "job") {
-      try {
-        const savedJobs = localStorage.getItem("jobs");
-        if (savedJobs) {
-          const parsedJobs = JSON.parse(savedJobs);
-          if (Array.isArray(parsedJobs)) {
-            const refNo = newIssue.referenceNo;
-            const updated = parsedJobs.map((j: any) => {
-              const jNo = getJobNumber(j);
-              if (jNo !== refNo) return j;
-              const issuedMap: Record<string, number> = { ...(j.issuedQuantities || {}) };
-              itemsToIssue.forEach((it) => {
-                issuedMap[it.itemCode] = (issuedMap[it.itemCode] || 0) + it.issuedQty;
-              });
-              return { ...j, issuedQuantities: issuedMap, lastIssueAt: new Date().toISOString() };
-            });
-            localStorage.setItem("jobs", JSON.stringify(updated));
-            setJobs(updated.map(normalizeJob));
-            window.dispatchEvent(new Event("storage"));
-          }
-        }
-      } catch (e) {
-        console.warn("Failed to sync issued qty to job card", e);
-      }
+      // ✅ transaction
+      await axios.post("/api/stock-transactions", {
+        item_code: item.itemCode,
+        transaction_type: "Issue",
+        quantity: -issuedQty,
+        reference_type:
+          issueType === "job" ? "Job Issue" : "Order Issue",
+        reference_number: newIssue.referenceNo,
+        notes: `Issued ${issuedQty} ${item.uom} to ${issueType}`,
+        unit_cost: stockItem.unit_cost ?? 0,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Stock Update Error",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
     }
+  }
 
-    // Save issue to localStorage
-    const updatedIssues = [...issues, newIssue];
-    localStorage.setItem("material_issues", JSON.stringify(updatedIssues));
-    setIssues(updatedIssues);
+  // ============================================
+  // ✅ DONE
+  // ============================================
+  toast({
+    title: "Issue Created",
+    description: `Material issue ${newIssue.issueNo} created successfully`,
+  });
 
-    toast({
-      title: "Issue Created",
-      description: `Material issue ${newIssue.issueNo} created successfully`,
-    });
-
-    // Reset form
-    resetForm();
-    setIsCreateDialogOpen(false);
-  };
+  resetForm();
+  setIsCreateDialogOpen(false);
+};
 
   const resetForm = () => {
     setIssueType("job");
@@ -936,34 +1095,38 @@ for (const item of itemsToIssue) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {issues.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                    No material issues found. Click "New Issue" to create one.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                issues.map((issue) => (
-                  <TableRow key={issue.id}>
-                    <TableCell className="font-mono">{issue.issueNo}</TableCell>
-                    <TableCell>{issue.issueDate}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{issue.issueType === "job" ? "Job Issue" : "Order Issue"}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <span className="font-medium">{issue.referenceNo}</span>
-                        <p className="text-sm text-muted-foreground">{issue.referenceName}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell>{issue.warehouse}</TableCell>
-                    <TableCell>{issue.issuedBy}</TableCell>
-                    <TableCell>{getStatusBadge(issue.status)}</TableCell>
-                    <TableCell>{issue.items.length} items</TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
+  {Array.isArray(issues) && issues.length === 0 ? (
+    <TableRow>
+      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+        No material issues found. Click "New Issue" to create one.
+      </TableCell>
+    </TableRow>
+  ) : (
+    issues.map((issue) => (
+      <TableRow key={issue.id}>
+        <TableCell className="font-mono">{issue.issueNo}</TableCell>
+        <TableCell>{issue.issueDate}</TableCell>
+        <TableCell>
+          <Badge variant="outline">
+            {issue.issueType === "job" ? "Job Issue" : "Order Issue"}
+          </Badge>
+        </TableCell>
+        <TableCell>
+          <div>
+            <span className="font-medium">{issue.referenceNo}</span>
+            <p className="text-sm text-muted-foreground">
+              {issue.referenceName}
+            </p>
+          </div>
+        </TableCell>
+        <TableCell>{issue.warehouse}</TableCell>
+        <TableCell>{issue.issuedBy}</TableCell>
+        <TableCell>{getStatusBadge(issue.status)}</TableCell>
+        <TableCell>{issue.items?.length || 0} items</TableCell>
+      </TableRow>
+    ))
+  )}
+</TableBody>
           </Table>
         </CardContent>
       </Card>
@@ -1030,7 +1193,10 @@ for (const item of itemsToIssue) {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="Main Warehouse">Main Warehouse</SelectItem>
-                          {locations.filter(loc => loc.location_name).map((loc) => (
+                         {Array.isArray(locations) &&
+  locations
+    .filter((loc) => loc.location_name)
+    .map((loc) => (
                             <SelectItem key={loc.id} value={loc.location_name}>
                               {loc.location_name}
                             </SelectItem>
@@ -1071,6 +1237,7 @@ for (const item of itemsToIssue) {
                             if (issueType === "job") handleLookupJob();
                             else handleLookupOrder();
                           }}
+                           disabled={ordersLoading && issueType === "order"}
                         >
                           <Search className="h-4 w-4" />
                         </Button>
@@ -1321,6 +1488,6 @@ for (const item of itemsToIssue) {
       </Dialog>
     </div>
   );
-}; }
+}; 
 
 export default IssuesTab;

@@ -11,6 +11,8 @@ class StockAdjustment extends Model
     public $incrementing = false;
     protected $keyType = 'string';
 
+    public $timestamps = true;
+
     protected $fillable = [
         'id',
         'adjustment_number',
@@ -19,6 +21,11 @@ class StockAdjustment extends Model
         'additional_info',
         'status',
         'total_value'
+    ];
+
+    protected $casts = [
+        'adjustment_date' => 'datetime:Y-m-d\TH:i',
+        'total_value' => 'decimal:2'
     ];
 
     public function items()

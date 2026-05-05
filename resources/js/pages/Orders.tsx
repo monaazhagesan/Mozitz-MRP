@@ -940,6 +940,7 @@ const allocateInventoryForOrder = async (items: LineItem[]) => {
     item_code: item.itemCode,
     item_name: item.itemName,
     item_type: item.itemType,
+    available_stock: item.availableStock,
     uom: item.uom,
     quantity: item.quantityOrdered,
     rate: item.rate,

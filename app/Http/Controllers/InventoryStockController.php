@@ -36,13 +36,15 @@ class InventoryStockController extends Controller
         $sellingPrice = (float) ($item->selling_price ?? 0);
 
         // ✅ FIX: ALWAYS compute fresh (do NOT trust DB field)
-        $availableQuantity = $quantityOnHand - $allocated - $committed;
+        $availableQuantity = $quantityOnHand - $allocated;
 
         $expectedQuantity = (float) ($item->expected_quantity ?? 0);
         $potential = $availableQuantity + $expectedQuantity;
 
         return [
             'id' => $item->id,
+            // missing
+'location_id' => $item->location_id,
             'itemCode' => $item->item_code,
             'itemName' => $item->item_name,
             'sku' => $item->sku,
@@ -79,6 +81,7 @@ class InventoryStockController extends Controller
 
             'hsnCode' => $item->hsn_code,
             'taxRate' => (float) ($item->tax_rate ?? 0),
+            'barcode' => $item->barcode ?? '',
 
             'lastTransactionDate' => $item->last_transaction_date,
             'description' => $item->description ?? '',
@@ -116,7 +119,7 @@ class InventoryStockController extends Controller
         $data['quantity_on_hand'] = (float) ($data['quantity_on_hand'] ?? 0);
         $data['allocated_quantity'] = (float) ($data['allocated_quantity'] ?? 0);
         $data['committed_quantity'] = (float) ($data['committed_quantity'] ?? 0);
-        $data['available_quantity'] = $data['quantity_on_hand'] - $data['committed_quantity'];
+        $data['available_quantity'] = $data['quantity_on_hand'] - $data['allocated_quantity'];
         $data['open_po'] = (float) ($data['open_po'] ?? 0);
 
         // ✅ AUTO ITEM CODE
@@ -137,6 +140,20 @@ class InventoryStockController extends Controller
 
             $data['item_code'] = $prefix . '-' . str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
         }
+
+        // ✅ AUTO BARCODE
+if (empty($data['barcode'])) {
+    $data['barcode'] = $this->generateBarcode();
+}
+
+// ✅ Resolve location name from ID
+if (!empty($data['location_id'])) {
+    $location = \App\Models\Location::find($data['location_id']);
+
+    if ($location) {
+        $data['location'] = $location->location_name; // store name
+    }
+}
 
         // ✅ BOOLEAN FIX
         foreach ([
@@ -200,7 +217,7 @@ class InventoryStockController extends Controller
         $data['available_quantity'] =
             $data['quantity_on_hand']
             - $data['allocated_quantity']
-            - $data['committed_quantity'];
+            ;
 
         // booleans
         foreach ([
@@ -222,6 +239,19 @@ class InventoryStockController extends Controller
     $data['last_transaction_date'] = Carbon::parse($request->input('last_transaction_date'))
         ->timezone('Asia/Kolkata')
         ->format('Y-m-d H:i:s');
+}
+
+if (empty($item->barcode)) {
+    $data['barcode'] = $this->generateBarcode();
+}
+
+// ✅ Resolve location name from ID
+if (!empty($data['location_id'])) {
+    $location = \App\Models\Location::find($data['location_id']);
+
+    if ($location) {
+        $data['location'] = $location->location_name; // store name
+    }
 }
 
         $item->update($data);
@@ -256,6 +286,7 @@ class InventoryStockController extends Controller
      private function validateData(Request $request)
     {
         return $request->validate([
+            'location_id' => 'nullable|uuid', 
             'item_code' => 'nullable|string|max:50',
             'item_name' => 'nullable|string|max:100',
             'sku' => 'nullable|string|max:50',
@@ -318,4 +349,39 @@ public function allocate(Request $request)
     ]);
 }
 
+
+private function generateBarcode()
+{
+    do {
+        $barcode = 'BC' . now()->format('ymdHis') . rand(100, 999);
+    } while (InventoryStock::where('barcode', $barcode)->exists());
+
+    return $barcode;
+}
+
+
+public function checkStock(Request $request)
+{
+    $request->validate([
+        'item_code' => 'required|string'
+    ]);
+
+    $stock = InventoryStock::where('item_code', $request->item_code)->first();
+
+    if (!$stock) {
+        return response()->json([
+            'message' => 'Stock not found'
+        ], 404);
+    }
+
+    $available = (float)$stock->quantity_on_hand - (float)$stock->allocated_quantity;
+
+    return response()->json([
+        'itemCode' => $stock->item_code,
+        'itemName' => $stock->item_name,
+        'quantityOnHand' => (float)$stock->quantity_on_hand,
+        'allocatedQuantity' => (float)$stock->allocated_quantity,
+        'availableQuantity' => $available
+    ]);
+}
 }

@@ -40,8 +40,9 @@ use App\Http\Controllers\PoReturnItemController;
 use App\Http\Controllers\PoReturnController;
 use App\Http\Controllers\RegularOrderTemplateController;
 use App\Http\Controllers\RecurringInvoiceController;
-
-
+use App\Http\Controllers\StocktakeController;
+use App\Http\Controllers\MaterialIssueController;
+use App\Http\Controllers\StockAdjustmentController;
 
 /*
 |--------------------------------------------------------------------------
@@ -93,6 +94,7 @@ Route::post('/inventory-stock', [InventoryStockController::class, 'store']);
 Route::put('/inventory-stock/{id}', [InventoryStockController::class, 'update']);
 Route::delete('/inventory-stock/{id}', [InventoryStockController::class, 'destroy']);
 Route::post('/inventory-stock/allocate', [InventoryStockController::class, 'allocate']);
+Route::get('/stock/check', [InventoryStockController::class, 'checkStock']);
 
 Route::post('/inventory-insights', [InventoryInsightsController::class, 'generateInsights']);
 
@@ -137,7 +139,8 @@ Route::post('/user-roles', [UserRoleController::class, 'store']);
 Route::delete('/user-roles/{user}/role', [UserRoleController::class, 'removeRole']);
 
 Route::apiResource('/locations', LocationController::class);
-Route::apiResource('/storage-bins', StorageBinController::class);
+Route::get('/storage-bins', [StorageBinController::class, 'apiIndex']);
+
 
 Route::get('/default-location', [DefaultLocationController::class, 'show']);
 Route::post('/default-location', [DefaultLocationController::class, 'storeOrUpdate']);
@@ -253,3 +256,19 @@ Route::delete('/recurring-invoices/{id}', [RecurringInvoiceController::class, 'd
 Route::patch('/recurring-invoices/{id}/status', [RecurringInvoiceController::class, 'toggleStatus']);
 Route::patch('/recurring-invoices/{id}/cancel', [RecurringInvoiceController::class, 'cancel']);
 Route::post('/recurring-invoices/process', [RecurringInvoiceController::class, 'process']);
+
+
+Route::get('/stocktakes', [StocktakeController::class, 'index']);
+Route::post('/stocktakes', [StocktakeController::class, 'store']);
+Route::get('/stocktakes/{id}', [StocktakeController::class, 'show']);
+Route::delete('/stocktakes/{id}', [StocktakeController::class, 'destroy']);
+Route::put('/stocktakes/{id}', [StocktakeController::class, 'update']);
+
+route::post('/stock-adjustments', [StockAdjustmentController::class, 'store']);
+route::get('/stock-adjustments', [StockAdjustmentController::class, 'index']);
+Route::delete('/stock-adjustments/{id}', [StockAdjustmentController::class, 'destroy']);
+
+Route::get('/material-issues', [MaterialIssueController::class, 'index']);
+Route::get('/material-issues/{id}', [MaterialIssueController::class, 'show']);
+Route::post('/material-issues', [MaterialIssueController::class, 'store']);
+Route::delete('/material-issues/{id}', [MaterialIssueController::class, 'destroy']);

@@ -31,6 +31,7 @@ class OrderController extends Controller
             'items.*.uom' => 'nullable|string',
 
             'items.*.quantity' => 'nullable|numeric|min:1',
+            'items.*.available_stock' => 'nullable|numeric|min:1',
             'items.*.rate' => 'nullable|numeric|min:0',
             'items.*.tax' => 'nullable|numeric|min:0',
             'items.*.total_amount' => 'nullable|numeric|min:0',
@@ -42,6 +43,12 @@ class OrderController extends Controller
         try {
 
             foreach ($request->items ?? [] as $item) {
+
+            $availableStock = null;
+
+if (isset($item['available_stock'])) {
+    $availableStock = ($item['available_stock'] ?? 0) - ($item['quantity'] ?? 0);
+}
 
                 Order::create([
                     'order_no' => $request->order_no,
@@ -71,7 +78,7 @@ class OrderController extends Controller
                     'item_name' => $item['item_name'] ?? null,
                     'item_type' => $item['item_type'] ?? null,
                     'uom' => $item['uom'] ?? 'pcs',
-
+                   'available_stock' => $availableStock,
                     'quantity' => $item['quantity'] ?? 0,
                     'rate' => $item['rate'] ?? 0,
                     'tax' => $item['tax'] ?? 0,

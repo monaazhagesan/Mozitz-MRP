@@ -4,13 +4,20 @@ namespace App\Http\Controllers;
 
 use App\Models\Location;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
+
 
 class LocationController extends Controller
 {
     public function index()
-    {
-        return Location::all();
-    }
+{
+    $locations = Location::orderBy('created_at', 'desc')->get();
+
+    return response()->json([
+        'success' => true,
+        'data' => $locations
+    ]);
+}
 
     public function show($id)
     {
@@ -20,7 +27,7 @@ class LocationController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'id' => 'required|string',
+            'id' => 'nullable|string',
             'location_name' => 'nullable|string',
             'legal_name' => 'nullable|string',
             'address' => 'nullable|string',
@@ -28,6 +35,8 @@ class LocationController extends Controller
             'make_enabled' => 'nullable|boolean',
             'buy_enabled' => 'nullable|boolean',
         ]);
+
+         $data['id'] = (string) Str::uuid();
 
         return Location::create($data);
     }

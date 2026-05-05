@@ -10,7 +10,7 @@ return new class extends Migration {
         Schema::create('stock_adjustments', function (Blueprint $table) {
             $table->string('id')->primary();
             $table->string('adjustment_number')->unique();
-            $table->date('adjustment_date');
+            $table->dateTime('adjustment_date');
             $table->text('reason')->nullable();
             $table->text('additional_info')->nullable();
             $table->enum('status', ['draft', 'completed'])->default('draft');

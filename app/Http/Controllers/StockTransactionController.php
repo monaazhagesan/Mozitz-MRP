@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\StockTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Log;
 
 class StockTransactionController extends Controller
 {
@@ -73,9 +74,32 @@ class StockTransactionController extends Controller
         return response()->json($transaction);
     }
 
-    public function destroy($id)
+   public function destroy($id)
 {
-    StockTransaction::findOrFail($id)->delete();
+    Log::info('Delete request received', [
+        'received_id' => $id
+    ]);
+
+    // ✅ find by PRIMARY KEY (UUID)
+    $transaction = StockTransaction::find($id);
+
+    if (!$transaction) {
+        Log::warning('Transaction not found', [
+            'received_id' => $id
+        ]);
+
+        return response()->json([
+            'message' => 'Transaction not found',
+            'received_id' => $id
+        ], 404);
+    }
+
+    Log::info('Transaction found', [
+        'id' => $transaction->id,
+        'item_code' => $transaction->item_code
+    ]);
+
+    $transaction->delete();
 
     return response()->json([
         'message' => 'Deleted successfully'

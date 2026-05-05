@@ -59,41 +59,105 @@ const StockAdjustmentsTab = () => {
 
   // Load inventory items
   useEffect(() => {
-    const fetchInventory = async () => {
-      try {
-        const { data } = await axios.get("/api/inventory-stock");
+  const fetchInventory = async () => {
+    try {
+      const { data } = await axios.get("/api/inventory-stock");
 
-        // ✅ FIX: use data.items (NOT data)
-        if (Array.isArray(data.items)) {
-          const sortedData = data.items.sort((a: any, b: any) =>
-            (a.itemCode || "").localeCompare(b.itemCode || "")
-          );
+      if (Array.isArray(data.items)) {
+        const sortedData = data.items.sort((a: any, b: any) =>
+          (a.itemCode || "").localeCompare(b.itemCode || "")
+        );
 
-          setInventoryItems(sortedData);
-        }
-
-        await loadAdjustments();
-      } catch (error: any) {
-        console.error("Error fetching inventory:", error);
-        toast({
-          title: "Error",
-          description: error.message || "Failed to load inventory",
-          variant: "destructive",
-        });
+        setInventoryItems(sortedData);
+      } else {
+        setInventoryItems([]);
       }
-    };
 
-    fetchInventory();
-  }, []);
-
-  const loadAdjustments = () => {
-    // Load from localStorage for now (can be migrated to Supabase later)
-    const saved = localStorage.getItem("stock_adjustments");
-    if (saved) {
-      setAdjustments(JSON.parse(saved));
+    } catch (error: any) {
+      console.error("Error fetching inventory:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to load inventory",
+        variant: "destructive",
+      });
     }
   };
 
+  fetchInventory();
+}, []);
+
+useEffect(() => {
+  const fetchData = async () => {
+    try {
+      console.log("📡 Fetching stock adjustments...");
+
+      const res = await axios.get("/api/stock-adjustments");
+      const inv = await axios.get("/api/inventory-stock");
+
+      const inventoryList = Array.isArray(inv.data?.items)
+        ? inv.data.items
+        : [];
+
+      const data = res.data;
+
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray(data.data)
+        ? data.data
+        : [];
+
+      const mapped: StockAdjustment[] = list.map((adj: any) => {
+        return {
+          id: adj.id,
+          adjustmentNumber: adj.adjustment_number || "-",
+          adjustmentDate: adj.adjustment_date,
+          reason: adj.reason || "",
+          additionalInfo: adj.additional_info || "",
+          status: adj.status || "draft",
+          totalValue: Number(adj.total_value || 0),
+          createdAt: adj.created_at,
+
+          items: Array.isArray(adj.items)
+            ? adj.items.map((item: any) => {
+                const inventoryItem = inventoryList.find(
+                  (inv: any) => inv.itemCode === item.item_code
+                );
+
+                return {
+                  id: item.id,
+
+                  // ✅ KEEP EXACT VALUE FROM DB (NO ABS, NO CHANGE)
+                  itemCode: item.item_code,
+                  itemName: inventoryItem?.itemName || item.item_code,
+                  barcode: inventoryItem?.barcode || "-",
+                 inStock: Number(item.in_stock ?? inventoryItem?.quantityOnHand ?? 0),
+
+                  // 🔥 IMPORTANT FIX HERE
+                  adjustmentQty: Number(item.adjustment_qty),
+
+                  costPerUnit: Number(item.cost_per_unit),
+
+                  adjustmentValue:
+                    Number(item.adjustment_qty) *
+                    Number(item.cost_per_unit),
+                };
+              })
+            : [],
+        };
+      });
+
+      console.log("✅ Mapped adjustments:", mapped);
+
+      setAdjustments(mapped);
+      setInventoryItems(inventoryList);
+    } catch (err) {
+      console.error("❌ Fetch error:", err);
+    }
+  };
+
+  fetchData();
+}, []);
+ 
   const saveAdjustments = (newAdjustments: StockAdjustment[]) => {
     localStorage.setItem("stock_adjustments", JSON.stringify(newAdjustments));
     setAdjustments(newAdjustments);
@@ -121,17 +185,41 @@ const StockAdjustmentsTab = () => {
     setIsFormOpen(true);
   };
 
-  const openViewForm = (adjustment: StockAdjustment) => {
-    setEditingAdjustment(adjustment);
-    setAdjustmentNumber(adjustment.adjustmentNumber);
-    setAdjustmentDate(adjustment.adjustmentDate);
-    setReason(adjustment.reason);
-    setAdditionalInfo(adjustment.additionalInfo);
-    setAdjustmentItems(adjustment.items);
-    setIsViewMode(true);
-    setIsFormOpen(true);
-  };
+ const openViewForm = (adjustment: StockAdjustment) => {
+  if (!adjustment) return;
 
+  setEditingAdjustment(adjustment);
+
+  setAdjustmentNumber(adjustment.adjustmentNumber ?? "");
+
+  setAdjustmentDate(
+    adjustment.adjustmentDate
+      ? adjustment.adjustmentDate.slice(0, 16)
+      : ""
+  );
+
+  setReason(adjustment.reason ?? "");
+  setAdditionalInfo(adjustment.additionalInfo ?? "");
+
+  // ✅ SAFE ITEMS HANDLING
+  const safeItems = Array.isArray(adjustment.items)
+    ? adjustment.items.map((item) => ({
+        id: item.id ?? "",
+        itemCode: item.itemCode ?? "",
+        itemName: item.itemName ?? "",
+        barcode: item.barcode ?? "-",
+        inStock: Number(item.inStock ?? 0),
+        adjustmentQty: Number(item.adjustmentQty ?? 0),
+        costPerUnit: Number(item.costPerUnit ?? 0),
+        adjustmentValue: Number(item.adjustmentValue ?? 0),
+      }))
+    : [];
+
+  setAdjustmentItems(safeItems);
+
+  setIsViewMode(true);
+  setIsFormOpen(true);
+};
   const openEditForm = (adjustment: StockAdjustment) => {
     setEditingAdjustment(adjustment);
     setAdjustmentNumber(adjustment.adjustmentNumber);
@@ -209,130 +297,82 @@ const StockAdjustmentsTab = () => {
   };
 
 
-  const handleSaveAdjustment = async (status: "draft" | "completed") => {
-    if (adjustmentItems.length === 0) {
-      toast({
-        title: "No Items",
-        description: "Please add at least one item to the adjustment",
-        variant: "destructive",
-      });
-      return;
-    }
+ const handleSaveAdjustment = async (status: "draft" | "completed") => {
+  if (adjustmentItems.length === 0) {
+    toast({
+      title: "No Items",
+      description: "Please add at least one item to the adjustment",
+      variant: "destructive",
+    });
+    return;
+  }
 
-    const adjustment: StockAdjustment = {
+  try {
+    const payload = {
       id: editingAdjustment?.id || `adj-${Date.now()}`,
-      adjustmentNumber,
-      adjustmentDate,
+      adjustment_number: adjustmentNumber,
+      adjustment_date: adjustmentDate,
       reason,
-      additionalInfo,
+      additional_info: additionalInfo,
       status,
+      total_value: calculateTotal(),
       items: adjustmentItems,
-      totalValue: calculateTotal(),
-      createdAt: editingAdjustment?.createdAt || new Date().toISOString(),
     };
 
-    try {
-      // ✅ ONLY run API updates when completing
-      if (status === "completed") {
-        await Promise.all(
-          adjustmentItems.map(async (item) => {
-            const inventoryItem = inventoryItems.find(
-              (inv) => inv.itemCode === item.itemCode
-            );
+    // ✅ SINGLE API CALL (IMPORTANT)
+    await axios.post("/api/stock-adjustments", payload);
 
-            if (!inventoryItem) return;
+    toast({
+      title: status === "completed" ? "Adjustment Completed" : "Saved as Draft",
+      description: `${adjustmentNumber} processed successfully`,
+    });
 
-            const newQty =
-              (inventoryItem.quantityOnHand || 0) + item.adjustmentQty;
+    // refresh adjustments list
+    const res = await axios.get("/api/stock-adjustments");
+    setAdjustments(res.data || []);
 
-            // ✅ Update inventory
-            await axios.put(`/api/inventory-stock/${inventoryItem.id}`, {
-              quantity_on_hand: Number(newQty),
-               last_transaction_date: new Date().toISOString().slice(0, 19).replace('T', ' ')
-            });
-
-            // ✅ Create stock transaction
-            await axios.post(`/api/stock-transactions`, {
-              item_code: item.itemCode,
-              transaction_type:
-                item.adjustmentQty > 0 ? "Adjustment In" : "Adjustment Out",
-              quantity: Math.abs(item.adjustmentQty),
-              unit_cost: item.costPerUnit || 0,
-              reference_type: "Stock Adjustment",
-              reference_number: adjustmentNumber,
-              notes: reason,
-              additional_info: additionalInfo,
-            });
-          })
-        );
-      }
-
-      // ✅ Save locally
-      const newAdjustments = editingAdjustment
-        ? adjustments.map((a) =>
-          a.id === editingAdjustment.id ? adjustment : a
-        )
-        : [...adjustments, adjustment];
-
-      saveAdjustments(newAdjustments);
-      handleCloseForm();
-
-      toast({
-        title:
-          status === "completed"
-            ? "Adjustment Completed"
-            : "Adjustment Saved",
-        description:
-          status === "completed"
-            ? `${adjustmentNumber} has been completed and inventory updated`
-            : `${adjustmentNumber} saved as draft`,
-      });
-
-      // ✅ Refresh inventory after completion
-      if (status === "completed") {
-        const response = await axios.get("/api/inventory-stock");
-        if (response.data?.items) {
-          setInventoryItems(response.data.items);
-        }
-      }
-    } catch (error: any) {
-      console.error("Error saving adjustment:", error);
-
-      toast({
-        title: "Error",
-        description:
-          error?.response?.data?.message ||
-          error.message ||
-          "Failed to save adjustment",
-        variant: "destructive",
-      });
+    // refresh inventory if completed
+    if (status === "completed") {
+      const inv = await axios.get("/api/inventory-stock");
+      setInventoryItems(inv.data?.items || []);
     }
-  };
+
+    handleCloseForm();
+
+  } catch (error: any) {
+    toast({
+      title: "Error",
+      description: error?.response?.data?.message || error.message,
+      variant: "destructive",
+    });
+  }
+};
 
  const handleDeleteAdjustment = async () => {
   if (!adjustmentToDelete) return;
 
   try {
-    // ✅ 1. Call backend API
+    // ✅ 1. Call correct backend API
     await axios.delete(
-      `/api/stock-transactions/${adjustmentToDelete.id}`
+      `/api/stock-adjustments/${adjustmentToDelete.id}`
     );
 
-    // ✅ 2. Update frontend state after success
-    const newAdjustments = adjustments.filter(
-      (a) => a.id !== adjustmentToDelete.id
+    // ✅ 2. Remove from state (NO localStorage)
+    setAdjustments((prev) =>
+      Array.isArray(prev)
+        ? prev.filter((a) => a.id !== adjustmentToDelete.id)
+        : []
     );
-
-    saveAdjustments(newAdjustments);
 
     toast({
       title: "Deleted",
-      description: `${adjustmentToDelete.adjustmentNumber} has been deleted`,
+      description: `${adjustmentToDelete.adjustmentNumber} deleted successfully`,
     });
 
     // ✅ 3. Reset UI state
     setDeleteDialogOpen(false);
     setAdjustmentToDelete(null);
+
   } catch (error: any) {
     console.error("Delete failed:", error);
 
@@ -345,17 +385,22 @@ const StockAdjustmentsTab = () => {
   }
 };
 
-  const filteredAdjustments = adjustments.filter(
-    (adj) =>
-      adj.adjustmentNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      adj.reason.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+const filteredAdjustments = (Array.isArray(adjustments) ? adjustments : []).filter((adj) => {
+  const search = searchTerm.toLowerCase();
 
-  const stats = {
-    total: adjustments.length,
-    draft: adjustments.filter((a) => a.status === "draft").length,
-    completed: adjustments.filter((a) => a.status === "completed").length,
-  };
+  const number = (adj?.adjustmentNumber ?? "").toString().toLowerCase();
+  const reason = (adj?.reason ?? "").toString().toLowerCase();
+
+  return number.includes(search) || reason.includes(search);
+});
+
+  const safeAdjustments = Array.isArray(adjustments) ? adjustments : [];
+
+const stats = {
+  total: safeAdjustments.length,
+  draft: safeAdjustments.filter((a) => a.status === "draft").length,
+  completed: safeAdjustments.filter((a) => a.status === "completed").length,
+};
 
   return (
     <div className="space-y-4">
@@ -417,53 +462,97 @@ const StockAdjustmentsTab = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredAdjustments.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                      No adjustments found. Click "New Adjustment" to create one.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredAdjustments.map((adj) => (
-                    <TableRow key={adj.id}>
-                      <TableCell className="font-medium">{adj.adjustmentNumber}</TableCell>
-                      <TableCell>{format(new Date(adj.adjustmentDate), "dd MMM yyyy HH:mm")}</TableCell>
-                      <TableCell className="max-w-[200px] truncate">{adj.reason || "-"}</TableCell>
-                      <TableCell>{adj.items.length}</TableCell>
-                      <TableCell className="text-right">
-                        {adj.totalValue.toLocaleString("en-IN", { style: "currency", currency: "INR" })}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={adj.status === "completed" ? "default" : "secondary"}>
-                          {adj.status === "completed" ? "Completed" : "Draft"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => openViewForm(adj)}>
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          {adj.status === "draft" && (
-                            <Button variant="ghost" size="icon" onClick={() => openEditForm(adj)}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              setAdjustmentToDelete(adj);
-                              setDeleteDialogOpen(true);
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
+  {filteredAdjustments.length === 0 ? (
+    <TableRow>
+      <TableCell
+        colSpan={7}
+        className="text-center py-8 text-muted-foreground"
+      >
+        No adjustments found. Click "New Adjustment" to create one.
+      </TableCell>
+    </TableRow>
+  ) : (
+    filteredAdjustments.map((adj) => {
+      const safeDate =
+        adj?.adjustmentDate &&
+        !isNaN(new Date(adj.adjustmentDate).getTime())
+          ? format(new Date(adj.adjustmentDate), "dd MMM yyyy HH:mm")
+          : "-";
+
+      const itemCount = Array.isArray(adj?.items)
+        ? adj.items.length
+        : 0;
+
+      const totalValue = Number(adj?.totalValue ?? 0);
+
+      return (
+        <TableRow key={adj?.id ?? Math.random()}>
+          <TableCell className="font-medium">
+            {adj?.adjustmentNumber ?? "-"}
+          </TableCell>
+
+          <TableCell>{safeDate}</TableCell>
+
+          <TableCell className="max-w-[200px] truncate">
+            {adj?.reason ?? "-"}
+          </TableCell>
+
+          <TableCell>{itemCount}</TableCell>
+
+          <TableCell className="text-right">
+            {totalValue.toLocaleString("en-IN", {
+              style: "currency",
+              currency: "INR",
+            })}
+          </TableCell>
+
+          <TableCell>
+            <Badge
+              variant={
+                adj?.status === "completed" ? "default" : "secondary"
+              }
+            >
+              {adj?.status === "completed" ? "Completed" : "Draft"}
+            </Badge>
+          </TableCell>
+
+          <TableCell>
+            <div className="flex justify-end gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => openViewForm(adj)}
+              >
+                <Eye className="h-4 w-4" />
+              </Button>
+
+              {adj?.status === "draft" && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => openEditForm(adj)}
+                >
+                  <Edit className="h-4 w-4" />
+                </Button>
+              )}
+
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setAdjustmentToDelete(adj);
+                  setDeleteDialogOpen(true);
+                }}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </TableCell>
+        </TableRow>
+      );
+    })
+  )}
+</TableBody>
             </Table>
           </div>
         </CardContent>
@@ -585,7 +674,7 @@ const StockAdjustmentsTab = () => {
                             <div className="text-sm text-muted-foreground">{item.itemName}</div>
                           </TableCell>
                           <TableCell>{item.barcode || "-"}</TableCell>
-                          <TableCell className="text-right">{item.inStock}</TableCell>
+                          <TableCell className="text-right"> {item.inStock ?? 0}</TableCell>
                           <TableCell className="text-right">
                             {isViewMode ? (
                               <span className={item.adjustmentQty >= 0 ? "text-green-600" : "text-red-600"}>

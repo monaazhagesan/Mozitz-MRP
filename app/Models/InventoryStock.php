@@ -9,6 +9,7 @@ class InventoryStock extends Model
     protected $table = 'inventory_stock';
 
     protected $fillable = [
+        'location_id',
         'item_code',
         'item_name',
         'description',
@@ -24,6 +25,8 @@ class InventoryStock extends Model
         'safety_stock',
         'open_po',
         'last_transaction_date',
+        'barcode',
+        'location',
     ];
 
     protected $casts = [
@@ -40,5 +43,9 @@ class InventoryStock extends Model
         'variant_attributes' => 'array',
     ];
 
+    public function location()
+{
+    return $this->belongsTo(Location::class, 'location_id');
+}
    
 }

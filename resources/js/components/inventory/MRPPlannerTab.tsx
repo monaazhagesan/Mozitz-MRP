@@ -46,9 +46,11 @@ import {
 
 type MRPItem = {
   id: string;
+   location_id: string | null; 
   item_code: string;
   item_name: string;
   item_type: string | null;
+  location: string | null;
   on_hand: number;
   allocated: number;
   bom_req: number;
@@ -150,6 +152,7 @@ const emptyItem: Omit<MRPItem, "id"> = {
    unit_cost: null, // ✅ ADD
 };
 
+
 export default function MRPPlannerTab() {
   const [items, setItems] = useState<MRPItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -161,6 +164,11 @@ export default function MRPPlannerTab() {
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<MRPItem | null>(null);
   const [isNew, setIsNew] = useState(false);
+
+  const [locations, setLocations] = useState<
+  { id: string; location_name: string }[]
+>([]);
+
 
 
 const TYPE_PREFIX: Record<string, string> = {
@@ -208,6 +216,9 @@ const fetchData = async () => {
   item_code: r.itemCode ?? r.item_code ?? "",
   item_name: r.itemName ?? r.item_name ?? "",
   item_type: r.item_type ?? "N/A",
+
+   location: r.location ?? "Default",
+     location_id: r.location_id ?? null,  
 
   on_hand: Number(
     r.quantityOnHand ?? r.quantity_on_hand ?? 0
@@ -278,6 +289,26 @@ const fetchData = async () => {
   useEffect(() => {
     fetchData();
   }, []);
+
+
+  useEffect(() => {
+  const fetchLocations = async () => {
+    try {
+      const res = await axios.get("/api/locations");
+
+      const data = Array.isArray(res.data)
+        ? res.data
+        : res.data?.data || [];
+
+      setLocations(data);
+    } catch (error) {
+      console.error("Failed to load locations", error);
+      toast.error("Failed to load locations");
+    }
+  };
+
+  fetchLocations();
+}, []);
 
   const computed = useMemo(() => items.map(compute), [items]);
 
@@ -365,7 +396,8 @@ const persistField = async (
       reorder_point: row.reorder_point,
       lead_time_days: row.lead_time_days,
        unit_cost: row.unit_cost, // ✅ ADD THIS
-
+      location: row.location,
+      location_id: row.location_id ? String(row.location_id) : null,
     });
     setIsNew(false);
     setEditOpen(true);
@@ -401,6 +433,7 @@ const saveEdit = async () => {
   item_type: editing.item_type || "Product",
 
   location: editing.location?.trim() || "Default",
+  location_id: editing.location_id,
   open_po: Number(editing.open_po ?? 0), 
 
   quantity_on_hand: Number(editing.on_hand ?? 0),
@@ -879,6 +912,34 @@ const bulkDelete = async () => {
                   />
                 </div>
               ))}
+               <div>
+  <Label>Location</Label>
+
+  <Select
+    value={editing.location_id || ""}
+    onValueChange={(value) => {
+      const selectedLoc = locations.find((l) => l.id === value);
+
+      setEditing((prev) => ({
+        ...prev!,
+        location_id: value,
+        location: selectedLoc?.location_name || "",
+      }));
+    }}
+  >
+    <SelectTrigger>
+      <SelectValue placeholder="Select location" />
+    </SelectTrigger>
+
+    <SelectContent>
+      {locations.map((loc) => (
+        <SelectItem key={loc.id} value={loc.id}>
+          {loc.location_name}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+</div>
             </div>
           )}
           <DialogFooter>

@@ -23,6 +23,7 @@ interface Stocktake {
   createdAt: string;
   completedAt?: string;
   location: string;
+  location_id?: string;
   countedItems: number;
   totalItems: number;
   varianceValue: number;
@@ -70,36 +71,94 @@ const StocktakesTab = () => {
   const [countSearchTerm, setCountSearchTerm] = useState("");
   const [scanMode, setScanMode] = useState(false);
 
- useEffect(() => {
-  const fetchData = async () => {
-    try {
-      // Fetch locations and inventory items in parallel
-      const [locsRes, itemsRes] = await Promise.all([
-        axios.get("/api/locations"), // Backend should return [{ id, location_name }]
-        axios.get("/api/inventory-stock"), // Backend should return full inventory items
-      ]);
+  const normalizeInventoryItem = (item: any): StocktakeItem => ({
+    id: item.id ?? `item-${Date.now()}`,
+    itemCode: item.item_code ?? item.itemCode ?? "",
+    itemName: item.item_name ?? item.itemName ?? "",
+    systemQty: Number(item.quantity_on_hand ?? item.systemQty ?? 0),
+    countedQty: item.countedQty ?? null,
+    variance: item.variance ?? 0,
+    varianceValue: Number(
+      item.varianceValue ??
+      item.variance_value ??
+      ((item.countedQty ?? 0) - (item.systemQty ?? 0)) * (item.unitCost ?? 0)
+    ),
 
-      const locs = locsRes.data || [];
-      const items = itemsRes.data || [];
-
-      if (locs.length > 0) setLocations(locs);
-      if (items.length > 0) setInventoryItems(items);
-    } catch (error: any) {
-      console.error("Error fetching locations or inventory items:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to load data",
-        variant: "destructive",
-      });
-    }
-  };
-
-  fetchData();
-}, []);
+    unitCost: Number(item.unit_cost ?? item.unitCost ?? 0),
+    uom: item.uom ?? "EA",
+    counted: Boolean(item.counted ?? false),
+    barcode: item.barcode ?? "",
+  });
 
   useEffect(() => {
-    localStorage.setItem("stocktakes", JSON.stringify(stocktakes));
-  }, [stocktakes]);
+    const fetchData = async () => {
+      try {
+        const [locsRes, itemsRes] = await Promise.all([
+          axios.get("/api/locations"),
+          axios.get("/api/inventory-stock"),
+        ]);
+
+        console.log("RAW locations:", locsRes.data);
+        console.log("RAW inventory:", itemsRes.data);
+
+        // ✅ FIXED parsing (handles multiple backend formats)
+        const locs = Array.isArray(locsRes.data)
+          ? locsRes.data
+          : locsRes.data?.data || locsRes.data?.items || [];
+
+        const rawItems = itemsRes.data;
+
+        const items = Array.isArray(rawItems)
+          ? rawItems
+          : rawItems?.data || rawItems?.items || [];
+
+        console.log("Parsed locations:", locs);
+        console.log("Parsed inventory:", items);
+
+        setLocations(locs);
+        setInventoryItems(items);
+      } catch (error: any) {
+        console.error("Fetch error:", error);
+        toast({
+          title: "Error",
+          description: error.message || "Failed to load data",
+          variant: "destructive",
+        });
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    const fetchStocktakes = async () => {
+      try {
+        const res = await axios.get("/api/stocktakes");
+
+        const data = (res.data || []).map((s: any) => ({
+          id: s.id,
+          stocktakeNo: s.stocktake_no,
+          name: s.name,
+          status: s.status,
+          createdAt: s.created_at,
+          location: s.location,
+          location_id: s.location_id,
+          countedItems: s.counted_items,
+          totalItems: s.total_items,
+          variance: s.variance ?? 0,
+          varianceValue: s.variance_value,
+          notes: s.notes,
+          items: (s.items ?? []).map(normalizeInventoryItem),
+        }));
+
+        setStocktakes(data);
+      } catch (error: any) {
+        console.error("Error loading stocktakes:", error);
+      }
+    };
+
+    fetchStocktakes();
+  }, []);
 
   const generateStocktakeNo = () => {
     const prefix = "STK";
@@ -111,6 +170,24 @@ const StocktakesTab = () => {
     return `${prefix}-${String(nextNumber).padStart(5, "0")}`;
   };
 
+  const selectedLocationId =
+    locations.find(
+      (l) =>
+        l.location_name?.trim().toLowerCase() ===
+        newStocktakeLocation?.trim().toLowerCase()
+    )?.id;
+
+  console.log("Selected Location:", newStocktakeLocation);
+  console.log("Selected Location ID:", selectedLocationId);
+  console.log("Inventory Items:", inventoryItems.length);
+
+  const itemCount = inventoryItems.filter((item) => {
+    if (newStocktakeLocation === "All Locations") return true;
+    if (!selectedLocationId) return false;
+    return item.location_id === selectedLocationId;
+  }).length;
+
+
   const handleCreateStocktake = async () => {
     if (!newStocktakeName.trim()) {
       toast({
@@ -121,22 +198,42 @@ const StocktakesTab = () => {
       return;
     }
 
-    // Create stocktake items from inventory
-    const items: StocktakeItem[] = inventoryItems
-      .filter((item) => newStocktakeLocation === "All Locations" || item.location === newStocktakeLocation)
-      .map((item, idx) => ({
-        id: `item-${idx}`,
-        itemCode: item.item_code,
-        itemName: item.item_name,
-        systemQty: item.quantity_on_hand || 0,
+    const selectedLoc = locations.find(
+      (l) => l.location_name === newStocktakeLocation
+    );
+
+    const filteredInventory = inventoryItems.filter((item) => {
+      if (!selectedLocationId) return true;
+
+      return item.location_id === selectedLocationId;
+    });
+
+    const items = filteredInventory.map((item) => {
+      console.log("raw item3453454:", item);
+
+      const mapped = {
+        id: item.id,
+
+        itemCode: item.item_code ?? item.itemCode ?? "",
+        itemName: item.item_name ?? item.itemName ?? "",
+
+        systemQty: Number(item.quantityOnHand ?? 0),
         countedQty: null,
+
         variance: 0,
         varianceValue: 0,
-        unitCost: item.unit_cost || 0,
-        uom: "EA",
+
+        unitCost: Number(item.unit_cost ?? 0),
+        uom: item.uom ?? "EA",
+
         counted: false,
-        barcode: item.barcode || "",
-      }));
+        barcode: item.barcode ?? "",
+      };
+
+      console.log("mapped item:", mapped);
+
+      return mapped;
+    });
 
     const newStocktake: Stocktake = {
       id: crypto.randomUUID(),
@@ -145,6 +242,7 @@ const StocktakesTab = () => {
       status: "Draft",
       createdAt: new Date().toISOString(),
       location: newStocktakeLocation,
+      location_id: selectedLoc?.id,
       countedItems: 0,
       totalItems: items.length,
       varianceValue: 0,
@@ -152,29 +250,136 @@ const StocktakesTab = () => {
       items,
     };
 
-    setStocktakes((prev) => [...prev, newStocktake]);
-    toast({
-      title: "Stocktake Created",
-      description: `${newStocktake.stocktakeNo} created with ${items.length} items`,
-    });
+    try {
+      const response = await fetch("/api/stocktakes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(newStocktake),
+      });
 
-    setNewStocktakeName("");
-    setNewStocktakeLocation("All Locations");
-    setNewStocktakeNotes("");
-    setIsCreateDialogOpen(false);
+      if (!response.ok) throw new Error("Failed to create stocktake");
+
+      const savedRaw = await response.json();
+
+      const saved = {
+        id: savedRaw.id,
+        stocktakeNo: savedRaw.stocktake_no,
+        name: savedRaw.name,
+        status: savedRaw.status,
+        createdAt: savedRaw.created_at,
+        location: savedRaw.location,
+        location_id: savedRaw.location_id,
+        countedItems: savedRaw.counted_items,
+        totalItems: savedRaw.total_items,
+        variance: savedRaw.variance ?? 0,
+        varianceValue: savedRaw.variance_value,
+        notes: savedRaw.notes,
+        items: savedRaw.items ?? [],
+      };
+
+      setStocktakes((prev) => [...prev, saved]);
+
+      toast({
+        title: "Stocktake Created",
+        description: `${saved.stocktakeNo} created with ${saved.totalItems} items`,
+      });
+
+      setNewStocktakeName("");
+      setNewStocktakeLocation("All Locations");
+      setNewStocktakeNotes("");
+      setIsCreateDialogOpen(false);
+    } catch (error: any) {
+      console.error("Error creating stocktake:", error);
+
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create stocktake",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleStartCount = (stocktake: Stocktake) => {
+    console.log("====================================");
+    console.log("👉 RAW STOCKTAKE:", stocktake);
+    console.log("👉 STOCKTAKE ITEMS:", stocktake.items);
+    console.log("👉 INVENTORY ITEMS COUNT:", inventoryItems.length);
+    console.log("====================================");
+
     setSelectedStocktake(stocktake);
-    setCountItems([...stocktake.items]);
+
+    const enrichedItems = (stocktake.items || []).map((item) => {
+      console.log("RAW ITEM:", item);
+
+      // 🔥 FIX: support multiple backend formats
+      const itemCode = item.item_code ?? item.itemCode ?? "";
+      const itemName = item.item_name ?? item.itemName ?? "";
+
+      const master = inventoryItems.find(
+        (i) => (i.item_code ?? i.itemCode) === itemCode
+      );
+
+      const systemQty =
+        item.systemQty ??
+        item.quantity_on_hand ??
+        item.qty ??
+        0;
+
+      const countedQty = item.countedQty ?? 0;
+
+      const variance = countedQty - systemQty;
+
+      const unitCost =
+        item.unitCost ??
+        master?.unit_cost ??
+        0;
+
+      return {
+        ...item,
+
+        // ✅ guaranteed fields for table
+        itemCode: itemCode || "MISSING_CODE",
+        itemName: itemName || master?.item_name || "MISSING_NAME",
+
+        systemQty,
+        countedQty,
+
+        variance,
+        varianceValue: variance * unitCost,
+
+        unitCost,
+
+        counted: item.counted ?? false,
+
+        status:
+          countedQty === systemQty
+            ? "Matched"
+            : countedQty > systemQty
+              ? "Over"
+              : countedQty < systemQty && countedQty > 0
+                ? "Short"
+                : "Pending",
+      };
+    });
+
+    console.log("🔥 FINAL ENRICHED ITEMS ARRAY:", enrichedItems);
+
+    setCountItems(enrichedItems);
     setIsCountDialogOpen(true);
 
-    // Update status to In Progress if Draft
+    // update status
     if (stocktake.status === "Draft") {
       setStocktakes((prev) =>
-        prev.map((s) => (s.id === stocktake.id ? { ...s, status: "In Progress" } : s))
+        prev.map((s) =>
+          s.id === stocktake.id ? { ...s, status: "In Progress" } : s
+        )
       );
     }
+
+    console.log("====================================");
   };
 
   const handleViewStocktake = (stocktake: Stocktake) => {
@@ -252,91 +457,182 @@ const StocktakesTab = () => {
     });
   };
 
- const handleCompleteStocktake = async () => {
-  if (!selectedStocktake) return;
+  const handleCompleteStocktake = async () => {
+    console.log("🚀 START COMPLETE STOCKTAKE");
 
-  const uncountedItems = countItems.filter((i) => !i.counted);
-  if (uncountedItems.length > 0) {
-    toast({
-      title: "Incomplete Count",
-      description: `${uncountedItems.length} items have not been counted yet`,
-      variant: "destructive",
-    });
-    return;
-  }
+    if (!selectedStocktake) {
+      console.warn("❌ selectedStocktake is null");
+      return;
+    }
 
-  try {
-    // Post adjustments to inventory
-    for (const item of countItems) {
-      if (item.variance !== 0) {
-        // Fetch current stock item
-        const stockItemRes = await axios.get(`/api/inventory-stock/${item.itemCode}`);
-        const stockItem = stockItemRes.data;
+    const uncountedItems = countItems.filter((i) => !i.counted);
 
-        if (stockItem) {
-          const newQty = item.countedQty ?? item.systemQty;
-          const availableQty = Math.max(
-            0,
-            newQty - (stockItem.allocated_quantity || 0) - (stockItem.committed_quantity || 0)
+    if (uncountedItems.length > 0) {
+      toast({
+        title: "Incomplete Count",
+        description: `${uncountedItems.length} items have not been counted yet`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      console.log("🔄 Processing stock updates...");
+
+      for (const item of countItems) {
+        const stockId = item.id;
+
+        if (!stockId) continue;
+
+        const systemQty = item.systemQty ?? 0;
+        const countedQty = item.countedQty ?? systemQty;
+
+        const variance = countedQty - systemQty;
+        const varianceValue = variance * (item.unitCost || 0);
+
+        // -------------------------------
+        // 🔥 UPDATE INVENTORY STOCK
+        // -------------------------------
+        if (variance !== 0) {
+          const stockItemRes = await axios.get(
+            `/api/inventory-stock/${stockId}`
           );
 
-          // Update inventory stock
-          await axios.put(`/api/inventory-stock/${item.itemCode}`, {
+          const stockItem = stockItemRes.data;
+
+          const newQty = countedQty;
+
+          const availableQty = Math.max(
+            0,
+            newQty -
+            (stockItem.allocated_quantity || 0) -
+            (stockItem.committed_quantity || 0)
+          );
+
+          await axios.put(`/api/inventory-stock/${stockId}`, {
             quantity_on_hand: newQty,
             available_quantity: availableQty,
             updated_at: new Date().toISOString(),
           });
 
-          // Create adjustment transaction
+          // -------------------------------
+          // 🔥 TRANSACTION LOG
+          // -------------------------------
           await axios.post("/api/stock-transactions", {
             item_code: item.itemCode,
             transaction_type: "Adjustment",
-            quantity: item.variance,
+            quantity: variance,
             reference_type: "Stocktake",
             reference_number: selectedStocktake.stocktakeNo,
             notes: `Stocktake adjustment: ${selectedStocktake.name}`,
             unit_cost: item.unitCost,
           });
         }
+
+        // -------------------------------
+        // 🔥 UPDATE ITEM STATE (IMPORTANT FOR BACKEND SAVE)
+        // -------------------------------
+        item.countedQty = countedQty;
+        item.variance = variance;
+        item.varianceValue = varianceValue;
+        item.status =
+          countedQty === systemQty
+            ? "Matched"
+            : countedQty > systemQty
+              ? "Over"
+              : "Short";
       }
+
+      const totalVariance = countItems.reduce(
+        (sum, i) => sum + (i.variance || 0),
+        0
+      );
+
+      // -------------------------------
+      // 🔥 SAVE STOCKTAKE TO BACKEND
+      // -------------------------------
+      await axios.put(`/api/stocktakes/${selectedStocktake.id}`, {
+        status: "Completed",
+        completedAt: new Date().toISOString(),
+        countedItems: countItems.filter((i) => i.counted).length,
+        variance: totalVariance,
+        varianceValue: countItems.reduce(
+          (sum, i) => sum + (i.varianceValue || 0),
+          0
+        ),
+        items: countItems.map((i) => ({
+          id: i.id,
+          itemCode: i.itemCode,
+          itemName: i.itemName,
+          systemQty: i.systemQty,
+          countedQty: i.countedQty,
+          variance: i.variance,
+          varianceValue: ((i.countedQty ?? 0) - (i.systemQty ?? 0)) * (i.unitCost || 0),
+          unitCost: i.unitCost,
+          uom: i.uom,
+          counted: i.counted,
+        })), // 👈 THIS SAVES COUNTED QTY + VARIANCE + STATUS
+      });
+
+      // -------------------------------
+      // 🔥 UPDATE UI
+      // -------------------------------
+      const completedStocktake = {
+        ...selectedStocktake,
+        items: countItems,
+        status: "Completed",
+        completedAt: new Date().toISOString(),
+        countedItems: countItems.length,
+        varianceValue: countItems.reduce(
+          (sum, i) => sum + (i.varianceValue || 0),
+          0
+        ),
+      };
+
+      setStocktakes((prev) =>
+        prev.map((s) =>
+          s.id === selectedStocktake.id ? completedStocktake : s
+        )
+      );
+
+      toast({
+        title: "Stocktake Completed",
+        description: "Inventory + Stocktake updated successfully",
+      });
+
+      setIsCountDialogOpen(false);
+      setSelectedStocktake(null);
+    } catch (error: any) {
+      console.error("❌ ERROR completing stocktake");
+      console.error(error.response?.data || error.message);
+
+      toast({
+        title: "Error",
+        description: error.message || "Failed to complete stocktake",
+        variant: "destructive",
+      });
     }
+  };
 
-    const completedStocktake: Stocktake = {
-      ...selectedStocktake,
-      items: countItems,
-      status: "Completed",
-      completedAt: new Date().toISOString(),
-      countedItems: countItems.length,
-      varianceValue: countItems.reduce((sum, i) => sum + i.varianceValue, 0),
-    };
+  const handleDeleteStocktake = async (id: string) => {
+    try {
+      await axios.delete(`/api/stocktakes/${id}`);
 
-    setStocktakes((prev) =>
-      prev.map((s) => (s.id === selectedStocktake.id ? completedStocktake : s))
-    );
+      setStocktakes((prev) => prev.filter((s) => s.id !== id));
 
-    toast({
-      title: "Stocktake Completed",
-      description: `Inventory adjustments have been posted`,
-    });
+      toast({
+        title: "Stocktake Deleted",
+        description: "Stocktake has been removed successfully",
+      });
+    } catch (error: any) {
+      console.error("Delete error:", error);
 
-    setIsCountDialogOpen(false);
-    setSelectedStocktake(null);
-  } catch (error: any) {
-    console.error("Error completing stocktake:", error);
-    toast({
-      title: "Error",
-      description: error.message || "Failed to complete stocktake",
-      variant: "destructive",
-    });
-  }
-};
-
-  const handleDeleteStocktake = (id: string) => {
-    setStocktakes((prev) => prev.filter((s) => s.id !== id));
-    toast({
-      title: "Stocktake Deleted",
-      description: "Stocktake has been removed",
-    });
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || "Failed to delete stocktake",
+        variant: "destructive",
+      });
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -349,21 +645,30 @@ const StocktakesTab = () => {
     return <Badge variant={variants[status] || "outline"}>{status}</Badge>;
   };
 
-  const filteredCountItems = countItems.filter(
-    (item) =>
-      item.itemCode.toLowerCase().includes(countSearchTerm.toLowerCase()) ||
-      item.itemName.toLowerCase().includes(countSearchTerm.toLowerCase())
-  );
+  const search = (countSearchTerm ?? "").toLowerCase();
+
+  const filteredCountItems = countItems.filter((item) => {
+    const code = item.itemCode?.toLowerCase() ?? "";
+    const name = item.itemName?.toLowerCase() ?? "";
+
+    return code.includes(search) || name.includes(search);
+  });
 
   // Find inventory items that match search but aren't in count items yet (for adding)
-  const matchingInventoryItems = countSearchTerm.trim()
-    ? inventoryItems.filter(
-        (inv) =>
-          (inv.item_code.toLowerCase().includes(countSearchTerm.toLowerCase()) ||
-            inv.item_name.toLowerCase().includes(countSearchTerm.toLowerCase())) &&
-          !countItems.some((ci) => ci.itemCode === inv.item_code)
-      )
-    : [];
+const normalizedSearchTerm = countSearchTerm.trim().toLowerCase();
+
+const matchingInventoryItems = normalizedSearchTerm
+  ? inventoryItems.filter((inv) => {
+      const code = (inv.item_code ?? "").toLowerCase();
+      const name = (inv.item_name ?? "").toLowerCase();
+
+      return (
+        (code.includes(normalizedSearchTerm) ||
+          name.includes(normalizedSearchTerm)) &&
+        !countItems.some((ci) => ci.itemCode === inv.item_code)
+      );
+    })
+  : [];
 
   // Add item from inventory to stocktake count
   const handleAddItemToCount = (inventoryItem: any) => {
@@ -394,7 +699,7 @@ const StocktakesTab = () => {
     completed: stocktakes.filter((s) => s.status === "Completed").length,
     totalVariance: stocktakes
       .filter((s) => s.status === "Completed")
-      .reduce((sum, s) => sum + s.varianceValue, 0),
+     .reduce((sum, s) => sum + Number(s.varianceValue || 0), 0),
   };
 
   return (
@@ -441,7 +746,7 @@ const StocktakesTab = () => {
               <div>
                 <p className="text-sm text-muted-foreground">Total Variance</p>
                 <p className={`text-2xl font-bold ${stats.totalVariance < 0 ? "text-destructive" : ""}`}>
-                  ${stats.totalVariance.toFixed(2)}
+                  ${Number(stats.totalVariance || 0).toFixed(2)}
                 </p>
               </div>
             </div>
@@ -507,9 +812,13 @@ const StocktakesTab = () => {
                       </div>
                     </TableCell>
                     <TableCell className={stocktake.varianceValue < 0 ? "text-destructive" : ""}>
-                      ${stocktake.varianceValue.toFixed(2)}
+                      ${Number(stocktake.varianceValue ?? 0).toFixed(2)}
                     </TableCell>
-                    <TableCell>{format(new Date(stocktake.createdAt), "MMM dd, yyyy")}</TableCell>
+                    <TableCell>
+                      {stocktake.createdAt
+                        ? format(new Date(stocktake.createdAt), "MMM dd, yyyy")
+                        : "--"}
+                    </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
                         {stocktake.status !== "Completed" && stocktake.status !== "Cancelled" && (
@@ -562,7 +871,7 @@ const StocktakesTab = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="All Locations">All Locations</SelectItem>
-                 {locations.filter(loc => loc.location_name).map((loc) => (
+                  {locations.filter(loc => loc.location_name).map((loc) => (
                     <SelectItem key={loc.id} value={loc.location_name}>
                       {loc.location_name}
                     </SelectItem>
@@ -584,10 +893,7 @@ const StocktakesTab = () => {
             <div className="bg-muted/50 p-3 rounded-lg">
               <p className="text-sm text-muted-foreground">
                 <Package className="h-4 w-4 inline mr-1" />
-                {inventoryItems.filter(
-                  (item) => newStocktakeLocation === "All Locations" || item.location === newStocktakeLocation
-                ).length}{" "}
-                items will be included in this stocktake
+                {itemCount} items will be included in this stocktake
               </p>
             </div>
           </div>
@@ -736,20 +1042,23 @@ const StocktakesTab = () => {
                           />
                         </TableCell>
                         <TableCell
-                          className={`text-right font-medium ${
-                            item.variance < 0
+                          className={`text-right font-medium ${item.variance < 0
                               ? "text-destructive"
                               : item.variance > 0
-                              ? "text-green-600"
-                              : ""
-                          }`}
+                                ? "text-green-600"
+                                : ""
+                            }`}
                         >
-                          {item.counted ? (item.variance > 0 ? "+" : "") + item.variance : "--"}
+                          {item.countedQty !== null
+                            ? (item.variance > 0 ? "+" : "") + item.variance
+                            : "--"}
                         </TableCell>
                         <TableCell
                           className={`text-right ${item.varianceValue < 0 ? "text-destructive" : ""}`}
                         >
-                          {item.counted ? "$" + item.varianceValue.toFixed(2) : "--"}
+                          {item.countedQty !== null
+                            ? `$${(item.varianceValue ?? 0).toFixed(2)}`
+                            : "--"}
                         </TableCell>
                         <TableCell>
                           {item.counted ? (
@@ -831,7 +1140,7 @@ const StocktakesTab = () => {
             <div className="text-sm text-muted-foreground">
               Total Variance:{" "}
               <span className={countItems.reduce((sum, i) => sum + i.varianceValue, 0) < 0 ? "text-destructive" : "text-green-600"}>
-                ${countItems.reduce((sum, i) => sum + i.varianceValue, 0).toFixed(2)}
+                {`$${countItems.reduce((sum, i) => sum + (i.varianceValue ?? 0), 0).toFixed(2)}`}
               </span>
             </div>
             <div className="flex gap-2">
@@ -885,14 +1194,17 @@ const StocktakesTab = () => {
                     <TableCell className="text-right">{item.systemQty}</TableCell>
                     <TableCell className="text-right">{item.countedQty ?? "--"}</TableCell>
                     <TableCell
-                      className={`text-right ${
-                        item.variance < 0 ? "text-destructive" : item.variance > 0 ? "text-green-600" : ""
-                      }`}
+                      className={`text-right ${item.variance < 0 ? "text-destructive" : item.variance > 0 ? "text-green-600" : ""
+                        }`}
                     >
-                      {item.counted ? (item.variance > 0 ? "+" : "") + item.variance : "--"}
+                      {item.countedQty !== null
+                        ? (item.variance > 0 ? "+" : "") + item.variance
+                        : "--"}
                     </TableCell>
                     <TableCell className={`text-right ${item.varianceValue < 0 ? "text-destructive" : ""}`}>
-                      {item.counted ? "$" + item.varianceValue.toFixed(2) : "--"}
+                      {item.countedQty !== null
+                        ? `$${Number(item.varianceValue || 0).toFixed(2)}`
+                        : "--"}
                     </TableCell>
                   </TableRow>
                 ))}

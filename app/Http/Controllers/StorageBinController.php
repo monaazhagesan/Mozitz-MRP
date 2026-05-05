@@ -8,11 +8,19 @@ use Illuminate\Support\Str;
 
 class StorageBinController extends Controller
 {
-    public function index()
-    {
+    public function apiIndex()
+{
+    try {
         $bins = StorageBin::orderBy('created_at', 'desc')->get();
-        return view('storage_bins.index', compact('bins'));
+
+        return response()->json($bins);
+    } catch (\Exception $e) {
+        return response()->json([
+            'message' => 'Failed to fetch storage bins',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
 
     public function import(Request $request)
     {

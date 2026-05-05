@@ -242,6 +242,11 @@ const Settings = () => {
   const [defaultLocations, setDefaultLocations] = useState<any>(null);
   const [locationTab, setLocationTab] = useState<string>("warehouse");
   const [newLocationName, setNewLocationName] = useState("");
+  const [newLegalName, setNewLegalName] = useState("");
+const [newAddress, setNewAddress] = useState("");
+const [newSellEnabled, setNewSellEnabled] = useState(true);
+const [newMakeEnabled, setNewMakeEnabled] = useState(true);
+const [newBuyEnabled, setNewBuyEnabled] = useState(true);
 
   useEffect(() => {
     fetchUsersWithRoles();
@@ -472,31 +477,46 @@ const Settings = () => {
 
   // Location management functions
   const loadLocations = async () => {
-    try {
-      const response = await fetch('/api/locations');
+  try {
+    const response = await fetch('/api/locations');
 
-      if (!response.ok) throw new Error('Failed to load locations');
+    if (!response.ok) throw new Error('Failed to load locations');
 
-      const data = await response.json();
-      setLocations(data);
+    const data = await response.json();
 
-    } catch (error) {
-      console.error("Error loading locations:", error);
-    }
-  };
+    setLocations(Array.isArray(data) ? data : data.data);
+
+  } catch (error) {
+    console.error("Error loading locations:", error);
+  }
+};
 
   const loadStorageBins = async () => {
-    try {
-      const response = await fetch('/api/storage-bins');
+  try {
+    const response = await fetch("/api/storage-bins", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
 
-      if (!response.ok) throw new Error('Failed to load storage bins');
-
-      const data = await response.json();
-      setStorageBins(data);
-    } catch (error) {
-      console.error("Error loading storage bins:", error);
+    if (!response.ok) {
+      throw new Error(`Failed to load storage bins: ${response.status}`);
     }
-  };
+
+    const data = await response.json();
+
+    // safety check (optional but recommended)
+    if (!Array.isArray(data)) {
+      throw new Error("Invalid storage bins response format");
+    }
+
+    setStorageBins(data);
+  } catch (error) {
+    console.error("Error loading storage bins:", error);
+    setStorageBins([]); // fallback to empty state
+  }
+};
 
   const loadDefaultLocations = async () => {
     try {
@@ -518,68 +538,92 @@ const Settings = () => {
   };
 
   const handleAddLocation = async () => {
-    if (!newLocationName.trim()) return;
+  const name = newLocationName.trim();
+  if (!name) return;
 
-    try {
-      const response = await fetch('/api/locations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location_name: newLocationName.trim(),
-          sell_enabled: true,
-          make_enabled: true,
-          buy_enabled: true,
-        }),
-      });
+  try {
+    const response = await fetch('/api/locations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({
+        location_name: name,
+        legal_name: newLegalName.trim(),
+        address: newAddress.trim(),
+        sell_enabled: true,
+        make_enabled: true,
+        buy_enabled: true,
+      }),
+    });
 
-      if (!response.ok) throw new Error('Failed to add location');
-
-      const data = await response.json();
-
-      setLocations([...locations, data]);
-      setNewLocationName("");
-
-      toast({
-        title: "Location Added",
-        description: `${data.location_name} has been added`,
-      });
-
-    } catch (error) {
-      console.error("Error adding location:", error);
-      toast({
-        title: "Error",
-        description: "Failed to add location",
-        variant: "destructive",
-      });
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || 'Failed to add location');
     }
-  };
+
+    const data = await response.json();
+
+    // safer state update
+    setLocations(prev => [...prev, data]);
+
+    setNewLocationName("");
+
+    toast({
+      title: "Location Added",
+      description: `${data.location_name} has been added`,
+    });
+
+  } catch (error) {
+    console.error("Error adding location:", error);
+
+    toast({
+      title: "Error",
+      description: error.message || "Failed to add location",
+      variant: "destructive",
+    });
+  }
+};
 
 
-  const handleUpdateLocation = async (id: string, field: string, value: any) => {
-    try {
-      const response = await fetch(`/api/locations/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [field]: value }),
-      });
+ const handleUpdateLocation = async (
+  id: string,
+  field: string,
+  value: any
+) => {
+  try {
+    const response = await fetch(`/api/locations/${id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ [field]: value }),
+    });
 
-      if (!response.ok) throw new Error('Failed to update location');
-
-      setLocations(
-        locations.map(loc =>
-          loc.id === id ? { ...loc, [field]: value } : loc
-        )
-      );
-
-    } catch (error) {
-      console.error("Error updating location:", error);
-      toast({
-        title: "Error",
-        description: "Failed to update location",
-        variant: "destructive",
-      });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || 'Failed to update location');
     }
-  };
+
+    // ✅ safer state update (avoids stale state bug)
+    setLocations((prev) =>
+      prev.map((loc) =>
+        loc.id === id ? { ...loc, [field]: value } : loc
+      )
+    );
+
+  } catch (error: any) {
+    console.error("Error updating location:", error);
+
+    toast({
+      title: "Error",
+      description: error.message || "Failed to update location",
+      variant: "destructive",
+    });
+  }
+};
 
   const handleDeleteLocation = async (id: string) => {
     try {
@@ -1357,100 +1401,175 @@ const Settings = () => {
                   <a href="#" className="text-primary hover:underline">Read more</a>
                 </p>
 
-                <Card>
-                  <CardContent className="p-0">
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b bg-muted/50">
-                            <th className="px-4 py-3 text-left">
-                              <div className="flex items-center gap-2">
-                                <GripVertical className="h-4 w-4 text-muted-foreground" />
-                              </div>
-                            </th>
-                            <th className="px-4 py-3 text-left">
-                              <div className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
-                                Location name <Info className="h-3 w-3" />
-                              </div>
-                            </th>
-                            <th className="px-4 py-3 text-left">
-                              <div className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
-                                Legal name <Info className="h-3 w-3" />
-                              </div>
-                            </th>
-                            <th className="px-4 py-3 text-left">
-                              <div className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
-                                Address <Info className="h-3 w-3" />
-                              </div>
-                            </th>
-                            <th className="px-4 py-3 text-left">
-                              <div className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
-                                Enabled functions <Info className="h-3 w-3" />
-                              </div>
-                            </th>
-                            <th className="px-4 py-3"></th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                          {locations.map((location) => (
-                            <tr key={location.id} className="hover:bg-muted/30">
-                              <td className="px-4 py-3">
-                                <GripVertical className="h-4 w-4 text-muted-foreground cursor-move" />
-                              </td>
-                              <td className="px-4 py-3">
-                                <Input
-                                  value={location.location_name}
-                                  onChange={(e) => handleUpdateLocation(location.id, 'location_name', e.target.value)}
-                                  className="border-0 bg-transparent focus-visible:ring-0 p-0 h-auto"
-                                />
-                              </td>
-                              <td className="px-4 py-3">
-                                <Input
-                                  value={location.legal_name || ''}
-                                  onChange={(e) => handleUpdateLocation(location.id, 'legal_name', e.target.value)}
-                                  className="border-0 bg-transparent focus-visible:ring-0 p-0 h-auto"
-                                />
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-2">
-                                  <MapPin className="h-4 w-4 text-muted-foreground" />
-                                  <Input
-                                    placeholder="Enter address"
-                                    value={location.address || ''}
-                                    onChange={(e) => handleUpdateLocation(location.id, 'address', e.target.value)}
-                                    className="border-0 bg-transparent focus-visible:ring-0 p-0 h-auto"
-                                  />
-                                </div>
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-4">
-                                  <div className="flex items-center gap-2">
-                                    <Checkbox
-                                      checked={location.sell_enabled}
-                                      onCheckedChange={(checked) => handleUpdateLocation(location.id, 'sell_enabled', checked)}
-                                    />
-                                    <Check className="h-4 w-4 text-success" />
-                                    <span className="text-sm">Sell</span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Checkbox
-                                      checked={location.make_enabled}
-                                      onCheckedChange={(checked) => handleUpdateLocation(location.id, 'make_enabled', checked)}
-                                    />
-                                    <Check className="h-4 w-4 text-success" />
-                                    <span className="text-sm">Make</span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Checkbox
-                                      checked={location.buy_enabled}
-                                      onCheckedChange={(checked) => handleUpdateLocation(location.id, 'buy_enabled', checked)}
-                                    />
-                                    <Check className="h-4 w-4 text-success" />
-                                    <span className="text-sm">Buy</span>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3">
+               <Card>
+  <CardContent className="p-0">
+
+    {/* ================= HEADER ================= */}
+    <div className="grid grid-cols-12 gap-2 px-4 py-3 border-b bg-muted/50 text-xs font-medium text-muted-foreground">
+      
+      <div className="col-span-1 flex items-center justify-left">
+        <GripVertical className="h-4 w-4" />
+      </div>
+
+      <div className="col-span-2">Location</div>
+      <div className="col-span-2">Legal</div>
+      <div className="col-span-3">Address</div>
+      <div className="col-span-3">Functions</div>
+      <div className="col-span-1"></div>
+    </div>
+
+    {/* ================= ROWS ================= */}
+    <div className="divide-y">
+      {locations.map((location) => (
+        <div
+          key={location.id}
+          className="grid grid-cols-12 gap-2 px-4 py-2 items-center hover:bg-muted/30"
+        >
+
+          {/* GRIP */}
+          <div className="col-span-1 flex justify-left">
+            <GripVertical className="h-4 w-4 text-muted-foreground cursor-move" />
+          </div>
+
+          {/* LOCATION NAME */}
+          <div className="col-span-2">
+            <Input
+              value={location.location_name}
+              onChange={(e) =>
+                handleUpdateLocation(location.id, "location_name", e.target.value)
+              }
+              className="h-8"
+            />
+          </div>
+
+          {/* LEGAL NAME */}
+          <div className="col-span-2">
+            <Input
+              value={location.legal_name || ""}
+              onChange={(e) =>
+                handleUpdateLocation(location.id, "legal_name", e.target.value)
+              }
+              className="h-8"
+            />
+          </div>
+
+          {/* ADDRESS */}
+          <div className="col-span-3">
+            <Input
+              value={location.address || ""}
+              onChange={(e) =>
+                handleUpdateLocation(location.id, "address", e.target.value)
+              }
+              className="h-8"
+              placeholder="Address"
+            />
+          </div>
+
+          {/* FUNCTIONS */}
+          <div className="col-span-3 flex gap-3 text-sm">
+            <label className="flex items-center gap-1">
+              <Checkbox
+                checked={location.sell_enabled}
+                onCheckedChange={(v) =>
+                  handleUpdateLocation(location.id, "sell_enabled", v)
+                }
+              />
+              Sell
+            </label>
+
+            <label className="flex items-center gap-1">
+              <Checkbox
+                checked={location.make_enabled}
+                onCheckedChange={(v) =>
+                  handleUpdateLocation(location.id, "make_enabled", v)
+                }
+              />
+              Make
+            </label>
+
+            <label className="flex items-center gap-1">
+              <Checkbox
+                checked={location.buy_enabled}
+                onCheckedChange={(v) =>
+                  handleUpdateLocation(location.id, "buy_enabled", v)
+                }
+              />
+              Buy
+            </label>
+          </div>
+
+          {/* ACTION */}
+          <div className="col-span-1 flex justify-end">
+            <Button variant="ghost" size="sm">
+              <Lock className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    {/* ================= ADD NEW LOCATION ================= */}
+    <div className="px-4 py-4 border-t bg-muted/30">
+
+      <div className="grid grid-cols-12 gap-2 items-center">
+
+        {/* GRIP EMPTY */}
+        <div className="col-span-1 flex justify-left">
+          <GripVertical className="h-4 w-4 text-muted-foreground opacity-40" />
+        </div>
+
+        <div className="col-span-2">
+          <Input
+            placeholder="Location name"
+            value={newLocationName}
+            onChange={(e) => setNewLocationName(e.target.value)}
+          />
+        </div>
+
+        <div className="col-span-2">
+          <Input
+            placeholder="Legal name"
+            value={newLegalName}
+            onChange={(e) => setNewLegalName(e.target.value)}
+          />
+        </div>
+
+        <div className="col-span-3">
+          <Input
+            placeholder="Address"
+            value={newAddress}
+            onChange={(e) => setNewAddress(e.target.value)}
+          />
+        </div>
+
+        <div className="col-span-3 flex gap-4 text-sm items-center">
+
+  <label className="flex items-center gap-2 cursor-pointer">
+    <Checkbox
+      checked={newSellEnabled}
+      onCheckedChange={(val) => setNewSellEnabled(!!val)}
+    />
+    Sell
+  </label>
+
+  <label className="flex items-center gap-2 cursor-pointer">
+    <Checkbox
+      checked={newMakeEnabled}
+      onCheckedChange={(val) => setNewMakeEnabled(!!val)}
+    />
+    Make
+  </label>
+
+  <label className="flex items-center gap-2 cursor-pointer">
+    <Checkbox
+      checked={newBuyEnabled}
+      onCheckedChange={(val) => setNewBuyEnabled(!!val)}
+    />
+    Buy
+  </label>
+
+</div>
+        <td className="px-4 py-3">
                                 <div className="flex items-center gap-2">
                                   <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
                                     <User className="h-4 w-4 text-muted-foreground" />
@@ -1460,25 +1579,20 @@ const Settings = () => {
                                   </Button>
                                 </div>
                               </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
 
-                    <div className="px-4 py-3 border-t">
-                      <Button
-                        variant="link"
-                        onClick={handleAddLocation}
-                        className="text-primary"
-                      >
-                        <Plus className="h-4 w-4 mr-1" />
-                        Add new location
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
+        <div className="col-span-1 flex justify-end">
+          <Button onClick={handleAddLocation}>
+            <Plus className="h-4 w-4 mr-1" />
+            Add
+          </Button>
+        </div>
+
+      </div>
+    </div>
+
+  </CardContent>
+</Card>
+</TabsContent>
 
               <TabsContent value="storage-bins" className="mt-6 space-y-4">
                 <p className="text-sm text-muted-foreground">

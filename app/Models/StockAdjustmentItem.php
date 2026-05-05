@@ -8,13 +8,17 @@ class StockAdjustmentItem extends Model
 {
     protected $table = 'stock_adjustment_items';
 
-    public $timestamps = false;
+    public $timestamps = true;
 
     protected $fillable = [
         'adjustment_id',
         'item_code',
+        'item_name',
+        'barcode',
+        'in_stock',
         'adjustment_qty',
-        'cost_per_unit'
+        'cost_per_unit',
+        'adjustment_value'
     ];
 
     public function adjustment()

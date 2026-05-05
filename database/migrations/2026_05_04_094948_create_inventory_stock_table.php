@@ -10,6 +10,12 @@ return new class extends Migration
     {
         Schema::create('inventory_stock', function (Blueprint $table) {
             $table->id();
+            $table->uuid('location_id')->nullable();
+
+            $table->foreign('location_id')
+                ->references('id')
+                ->on('locations')
+                ->onDelete('set null');
 
             $table->string('item_code')->nullable();
             $table->string('sku')->nullable();
@@ -29,7 +35,7 @@ return new class extends Migration
             $table->decimal('committed_quantity', 15, 2)->default(0);
 
             $table->decimal('open_po', 15, 2)->default(0);
-            
+
             $table->string('barcode')->nullable();
             $table->string('item_mode')->nullable();
             $table->string('variant_name')->nullable();
