@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
+import axios from "axios";
 import {
   Plus,
   Calendar,
@@ -44,7 +45,6 @@ import {
 import { useState, useEffect, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog,
   DialogContent,
@@ -55,21 +55,35 @@ import {
 } from "@/components/ui/dialog";
 import { JobCardDialog } from "@/components/planning/JobCardDialog";
 import { ViewJobDialog } from "@/components/planning/ViewJobDialog";
-const generateJobNumber = () => {
-  const savedJobs = JSON.parse(localStorage.getItem("jobs") || "[]");
 
-  // Find last created job number
-  const lastJob = savedJobs
-    .map((j: any) => j.id || j.jobNumber)
-    .filter((id: string) => /^JOB-\d{6}$/.test(id))
-    .sort()
-    .pop();
 
-  // If none exists → start at 1
-  const nextNumber = lastJob ? parseInt(lastJob.replace("JOB-", ""), 10) + 1 : 1;
-
-  return `JOB-${String(nextNumber).padStart(6, "0")}`;
+type ItemSuggestion = {
+  item_code: string;
+  item_name: string;
+  description: string | null;
 };
+
+const generateJobNumber = (jobs: any[]) => {
+  const numbers = jobs
+    .map((j) => j.job_number || j.jobNumber)
+    .filter(
+      (jobNumber: string) =>
+        typeof jobNumber === "string" &&
+        /^JOB-\d{6}$/.test(jobNumber)
+    )
+    .map((jobNumber: string) =>
+      parseInt(jobNumber.replace("JOB-", ""), 10)
+    )
+    .filter((n: number) => !isNaN(n));
+
+  const maxNumber =
+    numbers.length > 0
+      ? Math.max(...numbers)
+      : 0;
+
+  return `JOB-${String(maxNumber + 1).padStart(6, "0")}`;
+};
+
 const Planning = () => {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -89,75 +103,119 @@ const Planning = () => {
     description: string | null;
   }>>([]);
   const [isSearchingItems, setIsSearchingItems] = useState(false);
+  const [moveQuantities, setMoveQuantities] = useState<Record<number, any>>({});
+  const [nextJobNumber, setNextJobNumber] = useState("");
+  const [jobsLoaded, setJobsLoaded] = useState(false);
+
+  
+const fetchJobs = async () => {
+  try {
+    const res = await axios.get("/api/jobs");
+
+    const apiJobs = res.data?.data || res.data || [];
+
+    const normalizedJobs = apiJobs.map((job: any) => ({
+  ...job,
+  bomItems: job.bomItems || job.components || job.components_list || [],
+}));
+setJobs(normalizedJobs);
+
+    setJobsLoaded(true);
+
+    console.log("LOADED JOBS:", apiJobs);
+  } catch (err) {
+    console.error("Failed to fetch jobs", err);
+  }
+};
+
+useEffect(() => {
+  fetchJobs();
+}, []);
 
   // Search items when query changes (min 2 characters)
-  useEffect(() => {
-    const searchItems = async () => {
-      if (itemSearchQuery.length < 2) {
-        setItemSuggestions([]);
-        return;
-      }
-      
-      setIsSearchingItems(true);
-      try {
-        // Search in BOM headers for products
-        const { data: bomItems, error: bomError } = await (supabase as any)
-          .from("bom_headers")
-          .select("item_code, item_name")
-          .or(`item_code.ilike.%${itemSearchQuery}%,item_name.ilike.%${itemSearchQuery}%`)
-          .eq("status", "Active")
-          .limit(10);
+useEffect(() => {
+  let isActive = true;
 
-        // Also search in inventory for items without BOM
-        const { data: inventoryItems, error: invError } = await (supabase as any)
-          .from("inventory_stock")
-          .select("item_code, item_name, description")
-          .or(`item_code.ilike.%${itemSearchQuery}%,item_name.ilike.%${itemSearchQuery}%`)
-          .limit(10);
+  const searchItems = async () => {
+    if (itemSearchQuery.length < 2) {
+      setItemSuggestions([]);
+      return;
+    }
 
-        // Combine and dedupe results
-        const combined: Array<{ item_code: string; item_name: string; description: string | null }> = [];
-        const seenCodes = new Set<string>();
+    setIsSearchingItems(true);
 
-        // Prioritize BOM items (products)
-        if (bomItems) {
-          bomItems.forEach((item: any) => {
-            if (!seenCodes.has(item.item_code)) {
-              seenCodes.add(item.item_code);
-              combined.push({ 
-                item_code: item.item_code, 
-                item_name: item.item_name,
-                description: null 
-              });
-            }
+    try {
+      const [bomResponse, inventoryResponse] = await Promise.all([
+        axios.get("/api/bom-headers", {
+          params: {
+            item_code: itemSearchQuery,
+            status: "Active",
+            limit: 10,
+          },
+        }),
+        axios.get("/api/inventory-stock", {
+          params: {
+            item_code: itemSearchQuery,
+            limit: 10,
+          },
+        }),
+      ]);
+
+      const bomItems = bomResponse.data?.data || bomResponse.data || [];
+      const inventoryItems = inventoryResponse.data?.data || inventoryResponse.data || [];
+
+      const combined: any[] = [];
+      const seen = new Set<string>();
+
+      // BOM items
+      bomItems.forEach((item: any) => {
+        if (item?.item_code && !seen.has(item.item_code)) {
+          seen.add(item.item_code);
+          combined.push({
+            item_code: item.item_code,
+            item_name: item.item_name || "",
+            description: null,
           });
         }
+      });
 
-        // Add inventory items that don't have BOM
-        if (inventoryItems) {
-          inventoryItems.forEach((item: any) => {
-            if (!seenCodes.has(item.item_code)) {
-              seenCodes.add(item.item_code);
-              combined.push({
-                item_code: item.item_code,
-                item_name: item.item_name,
-                description: item.description
-              });
-            }
+      // Inventory items
+      inventoryItems.forEach((item: any) => {
+        if (item?.item_code && !seen.has(item.item_code)) {
+          seen.add(item.item_code);
+          combined.push({
+            item_code: item.item_code,
+            item_name: item.item_name || "",
+            description: item.description || null,
           });
         }
+      });
 
-        setItemSuggestions(combined);
-      } catch (error) {
-        console.error("Error searching items:", error);
-      } finally {
-        setIsSearchingItems(false);
+      // FINAL FILTER (important)
+      const filtered = combined.filter((item) =>
+        item.item_code?.toLowerCase().includes(itemSearchQuery.toLowerCase())
+      );
+
+      if (isActive) {
+        setItemSuggestions(filtered);
       }
-    };
 
-    const debounceTimer = setTimeout(searchItems, 300);
-    return () => clearTimeout(debounceTimer);
-  }, [itemSearchQuery]);
+    } catch (error) {
+      console.error("Error searching items:", error);
+      if (isActive) setItemSuggestions([]);
+    } finally {
+      if (isActive) setIsSearchingItems(false);
+    }
+  };
+
+  const debounceTimer = setTimeout(searchItems, 300);
+
+  return () => {
+    isActive = false;
+    clearTimeout(debounceTimer);
+  };
+}, [itemSearchQuery]);
+
 
   // Load orders, jobs, and item master from localStorage
   const [orders, setOrders] = useState(() => {
@@ -165,10 +223,7 @@ const Planning = () => {
     return saved ? JSON.parse(saved) : [];
   });
 
-  const [jobs, setJobs] = useState(() => {
-    const saved = localStorage.getItem("jobs");
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [jobs, setJobs] = useState<any[]>([]);
 
   // Item Master: stores operations and components for each item
   const [itemMaster, setItemMaster] = useState(() => {
@@ -187,6 +242,20 @@ const Planning = () => {
       )
       .reduce((sum: number, job: any) => sum + (parseFloat(job.quantity) || 0), 0);
   };
+
+  const fetchNextJobNumber = async () => {
+  try {
+    const res = await axios.get("/api/jobs/next-number");
+    setNextJobNumber(res.data.jobNumber);
+  } catch (err) {
+    console.error("Failed to fetch job number", err);
+  }
+};
+
+const handleOpenJobDialog = async () => {
+  await fetchNextJobNumber();
+  setIsDialogOpen(true);
+};
 
   // Helper function to calculate pending job quantity for an order
   const calculatePendingJobQty = (order: any) => {
@@ -319,164 +388,170 @@ const Planning = () => {
     window.addEventListener("storage", handleStorageChange);
 
     // Listen for focus to reload when user returns to tab
-    window.addEventListener("focus", loadOrders);
+       window.addEventListener("focus", fetchJobs);
 
     return () => {
       window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener("focus", loadOrders);
+      window.removeEventListener("focus", fetchJobs);
     };
   }, []);
 
   // Check if item exists in BOM and load its data from database
-  const loadItemData = async (itemCode: string, requiredQuantity: number = 1) => {
-    try {
-      console.log(`Loading BOM data for item: ${itemCode}, quantity: ${requiredQuantity}`);
+ const loadItemData = async (
+  itemCode: string,
+  requiredQuantity: number = 1
+) => {
+  try {
+    console.log(
+      `Loading BOM data for item: ${itemCode}, quantity: ${requiredQuantity}`
+    );
 
-      // Fetch BOM header - get most recent active BOM
-      const { data: bomHeaders, error: bomError } = await (supabase as any)
-        .from("bom_headers")
-        .select("*")
-        .eq("item_code", itemCode)
-        .eq("status", "Active")
-        .order("created_at", { ascending: false })
-        .limit(1);
+    // 1. Fetch BOM Header (latest active BOM)
+    const bomHeaderRes = await axios.get("/api/bom-headers", {
+      params: {
+        item_code: itemCode,
+        status: "Active",
+        limit: 1,
+        sort: "created_at:desc",
+      },
+    });
 
-      const bomHeader = bomHeaders && bomHeaders.length > 0 ? bomHeaders[0] : null;
+    const bomHeader =
+      bomHeaderRes.data?.data?.[0] || bomHeaderRes.data?.[0] || null;
 
-      if (bomError) {
-        console.error("Error fetching BOM header:", bomError);
-        throw bomError;
+    if (!bomHeader) {
+      console.log("No BOM found for item:", itemCode);
+      setIsItemKnown(false);
+
+      // fallback: inventory item
+      const inventoryRes = await axios.get("/api/inventory-stock", {
+        params: { item_code: itemCode },
+      });
+
+      const inventoryItem =
+        inventoryRes.data?.data?.[0] || inventoryRes.data?.[0];
+
+      if (inventoryItem) {
+        setJobData((prev) => ({
+          ...prev,
+          itemDescription: inventoryItem.description || "",
+          productName: inventoryItem.item_name || prev.productName,
+          uom: "Ea",
+          routingAvailable: false,
+        }));
       }
 
-      if (!bomHeader) {
-        console.log("No BOM found for item:", itemCode);
-        setIsItemKnown(false);
-        // Still try to get item info from inventory
-        const { data: inventoryItem } = await (supabase as any)
-          .from("inventory_stock")
-          .select("*")
-          .eq("item_code", itemCode)
-          .maybeSingle();
-        
-        if (inventoryItem) {
-          setJobData(prev => ({
-            ...prev,
-            itemDescription: inventoryItem.description || "",
-            productName: inventoryItem.item_name || prev.productName,
-            uom: "Ea",
-            routingAvailable: false,
-          }));
-        }
-        
-        setOperations([]);
-        setBomItems([]);
-        toast({
-          title: "New Item Detected",
-          description: "No BOM found. Please add operations and components for this item",
-        });
-        return;
-      }
+      setOperations([]);
+      setBomItems([]);
 
-      console.log("BOM header found:", bomHeader);
+      toast({
+        title: "New Item Detected",
+        description:
+          "No BOM found. Please add operations and components for this item",
+      });
 
-      // Auto-populate job data from BOM header
-      setJobData(prev => ({
-        ...prev,
-        itemDescription: bomHeader.item_name || "",
-        productName: bomHeader.item_name || prev.productName,
-        uom: bomHeader.uom || "Ea",
-      }));
+      return;
+    }
 
-      // Fetch BOM operations
-      const { data: bomOperations, error: opsError } = await (supabase as any)
-        .from("bom_operations")
-        .select("*")
-        .eq("bom_id", bomHeader.id)
-        .order("operation_seq", { ascending: true });
+    console.log("BOM header found:", bomHeader);
 
-      if (opsError) {
-        console.error("Error fetching BOM operations:", opsError);
-      } else {
-        console.log("BOM operations loaded:", bomOperations);
-      }
+    setJobData((prev) => ({
+      ...prev,
+      itemDescription: bomHeader.item_name || "",
+      productName: bomHeader.item_name || prev.productName,
+      uom: bomHeader.uom || "Ea",
+    }));
 
-      // Fetch BOM components
-      const { data: bomComponents, error: compsError } = await (supabase as any)
-        .from("bom_components")
-        .select("*")
-        .eq("bom_id", bomHeader.id)
-        .order("item_seq", { ascending: true });
+    // 2. Fetch BOM Operations
+    const opsRes = await axios.get("/api/bom-operations", {
+      params: {
+        bom_id: bomHeader.id,
+        sort: "operation_seq:asc",
+      },
+    });
 
-      if (compsError) {
-        console.error("Error fetching BOM components:", compsError);
-      } else {
-        console.log("BOM components loaded:", bomComponents);
-      }
+    const bomOperations = opsRes.data?.data || opsRes.data || [];
 
-      // Update routing available flag
-      const hasRouting = !opsError && bomOperations && bomOperations.length > 0;
-      setJobData(prev => ({
-        ...prev,
-        routingAvailable: hasRouting,
-      }));
+    // 3. Fetch BOM Components
+    const compsRes = await axios.get("/api/bom-components", {
+      params: {
+        bom_id: bomHeader.id,
+        sort: "item_seq:asc",
+      },
+    });
 
-      if (hasRouting) {
-        const mappedOperations = bomOperations.map((op: any, idx: number) => {
-          const bomRunTime = parseFloat(op.run_time) || 30;
-          const calculatedDuration = bomRunTime * requiredQuantity;
-          return {
-            id: idx + 1,
-            sequence: op.operation_seq,
-            name: op.description,
-            duration: calculatedDuration.toString(),
-            status: "pending",
-            machine: op.work_center || "",
-          };
-        });
-        setOperations(mappedOperations);
-        console.log("Operations set:", mappedOperations);
-      } else {
-        setOperations([]);
-        console.log("No operations found or error occurred");
-      }
+    const bomComponents = compsRes.data?.data || compsRes.data || [];
 
-      if (!compsError && bomComponents && bomComponents.length > 0) {
-        const mappedComponents = bomComponents.map((comp: any, idx: number) => {
-          const bomQuantity = parseFloat(comp.quantity) || 1;
-          const calculatedQuantity = bomQuantity * requiredQuantity;
+    // 4. Routing flag
+    const hasRouting = bomOperations.length > 0;
+
+    setJobData((prev) => ({
+      ...prev,
+      routingAvailable: hasRouting,
+    }));
+
+    // 5. Map Operations
+    if (hasRouting) {
+      const mappedOperations = bomOperations.map((op: any, idx: number) => {
+        const bomRunTime = parseFloat(op.run_time) || 30;
+
+        return {
+          id: idx + 1,
+          sequence: op.operation_seq,
+          name: op.description,
+          duration: (bomRunTime * requiredQuantity).toString(),
+          status: "pending",
+          machine: op.work_center || "",
+        };
+      });
+
+      setOperations(mappedOperations);
+    } else {
+      setOperations([]);
+    }
+
+    // 6. Map Components
+    if (bomComponents.length > 0) {
+      const mappedComponents = bomComponents.map(
+        (comp: any, idx: number) => {
+          const bomQty = parseFloat(comp.quantity) || 1;
+
           return {
             id: idx + 1,
             itemSeq: comp.item_seq,
             operationSeq: comp.operation_seq,
             component: comp.component,
             description: comp.description,
-            quantity: calculatedQuantity,
+            quantity: bomQty * requiredQuantity,
             uom: comp.uom,
             status: "available",
           };
-        });
-        setBomItems(mappedComponents);
-        console.log("BOM items set:", mappedComponents);
-      } else {
-        setBomItems([]);
-        console.log("No BOM components found or error occurred");
-      }
+        }
+      );
 
-      setIsItemKnown(true);
-      toast({
-        title: "BOM Data Loaded",
-        description: `${bomOperations?.length || 0} operations and ${bomComponents?.length || 0} components loaded for ${itemCode} (Qty: ${requiredQuantity})`,
-      });
-    } catch (error) {
-      console.error("Error loading BOM data:", error);
-      setIsItemKnown(false);
-      toast({
-        title: "Error Loading BOM",
-        description: "Failed to load BOM data from database",
-        variant: "destructive",
-      });
+      setBomItems(mappedComponents);
+    } else {
+      setBomItems([]);
     }
-  };
+
+    setIsItemKnown(true);
+
+    toast({
+      title: "BOM Data Loaded",
+      description: `${bomOperations.length} operations and ${bomComponents.length} components loaded for ${itemCode}`,
+    });
+  } catch (error: any) {
+    console.error("Error loading BOM data:", error);
+
+    setIsItemKnown(false);
+
+    toast({
+      title: "Error Loading BOM",
+      description: error.message || "Failed to load BOM data from API",
+      variant: "destructive",
+    });
+  }
+};
 
   const handleSelectOrder = (order: any) => {
     // Filter for product items only (not materials or components)
@@ -595,7 +670,7 @@ const Planning = () => {
       return;
     }
 
-    const newJobNumber = generateJobNumber();
+    const newJobNumber = generateJobNumber(jobs);
     setJobSplits([
       ...jobSplits,
       {
@@ -679,791 +754,1001 @@ const Planning = () => {
   };
 
   // Create jobs for multiple selected line items
-  const handleCreateMultipleJobs = async () => {
-    const selectedItems = orderLineItems.filter(item => item.selected && item.pendingQty > 0);
-    
-    if (selectedItems.length === 0) {
-      toast({
-        title: "No Items Selected",
-        description: "Please select at least one line item to create job cards.",
-        variant: "destructive",
-      });
-      return;
-    }
+ const handleCreateMultipleJobs = async () => {
+  const selectedItems = orderLineItems.filter(
+    (item) => item.selected && item.pendingQty > 0
+  );
 
-    // Validate job quantities
-    const invalidItems = selectedItems.filter(item => {
-      const qty = parseFloat(item.jobQuantity);
-      return isNaN(qty) || qty <= 0 || qty > item.pendingQty;
+  if (selectedItems.length === 0) {
+    toast({
+      title: "No Items Selected",
+      description: "Please select at least one line item to create job cards.",
+      variant: "destructive",
     });
+    return;
+  }
 
-    if (invalidItems.length > 0) {
-      toast({
-        title: "Invalid Quantities",
-        description: "Please ensure all job quantities are valid and do not exceed pending quantities.",
-        variant: "destructive",
-      });
-      return;
-    }
+  const invalidItems = selectedItems.filter((item) => {
+    const qty = parseFloat(item.jobQuantity);
+    return isNaN(qty) || qty <= 0 || qty > item.pendingQty;
+  });
 
-    try {
-      const createdJobs: any[] = [];
-      
-      for (const lineItem of selectedItems) {
-        const jobNumber = generateJobNumber();
-        const jobQty = parseFloat(lineItem.jobQuantity);
+  if (invalidItems.length > 0) {
+    toast({
+      title: "Invalid Quantities",
+      description:
+        "Job quantities must be valid and not exceed pending quantity.",
+      variant: "destructive",
+    });
+    return;
+  }
 
-        // Load BOM data for this item
-        const { data: bomHeaders } = await (supabase as any)
-          .from("bom_headers")
-          .select("*")
-          .eq("item_code", lineItem.itemCode)
-          .eq("status", "Active")
-          .order("created_at", { ascending: false })
-          .limit(1);
+  try {
+    const createdJobs: any[] = [];
 
-        const bomHeader = bomHeaders && bomHeaders.length > 0 ? bomHeaders[0] : null;
-        let itemBomItems: any[] = [];
-        let itemOperations: any[] = [];
+    for (const lineItem of selectedItems) {
+      const jobNumber = generateJobNumber(jobs);
+      const jobQty = parseFloat(lineItem.jobQuantity);
 
-        if (bomHeader) {
-          // Fetch BOM components
-          const { data: bomComponents } = await (supabase as any)
-            .from("bom_components")
-            .select("*")
-            .eq("bom_id", bomHeader.id)
-            .order("item_seq", { ascending: true });
-
-          // Fetch BOM operations
-          const { data: bomOps } = await (supabase as any)
-            .from("bom_operations")
-            .select("*")
-            .eq("bom_id", bomHeader.id)
-            .order("operation_seq", { ascending: true });
-
-          if (bomComponents) {
-            itemBomItems = bomComponents.map((comp: any, idx: number) => ({
-              id: idx + 1,
-              itemSeq: comp.item_seq,
-              operationSeq: comp.operation_seq,
-              component: comp.component,
-              description: comp.description,
-              quantity: (parseFloat(comp.quantity) || 1) * jobQty,
-              uom: comp.uom,
-              status: "available",
-            }));
-          }
-
-          if (bomOps) {
-            itemOperations = bomOps.map((op: any, idx: number) => ({
-              id: idx + 1,
-              sequence: op.operation_seq,
-              name: op.description,
-              duration: ((parseFloat(op.run_time) || 30) * jobQty).toString(),
-              status: "pending",
-              machine: op.work_center || "",
-            }));
-          }
-
-          // Commit materials for this job
-          for (const bomItem of itemBomItems) {
-            const requiredQty = parseFloat(bomItem.quantity.toString());
-
-            const { data: currentStock } = await supabase
-              .from("inventory_stock")
-              .select("*")
-              .eq("item_code", bomItem.component)
-              .maybeSingle();
-
-            if (currentStock) {
-              const currentQtyOnHand = currentStock.quantity_on_hand || 0;
-              
-              if (currentQtyOnHand >= requiredQty) {
-                const newCommittedQty = ((currentStock as any).committed_quantity || 0) + requiredQty;
-                
-                await supabase
-                  .from("inventory_stock")
-                  .update({
-                    committed_quantity: newCommittedQty,
-                    updated_at: new Date().toISOString(),
-                  } as any)
-                  .eq("item_code", bomItem.component);
-
-                await (supabase as any).from("job_allocations").insert({
-                  job_number: jobNumber,
-                  item_code: bomItem.component,
-                  allocated_quantity: requiredQty,
-                  status: "allocated",
-                });
-
-                await supabase.from("stock_transactions").insert({
-                  item_code: bomItem.component,
-                  transaction_type: "Commit",
-                  quantity: requiredQty,
-                  reference_type: "Job",
-                  reference_number: jobNumber,
-                  notes: `Material committed for job ${jobNumber}`,
-                });
-              }
-            }
-          }
-        }
-
-        const newJob = {
-          id: jobNumber,
-          orderId: jobData.orderId,
-          productName: lineItem.itemName,
-          itemCode: lineItem.itemCode,
-          quantity: jobQty.toString(),
-          dueDate: jobData.dueDate,
-          priority: jobData.priority,
-          status: "Pending",
-          notes: `Job for order ${jobData.orderId} - ${lineItem.itemName}`,
-          operations: itemOperations,
-          bomItems: itemBomItems,
-          createdAt: new Date().toISOString(),
-        };
-
-        createdJobs.push(newJob);
-      }
-
-      // Save all created jobs
-      const updatedJobs = [...jobs, ...createdJobs];
-      localStorage.setItem("jobs", JSON.stringify(updatedJobs));
-      setJobs(updatedJobs);
-
-      // Update order status
-      const updatedOrders = orders.map((order: any) =>
-        order.id === jobData.orderId ? { ...order, status: "Processing" } : order
-      );
-      localStorage.setItem("orders", JSON.stringify(updatedOrders));
-      setOrders(updatedOrders);
-
-      toast({
-        title: "Job Cards Created",
-        description: `${createdJobs.length} job card(s) created successfully for selected items.`,
+      // 1. Get BOM header (API)
+      const bomHeaderRes = await axios.get("/api/bom-headers", {
+        params: {
+          item_code: lineItem.itemCode,
+          status: "Active",
+          limit: 1,
+          sort: "created_at:desc",
+        },
       });
 
-      // Reset form
-      setOrderLineItems([]);
-      setJobData({
-        orderId: "",
-        jobNumber: "",
-        productName: "",
-        itemCode: "",
-        salesOrderNum: "",
-        itemDescription: "",
-        uom: "Ea",
-        quantity: "",
-        dueDate: "",
-        priority: "Medium",
-        notes: "",
-        routingAvailable: false,
-      });
-      setIsDialogOpen(false);
-    } catch (error: any) {
-      toast({
-        title: "Error Creating Jobs",
-        description: error.message || "Failed to create job cards",
-        variant: "destructive",
-      });
-    }
-  };
+      const bomHeader =
+        bomHeaderRes.data?.data?.[0] || bomHeaderRes.data?.[0] || null;
 
-  const handleCreateJob = async () => {
-    if (!jobData.orderId || !jobData.productName) {
-      toast({
-        title: "Validation Error",
-        description: "Please fill in all required fields.",
-        variant: "destructive",
-      });
-      return;
-    }
+      let itemBomItems: any[] = [];
+      let itemOperations: any[] = [];
 
-    // Check if using split jobs or single job
-    const isUsingSplits = jobSplits.length > 0;
+      if (bomHeader) {
+        // 2. Fetch BOM components + operations in parallel
+        const [componentsRes, operationsRes] = await Promise.all([
+          axios.get("/api/bom-components", {
+            params: { bom_id: bomHeader.id, sort: "item_seq:asc" },
+          }),
+          axios.get("/api/bom-operations", {
+            params: { bom_id: bomHeader.id, sort: "operation_seq:asc" },
+          }),
+        ]);
 
-    // Validate pending quantity
-    const order = orders.find((o: any) => o.id === jobData.orderId);
-    if (!order) {
-      toast({
-        title: "Error",
-        description: "Order not found",
-        variant: "destructive",
-      });
-      return;
-    }
+        const bomComponents = componentsRes.data?.data || componentsRes.data || [];
+        const bomOps = operationsRes.data?.data || operationsRes.data || [];
 
-    const pendingQty = calculatePendingJobQty(order);
-    
-    if (pendingQty <= 0) {
-      toast({
-        title: "No Pending Quantity",
-        description: "No pending quantity available for new jobs.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Validate quantities based on whether splits are used
-    if (isUsingSplits) {
-      // Validate all splits have quantities
-      const invalidSplits = jobSplits.filter((split) => !split.quantity || parseFloat(split.quantity) <= 0);
-      if (invalidSplits.length > 0) {
-        toast({
-          title: "Invalid Quantities",
-          description: "All job splits must have a valid quantity greater than 0",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const totalSplitQty = calculateTotalSplitQuantity();
-      if (totalSplitQty > pendingQty) {
-        toast({
-          title: "Insufficient Pending Quantity",
-          description: `Total split quantity (${totalSplitQty}) exceeds pending quantity (${pendingQty}). Please adjust quantities.`,
-          variant: "destructive",
-        });
-        return;
-      }
-    } else {
-      // Single job validation
-      if (!jobData.jobNumber) {
-        toast({
-          title: "Validation Error",
-          description: "Job number is required",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const jobQty = parseFloat(jobData.quantity);
-      if (jobQty > pendingQty) {
-        toast({
-          title: "Insufficient Pending Quantity",
-          description: `Job quantity (${jobQty}) exceeds pending quantity (${pendingQty}). Please reduce job quantity.`,
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
-    try {
-      // Determine jobs to create
-      const jobsToCreate = isUsingSplits
-        ? jobSplits.map((split) => ({
-            jobNumber: split.jobNumber,
-            quantity: split.quantity,
-            dueDate: split.dueDate,
-            priority: split.priority,
-            notes: split.notes,
-          }))
-        : [
-            {
-              jobNumber: jobData.jobNumber,
-              quantity: jobData.quantity,
-              dueDate: jobData.dueDate,
-              priority: jobData.priority,
-              notes: jobData.notes,
-            },
-          ];
-
-      const createdJobs = [];
-
-      // Create each job
-      for (const jobInfo of jobsToCreate) {
-        const insufficientItems = [];
-        const warnings = [];
-
-        for (const bomItem of bomItems) {
-          const requiredQty = parseFloat(bomItem.quantity.toString()) * parseFloat(jobInfo.quantity);
-
-          // Get current stock
-          const { data: currentStock, error: stockError } = await supabase
-            .from("inventory_stock")
-            .select("*")
-            .eq("item_code", bomItem.component)
-            .maybeSingle();
-
-          if (stockError || !currentStock) {
-            insufficientItems.push({
-              item_code: bomItem.component,
-              required: requiredQty,
-              available: 0,
-            });
-            continue;
-          }
-
-          const currentQtyOnHand = currentStock.quantity_on_hand || 0;
-
-          // Check if sufficient stock on-hand for commitment
-          if (currentQtyOnHand < requiredQty) {
-            insufficientItems.push({
-              item_code: bomItem.component,
-              required: requiredQty,
-              available: currentQtyOnHand,
-            });
-            continue;
-          }
-
-          // ONLY add to committed (do NOT deduct from on-hand at job creation)
-          const newCommittedQty = ((currentStock as any).committed_quantity || 0) + requiredQty;
-
-          const { error: updateError } = await supabase
-            .from("inventory_stock")
-            .update({
-              committed_quantity: newCommittedQty,
-              updated_at: new Date().toISOString(),
-            } as any)
-            .eq("item_code", bomItem.component);
-
-          if (updateError) {
-            throw new Error(`Failed to commit ${bomItem.component}: ${updateError.message}`);
-          }
-
-          // Create job allocation record
-          await (supabase as any).from("job_allocations").insert({
-            job_number: jobInfo.jobNumber,
-            item_code: bomItem.component,
-            allocated_quantity: requiredQty,
-            status: "allocated",
-          });
-
-          // Create stock transaction for committed material
-          await supabase.from("stock_transactions").insert({
-            item_code: bomItem.component,
-            transaction_type: "Commit",
-            quantity: requiredQty,
-            reference_type: "Job",
-            reference_number: jobInfo.jobNumber,
-            notes: `Material committed for job ${jobInfo.jobNumber} (not yet consumed)`,
-          });
-
-          // Check reorder point
-          const reorderPoint = currentStock.reorder_point || 0;
-          if (currentQtyOnHand < reorderPoint && reorderPoint > 0) {
-            warnings.push({
-              message: `${bomItem.component} is below reorder point. On-hand: ${currentQtyOnHand}, Reorder: ${reorderPoint}`,
-            });
-          }
-        }
-
-        // Show warnings for insufficient stock
-        if (insufficientItems.length > 0) {
-          toast({
-            title: "Insufficient Stock",
-            description: `Cannot create job ${jobInfo.jobNumber}. ${insufficientItems.length} component(s) have insufficient stock.`,
-            variant: "destructive",
-          });
-          return;
-        }
-
-        // Show warnings for items below reorder point
-        if (warnings.length > 0) {
-          warnings.forEach((warning: any) => {
-            toast({
-              title: "Low Stock Warning",
-              description: warning.message,
-              variant: "destructive",
-            });
-          });
-        }
-
-        // Save item to master if new (only once)
-        if (jobData.itemCode && !itemMaster[jobData.itemCode] && createdJobs.length === 0) {
-          const updatedMaster = {
-            ...itemMaster,
-            [jobData.itemCode]: {
-              itemName: jobData.productName,
-              operations: operations,
-              components: bomItems,
-              lastUpdated: new Date().toISOString(),
-            },
-          };
-          localStorage.setItem("itemMaster", JSON.stringify(updatedMaster));
-          setItemMaster(updatedMaster);
-        }
-
-        const newJob = {
-          id: jobInfo.jobNumber,
-          orderId: jobData.orderId,
-          productName: jobData.productName,
-          itemCode: jobData.itemCode,
-          quantity: jobInfo.quantity,
-          dueDate: jobInfo.dueDate,
-          priority: jobInfo.priority,
-          status: "Pending",
-          notes: jobInfo.notes,
-          operations: operations,
-          bomItems: bomItems,
-          consumptionStatus: {
-            consumed: bomItems.map((item) => ({
-              item_code: item.component,
-              quantity: parseFloat(item.quantity.toString()) * parseFloat(jobInfo.quantity),
-            })),
-            insufficient: insufficientItems,
-            warnings: warnings,
-          },
-          createdAt: new Date().toISOString(),
-        };
-
-        createdJobs.push(newJob);
-      }
-
-      const updatedJobs = [...jobs, ...createdJobs];
-      localStorage.setItem("jobs", JSON.stringify(updatedJobs));
-      setJobs(updatedJobs);
-
-      // Update order status to Processing
-      const updatedOrders = orders.map((order: any) =>
-        order.id === jobData.orderId ? { ...order, status: "Processing" } : order,
-      );
-      localStorage.setItem("orders", JSON.stringify(updatedOrders));
-      setOrders(updatedOrders);
-
-      toast({
-        title: isUsingSplits ? "Jobs Created" : "Job Created",
-        description: isUsingSplits 
-          ? `${createdJobs.length} jobs created successfully. Materials committed (on-hand will be consumed on completion).`
-          : `Job ${createdJobs[0].id} created successfully. Materials committed (on-hand will be consumed on completion).`,
-      });
-
-      // Reset form
-      setJobData({
-        orderId: "",
-        jobNumber: "",
-        productName: "",
-        itemCode: "",
-        salesOrderNum: "",
-        itemDescription: "",
-        uom: "Ea",
-        quantity: "",
-        dueDate: "",
-        priority: "Medium",
-        notes: "",
-        routingAvailable: false,
-      });
-      setJobSplits([]);
-      setOperations([
-        { id: 1, sequence: 10, name: "Cut Material", duration: "30", status: "pending", machine: "" },
-        { id: 2, sequence: 20, name: "Weld Parts", duration: "45", status: "pending", machine: "" },
-        { id: 3, sequence: 30, name: "Quality Check", duration: "15", status: "pending", machine: "" },
-      ]);
-      setBomItems([
-        {
-          id: 1,
-          itemSeq: 10,
-          operationSeq: 10,
-          component: "Steel Plate",
-          description: "Raw material",
-          quantity: 5,
-          uom: "pcs",
+        // Map components
+        itemBomItems = bomComponents.map((comp: any, idx: number) => ({
+          id: idx + 1,
+          itemSeq: comp.item_seq,
+          operationSeq: comp.operation_seq,
+          component: comp.component,
+          description: comp.description,
+          quantity: (parseFloat(comp.quantity) || 1) * jobQty,
+          uom: comp.uom,
           status: "available",
-        },
-        {
-          id: 2,
-          itemSeq: 20,
-          operationSeq: 10,
-          component: "Welding Wire",
-          description: "Consumable",
-          quantity: 2,
-          uom: "kg",
-          status: "available",
-        },
-        {
-          id: 3,
-          itemSeq: 30,
-          operationSeq: 20,
-          component: "Bolts M8",
-          description: "Fasteners",
-          quantity: 20,
-          uom: "pcs",
-          status: "low",
-        },
-      ]);
-      setIsItemKnown(false);
-      setIsDialogOpen(false);
-    } catch (error: any) {
-      toast({
-        title: "Error Creating Job",
-        description: error.message || "Failed to create job and allocate inventory",
-        variant: "destructive",
-      });
-    }
-  };
+        }));
 
-  const handleJobStatusChange = async (jobId: string, newStatus: string) => {
-    const job = jobs.find((j: any) => j.id === jobId);
-    if (!job) return;
+        // Map operations
+        itemOperations = bomOps.map((op: any, idx: number) => ({
+          id: idx + 1,
+          sequence: op.operation_seq,
+          name: op.description,
+          duration: (
+            (parseFloat(op.run_time) || 30) * jobQty
+          ).toString(),
+          status: "pending",
+          machine: op.work_center || "",
+        }));
 
-    const previousStatus = job.status;
+        // 3. Commit materials via API (instead of supabase)
+        for (const bomItem of itemBomItems) {
+          const requiredQty = parseFloat(bomItem.quantity.toString());
 
-    // Only trigger inventory update when status changes to Completed or Ready for Dispatch
-    if (
-      (newStatus === "Completed" || newStatus === "Ready for Dispatch") &&
-      previousStatus !== "Completed" &&
-      previousStatus !== "Ready for Dispatch"
-    ) {
-      try {
-        const quantity = parseFloat(job.quantity) || 1;
-        const itemCode = job.itemCode;
-        const itemName = job.productName;
-
-        if (!itemCode) {
-          toast({
-            title: "Error",
-            description: "Job does not have an item code. Cannot add to inventory.",
-            variant: "destructive",
+          const stockRes = await axios.get("/api/inventory-stock", {
+            params: { item_code: bomItem.component },
           });
-          return;
-        }
 
-        // First, release committed quantities for all BOM materials
-        const { data: jobAllocations, error: allocError } = await (supabase as any)
-          .from("job_allocations")
-          .select("item_code, allocated_quantity")
-          .eq("job_number", jobId)
-          .eq("status", "allocated");
+          const currentStock =
+            stockRes.data?.data?.[0] || stockRes.data?.[0];
 
-        if (allocError) {
-          console.error("Error fetching job allocations:", allocError);
-          throw new Error("Failed to fetch job allocations");
-        }
+          if (currentStock) {
+            const currentQtyOnHand =
+              currentStock.quantity_on_hand || 0;
+            const currentCommitted =
+              currentStock.committed_quantity || 0;
 
-        // Consume materials: reduce committed AND on-hand quantities
-        if (jobAllocations && jobAllocations.length > 0) {
-          for (const allocation of jobAllocations) {
-            const { data: currentStock, error: fetchError } = await supabase
-              .from("inventory_stock")
-              .select("*")
-              .eq("item_code", allocation.item_code)
-              .maybeSingle();
+            if (currentQtyOnHand >= requiredQty) {
+              // update stock
+              await axios.patch("/api/inventory-stock", {
+                item_code: bomItem.component,
+                committed_quantity: currentCommitted + requiredQty,
+              });
 
-            if (fetchError) {
-              throw new Error(`Failed to fetch stock for ${allocation.item_code}`);
-            }
+              // job allocation
+              await axios.post("/api/job-allocations", {
+                job_number: jobNumber,
+                item_code: bomItem.component,
+                allocated_quantity: requiredQty,
+                status: "allocated",
+              });
 
-            if (currentStock) {
-              const currentCommitted = (currentStock as any).committed_quantity || 0;
-              const currentOnHand = currentStock.quantity_on_hand || 0;
-
-              // Verify committed quantity is sufficient
-              if (currentCommitted < allocation.allocated_quantity) {
-                throw new Error(
-                  `Insufficient committed quantity for ${allocation.item_code}. Committed: ${currentCommitted}, Required: ${allocation.allocated_quantity}`,
-                );
-              }
-
-              // Reduce both committed AND on-hand (actual consumption happens now)
-              const newCommittedQty = Math.max(0, currentCommitted - allocation.allocated_quantity);
-              const newOnHandQty = Math.max(0, currentOnHand - allocation.allocated_quantity);
-
-              await supabase
-                .from("inventory_stock")
-                .update({
-                  committed_quantity: newCommittedQty,
-                  quantity_on_hand: newOnHandQty,
-                  updated_at: new Date().toISOString(),
-                } as any)
-                .eq("item_code", allocation.item_code);
-
-              // Create consumption transaction
-              await supabase.from("stock_transactions").insert({
-                item_code: allocation.item_code,
-                transaction_type: "Consumption",
-                quantity: -allocation.allocated_quantity,
+              // stock transaction
+              await axios.post("/api/stock-transactions", {
+                item_code: bomItem.component,
+                transaction_type: "Commit",
+                quantity: requiredQty,
                 reference_type: "Job",
-                reference_number: jobId,
-                notes: `Material consumed for completed job ${jobId}`,
+                reference_number: jobNumber,
+                notes: `Material committed for job ${jobNumber}`,
               });
             }
-
-            // Update allocation status to consumed
-            await (supabase as any)
-              .from("job_allocations")
-              .update({ status: "consumed" })
-              .eq("job_number", jobId)
-              .eq("item_code", allocation.item_code);
           }
         }
+      }
 
-        // Check if item exists in inventory
-        const { data: existingStock, error: checkError } = await supabase
-          .from("inventory_stock")
-          .select("*")
-          .eq("item_code", itemCode)
-          .maybeSingle();
+      // 4. Create job object
+      const newJob = {
+        id: jobNumber,
+        orderId: jobData.orderId,
+        productName: lineItem.itemName,
+        itemCode: lineItem.itemCode,
+        quantity: jobQty.toString(),
+        dueDate: jobData.dueDate,
+        priority: jobData.priority,
+        status: "Pending",
+        notes: `Job for order ${jobData.orderId} - ${lineItem.itemName}`,
+        operations: itemOperations,
+        bomItems: itemBomItems,
+        createdAt: new Date().toISOString(),
+      };
 
-        if (checkError) {
-          console.error("Error checking inventory:", checkError);
-          throw new Error("Failed to check inventory");
+      createdJobs.push(newJob);
+    }
+
+    // 5. Save jobs locally
+    const updatedJobs = [...jobs, ...createdJobs];
+    localStorage.setItem("jobs", JSON.stringify(updatedJobs));
+    setJobs(updatedJobs);
+
+    // 6. Update order status
+    const updatedOrders = orders.map((order: any) =>
+      order.id === jobData.orderId
+        ? { ...order, status: "Processing" }
+        : order
+    );
+
+    localStorage.setItem("orders", JSON.stringify(updatedOrders));
+    setOrders(updatedOrders);
+
+    toast({
+      title: "Job Cards Created",
+      description: `${createdJobs.length} job card(s) created successfully.`,
+    });
+
+    // 7. Reset UI
+    setOrderLineItems([]);
+    setJobData({
+      orderId: "",
+      jobNumber: "",
+      productName: "",
+      itemCode: "",
+      salesOrderNum: "",
+      itemDescription: "",
+      uom: "Ea",
+      quantity: "",
+      dueDate: "",
+      priority: "Medium",
+      notes: "",
+      routingAvailable: false,
+    });
+
+    setIsDialogOpen(false);
+  } catch (error: any) {
+    console.error(error);
+
+    toast({
+      title: "Error Creating Jobs",
+      description:
+        error.message || "Failed to create job cards",
+      variant: "destructive",
+    });
+  }
+};
+
+ const handleCreateJob = async () => {
+  if (!jobData.orderId || !jobData.productName) {
+    toast({
+      title: "Validation Error",
+      description: "Please fill in all required fields.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  const isUsingSplits = jobSplits.length > 0;
+
+  const order = orders.find((o: any) => o.id === jobData.orderId);
+
+  if (!order) {
+    toast({
+      title: "Error",
+      description: "Order not found",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  const pendingQty = calculatePendingJobQty(order);
+
+  if (pendingQty <= 0) {
+    toast({
+      title: "No Pending Quantity",
+      description: "No pending quantity available for new jobs.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  try {
+    const jobsToCreate = isUsingSplits
+      ? jobSplits.map((split) => ({
+          jobNumber: split.jobNumber,
+          quantity: split.quantity,
+          dueDate: split.dueDate,
+          priority: split.priority,
+          notes: split.notes,
+        }))
+      : [
+          {
+            jobNumber: jobData.jobNumber,
+            quantity: jobData.quantity,
+            dueDate: jobData.dueDate,
+            priority: jobData.priority,
+            notes: jobData.notes,
+          },
+        ];
+
+    const createdJobs: any[] = [];
+
+    for (const jobInfo of jobsToCreate) {
+      const insufficientItems: any[] = [];
+      const warnings: any[] = [];
+
+      // 1. Get BOM (API)
+      const bomHeaderRes = await axios.get("/api/bom-headers", {
+        params: {
+          item_code: jobData.itemCode,
+          status: "Active",
+          limit: 1,
+          sort: "created_at:desc",
+        },
+      });
+
+      const bomHeader =
+        bomHeaderRes.data?.data?.[0] || bomHeaderRes.data?.[0];
+
+      let bomItemsToUse: any[] = [];
+
+      if (bomHeader) {
+        const compsRes = await axios.get("/api/bom-components", {
+          params: { bom_id: bomHeader.id },
+        });
+
+        const bomComponents = compsRes.data?.data || compsRes.data || [];
+
+        bomItemsToUse = bomComponents.map((item: any, idx: number) => ({
+          ...item,
+          quantity:
+            (parseFloat(item.quantity) || 1) *
+            parseFloat(jobInfo.quantity),
+        }));
+      }
+
+      // 2. Check & commit inventory
+      for (const bomItem of bomItemsToUse) {
+        const requiredQty = parseFloat(bomItem.quantity);
+
+        const stockRes = await axios.get("/api/inventory-stock", {
+          params: { item_code: bomItem.component },
+        });
+
+        const stock = stockRes.data?.data?.[0] || stockRes.data?.[0];
+
+        if (!stock) {
+          insufficientItems.push({
+            item_code: bomItem.component,
+            required: requiredQty,
+            available: 0,
+          });
+          continue;
         }
 
-        if (existingStock) {
-          // Update existing stock - add finished product quantity
-          const { error: updateError } = await supabase
-            .from("inventory_stock")
-            .update({
-              quantity_on_hand: (existingStock.quantity_on_hand || 0) + quantity,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("item_code", itemCode);
+        const onHand = stock.quantity_on_hand || 0;
+        const committed = stock.committed_quantity || 0;
 
-          if (updateError) {
-            console.error("Error updating inventory:", updateError);
-            throw new Error("Failed to update inventory");
+        if (onHand < requiredQty) {
+          insufficientItems.push({
+            item_code: bomItem.component,
+            required: requiredQty,
+            available: onHand,
+          });
+          continue;
+        }
+
+        // commit stock
+        await axios.patch("/api/inventory-stock", {
+          item_code: bomItem.component,
+          committed_quantity: committed + requiredQty,
+        });
+
+        // allocation
+        await axios.post("/api/job-allocations", {
+          job_number: jobInfo.jobNumber,
+          item_code: bomItem.component,
+          allocated_quantity: requiredQty,
+          status: "allocated",
+        });
+
+        // transaction
+        await axios.post("/api/stock-transactions", {
+          item_code: bomItem.component,
+          transaction_type: "Commit",
+          quantity: requiredQty,
+          reference_type: "Job",
+          reference_number: jobInfo.jobNumber,
+          notes: `Material committed for job ${jobInfo.jobNumber}`,
+        });
+
+        // reorder warning
+        if (stock.reorder_point && onHand < stock.reorder_point) {
+          warnings.push({
+            message: `${bomItem.component} below reorder level`,
+          });
+        }
+      }
+
+      // ❌ stop if insufficient stock
+      if (insufficientItems.length > 0) {
+        toast({
+          title: "Insufficient Stock",
+          description: `Job ${jobInfo.jobNumber} cannot be created`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // 3. Save item master (local only)
+      if (jobData.itemCode && !itemMaster[jobData.itemCode]) {
+        const updatedMaster = {
+          ...itemMaster,
+          [jobData.itemCode]: {
+            itemName: jobData.productName,
+            operations,
+            components: bomItems,
+            lastUpdated: new Date().toISOString(),
+          },
+        };
+
+        localStorage.setItem("itemMaster", JSON.stringify(updatedMaster));
+        setItemMaster(updatedMaster);
+      }
+
+      // 4. Create job object
+      const newJob = {
+        id: jobInfo.jobNumber,
+        orderId: jobData.orderId,
+        productName: jobData.productName,
+        itemCode: jobData.itemCode,
+        quantity: jobInfo.quantity,
+        dueDate: jobInfo.dueDate,
+        priority: jobInfo.priority,
+        status: "Pending",
+        notes: jobInfo.notes,
+        operations,
+        bomItems,
+        consumptionStatus: {
+          insufficient: insufficientItems,
+          warnings,
+        },
+        createdAt: new Date().toISOString(),
+      };
+
+      createdJobs.push(newJob);
+    }
+
+    // 5. Save jobs
+    const updatedJobs = [...jobs, ...createdJobs];
+    localStorage.setItem("jobs", JSON.stringify(updatedJobs));
+    setJobs(updatedJobs);
+
+    // 6. Update order
+    const updatedOrders = orders.map((o: any) =>
+      o.id === jobData.orderId ? { ...o, status: "Processing" } : o
+    );
+
+    localStorage.setItem("orders", JSON.stringify(updatedOrders));
+    setOrders(updatedOrders);
+
+    toast({
+      title: isUsingSplits ? "Jobs Created" : "Job Created",
+      description: `${createdJobs.length} job(s) created successfully`,
+    });
+
+    // 7. Reset form
+    setJobData({
+      orderId: "",
+      jobNumber: "",
+      productName: "",
+      itemCode: "",
+      salesOrderNum: "",
+      itemDescription: "",
+      uom: "Ea",
+      quantity: "",
+      dueDate: "",
+      priority: "Medium",
+      notes: "",
+      routingAvailable: false,
+    });
+
+    setJobSplits([]);
+    setIsDialogOpen(false);
+  } catch (error: any) {
+    console.error(error);
+    toast({
+      title: "Error Creating Job",
+      description: error.message || "Failed to create job",
+      variant: "destructive",
+    });
+  }
+};
+
+const handleJobStatusChange = async (jobId: string, newStatus: string) => {
+  console.log("========== JOB STATUS CHANGE START ==========");
+  console.log("Job ID:", jobId);
+  console.log("New Status:", newStatus);
+
+  const job = jobs.find((j: any) => j.id === jobId);
+
+  console.log("Matched Job:", job);
+
+  if (!job) {
+    console.log("Job not found");
+    return;
+  }
+
+  const previousStatus = job.status;
+
+  console.log("Previous Status:", previousStatus);
+
+  // Only trigger inventory update when status changes
+  if (
+    (newStatus === "Completed" || newStatus === "Ready for Dispatch") &&
+    previousStatus !== "Completed" &&
+    previousStatus !== "Ready for Dispatch"
+  ) {
+    try {
+      const quantity = parseFloat(job.quantity) || 1;
+      const itemCode = job.assembly;
+      const itemName = job.product_name;
+
+      console.log("Quantity:", quantity);
+      console.log("Item Code:", itemCode);
+      console.log("Item Name:", itemName);
+
+      if (!itemCode) {
+        console.log("Missing item code");
+
+        toast({
+          title: "Error",
+          description: "Job does not have an item code. Cannot add to inventory.",
+          variant: "destructive",
+        });
+
+        return;
+      }
+
+      // =========================
+      // FETCH JOB ALLOCATIONS
+      // =========================
+      console.log("Fetching job allocations...");
+
+      const allocationRes = await fetch(
+        `/api/job-allocations?job_number=${jobId}`
+      );
+
+      console.log("Allocation Response Status:", allocationRes.status);
+
+      const jobAllocations = await allocationRes.json();
+
+      console.log("Job Allocations:", jobAllocations);
+
+      // =========================
+      // CONSUME MATERIALS
+      // =========================
+      if (jobAllocations && jobAllocations.length > 0) {
+        for (const allocation of jobAllocations) {
+          console.log("Processing Allocation:", allocation);
+
+          // Fetch current stock
+          console.log(
+            "Fetching inventory stock for:",
+            allocation.item_code
+          );
+
+          const stockRes = await fetch(
+            `/api/inventory-stock/${allocation.item_code}`
+          );
+
+          console.log("Stock Response Status:", stockRes.status);
+
+          const currentStock = await stockRes.json();
+
+          console.log("Current Stock:", currentStock);
+
+          if (currentStock) {
+            const currentCommitted =
+              currentStock.committed_quantity || 0;
+
+            const currentOnHand =
+              currentStock.quantity_on_hand || 0;
+
+            console.log("Current Committed:", currentCommitted);
+            console.log("Current On Hand:", currentOnHand);
+            console.log(
+              "Allocated Quantity:",
+              allocation.allocated_quantity
+            );
+
+            // Validate committed qty
+            if (currentCommitted < allocation.allocated_quantity) {
+              console.log("Insufficient committed quantity");
+
+              throw new Error(
+                `Insufficient committed quantity for ${allocation.item_code}`
+              );
+            }
+
+            const newCommittedQty = Math.max(
+              0,
+              currentCommitted - allocation.allocated_quantity
+            );
+
+            const newOnHandQty = Math.max(
+              0,
+              currentOnHand - allocation.allocated_quantity
+            );
+
+            console.log("New Committed Qty:", newCommittedQty);
+            console.log("New On Hand Qty:", newOnHandQty);
+
+            // Update inventory stock
+            console.log("Updating inventory stock...");
+
+            const updateStockRes = await fetch(
+              `/api/inventory-stock/${currentStock.id}`,
+              {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  committed_quantity: newCommittedQty,
+                  quantity_on_hand: newOnHandQty,
+                }),
+              }
+            );
+
+            console.log(
+              "Inventory Update Response:",
+              updateStockRes.status
+            );
+
+            // Create stock transaction
+            console.log("Creating consumption stock transaction...");
+
+            const transactionRes = await fetch(
+              `/api/stock-transactions`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  item_code: allocation.item_code,
+                  transaction_type: "Consumption",
+                  quantity: -allocation.allocated_quantity,
+                  reference_type: "Job",
+                  reference_number: jobId,
+                  notes: `Material consumed for completed job ${jobId}`,
+                }),
+              }
+            );
+
+            console.log(
+              "Consumption Transaction Response:",
+              transactionRes.status
+            );
           }
-        } else {
-          // Create new stock entry for finished product
-          const { error: insertError } = await supabase.from("inventory_stock").insert({
+
+          // Update allocation status
+          console.log("Updating allocation status to consumed...");
+
+          const allocationUpdateRes = await fetch(
+            `/api/job-allocations/${allocation.id}`,
+            {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                status: "consumed",
+              }),
+            }
+          );
+
+          console.log(
+            "Allocation Status Update Response:",
+            allocationUpdateRes.status
+          );
+        }
+      } else {
+        console.log("No allocations found");
+      }
+
+      // =========================
+      // CHECK FINISHED PRODUCT STOCK
+      // =========================
+      console.log("Checking finished product stock...");
+
+      const stockCheckRes = await fetch(
+        `/api/stock/check?item_code=${itemCode}`
+      );
+
+      console.log("Stock Check Response:", stockCheckRes.status);
+
+      const existingStock = await stockCheckRes.json();
+
+      console.log("Existing Finished Product Stock:", existingStock);
+
+      if (existingStock) {
+        console.log("Updating existing finished product stock...");
+
+        const updateFinishedStockRes = await fetch(
+          `/api/inventory-stock/${existingStock.id}`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              quantity_on_hand:
+                (existingStock.quantity_on_hand || 0) + quantity,
+            }),
+          }
+        );
+
+        console.log(
+          "Finished Product Update Response:",
+          updateFinishedStockRes.status
+        );
+      } else {
+        console.log("Creating new finished product stock...");
+
+        const createStockRes = await fetch(`/api/inventory-stock`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
             item_code: itemCode,
             item_name: itemName,
             item_type: "Product",
             quantity_on_hand: quantity,
             unit_cost: 0,
-          });
+          }),
+        });
 
-          if (insertError) {
-            console.error("Error creating inventory entry:", insertError);
-            throw new Error("Failed to create inventory entry");
-          }
+        console.log(
+          "Create Finished Product Stock Response:",
+          createStockRes.status
+        );
+      }
+
+      // =========================
+      // CREATE PRODUCTION TRANSACTION
+      // =========================
+      console.log("Creating production transaction...");
+
+      const productionTransactionRes = await fetch(
+        `/api/stock-transactions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            item_code: itemCode,
+            transaction_type: "Production",
+            quantity: quantity,
+            reference_type: "Job",
+            reference_number: jobId,
+            notes: `Finished product added from ${newStatus.toLowerCase()} job ${jobId}`,
+          }),
         }
+      );
 
-        // Create stock transaction record
-        await supabase.from("stock_transactions").insert({
-          item_code: itemCode,
-          transaction_type: "Production",
-          quantity: quantity,
-          reference_type: "Job",
-          reference_number: jobId,
-          notes: `Finished product added from ${newStatus.toLowerCase()} job ${jobId}. Committed materials released.`,
-        });
-
-        toast({
-          title: "Job Completed",
-          description: `Job ${jobId} marked as ${newStatus}. Materials consumed from on-hand and ${quantity} units of ${itemName} added to inventory.`,
-        });
-      } catch (error: any) {
-        toast({
-          title: "Error Updating Inventory",
-          description: error.message,
-          variant: "destructive",
-        });
-        return; // Don't update job status if inventory update failed
-      }
-    }
-
-    // Update job status
-    const updatedJobs = jobs.map((j: any) => (j.id === jobId ? { ...j, status: newStatus } : j));
-    localStorage.setItem("jobs", JSON.stringify(updatedJobs));
-    setJobs(updatedJobs);
-  };
-
-  const handleDeleteJob = async (jobId: string) => {
-    try {
-      // Deallocate inventory for this job
-      const { error: deallocationError } = await (supabase as any).rpc("deallocate_inventory_for_job", {
-        p_job_number: jobId,
-      });
-
-      if (deallocationError) {
-        toast({
-          title: "Warning",
-          description: `Job deleted but failed to deallocate inventory: ${deallocationError.message}`,
-          variant: "destructive",
-        });
-      }
-
-      const updatedJobs = jobs.filter((job: any) => job.id !== jobId);
-      localStorage.setItem("jobs", JSON.stringify(updatedJobs));
-      setJobs(updatedJobs);
+      console.log(
+        "Production Transaction Response:",
+        productionTransactionRes.status
+      );
 
       toast({
-        title: "Job Deleted",
-        description: `Job ${jobId} deleted and inventory deallocated.`,
+        title: "Job Completed",
+        description: `Job ${job.job_number} marked as ${newStatus}. Materials consumed and ${quantity} units of ${itemName} added to inventory.`,
       });
     } catch (error: any) {
+      console.error("Inventory Update Error:", error);
+
       toast({
-        title: "Error",
-        description: error.message || "Failed to delete job",
+        title: "Error Updating Inventory",
+        description: error.message,
         variant: "destructive",
       });
+
+      return;
     }
-  };
+  }
+
+  // =========================
+  // UPDATE JOB STATUS
+  // =========================
+  try {
+    console.log("Updating job status in database...");
+
+    const response = await fetch(`/api/jobs/${jobId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        status: newStatus,
+      }),
+    });
+
+    console.log("Job Status Update Response:", response.status);
+
+    const updatedJob = await response.json();
+
+    console.log("Updated Job:", updatedJob);
+
+    const updatedJobs = jobs.map((j: any) =>
+      j.id === jobId ? updatedJob : j
+    );
+
+    console.log("Updated Jobs Array:", updatedJobs);
+
+    setJobs(updatedJobs);
+
+    toast({
+      title: "Success",
+      description: `Job status updated to ${newStatus}`,
+    });
+
+    console.log("========== JOB STATUS CHANGE END ==========");
+  } catch (error: any) {
+    console.error("Job Status Update Error:", error);
+
+    toast({
+      title: "Error",
+      description: "Failed to update job status",
+      variant: "destructive",
+    });
+  }
+};
+
+const handleDeleteJob = async (job: any) => {
+  try {
+
+    await axios.delete(`/api/jobs/${job.id}`);
+
+    setJobs((prevJobs: any[]) =>
+      prevJobs.filter((j: any) => j.id !== job.id)
+    );
+
+    toast({
+      title: "Job Deleted",
+      description: `Job ${job.job_number} deleted successfully.`,
+    });
+
+  } catch (error: any) {
+
+    toast({
+      title: "Error",
+      description:
+        error?.response?.data?.message ||
+        "Failed to delete job",
+      variant: "destructive",
+    });
+  }
+};
 
   // Handler for creating job from new JobCardDialog
-  const handleCreateJobFromDialog = useCallback(async (newJobData: any, newOperations: any[], newBomItems: any[], newJobSplits: any[]) => {
+ const handleCreateJobFromDialog = useCallback(
+  async (
+    newJobData: any,
+    newOperations: any[],
+    newBomItems: any[],
+    newJobSplits: any[],
+    moveQuantities: any,
+    
+  ) => {
+
+    if (!newJobData.itemCode) {
+  toast({
+    title: "Validation Error",
+    description: "Assembly (Item Code) is required",
+    variant: "destructive",
+  });
+  return;
+}
+
+if (!newJobData.quantity || Number(newJobData.quantity) <= 0) {
+  toast({
+    title: "Validation Error",
+    description: "Start quantity is required and must be greater than 0",
+    variant: "destructive",
+  });
+  return;
+}
+
+if (!newJobData.startDate) {
+  toast({
+    title: "Validation Error",
+    description: "Start date is required",
+    variant: "destructive",
+  });
+  return;
+}
+
+if (!newJobData.completionDate) {
+  toast({
+    title: "Validation Error",
+    description: "Completion date is required",
+    variant: "destructive",
+  });
+  return;
+}
     try {
-      const order = orders.find((o: any) => o.id === newJobData.orderId);
-      const quantity = parseFloat(newJobData.quantity) || 1;
-      
-      // Create the job
-      const newJob = {
-        id: newJobData.jobNumber,
-        orderId: newJobData.orderId,
-        productName: newJobData.productName,
-        itemCode: newJobData.itemCode,
-        quantity: quantity.toString(),
-        salesOrderNum: newJobData.salesOrderNum || "",
-        dueDate: newJobData.completionDate || newJobData.dueDate,
-        priority: newJobData.priority,
+      const payload = {
+        job_number: newJobData.jobNumber,
+        assembly: newJobData.itemCode,
+        product_name: newJobData.productName,
+        sales_order_number: newJobData.salesOrderNum || "",
+        class: newJobData.class || "Standard",
+        type: newJobData.type || "Standard",
+        uom: newJobData.uom || "Ea",
         status: "Pending",
-        notes: newJobData.notes,
-        operations: newOperations,
-        bomItems: newBomItems,
-        createdAt: new Date().toISOString(),
+        priority: newJobData.priority || "Medium",
+        start: newJobData.quantity,
+        alternate: newJobData.alternate || "",
+        revision: newJobData.revision || "",
+          mrp_net: Number(newJobData.mrpNet || 0),   // ✅ FIXED KEY
+  is_firm: Boolean(newJobData.firm),
+
+
+        start_date: newJobData.startDate || null,
+        completion_date: newJobData.completionDate || newJobData.dueDate || null,
+
+        notes: newJobData.notes || "",
+        bom_id: newJobData.bomId || null,
+
+        // COMPONENTS
+        components: newBomItems?.map((item: any) => ({
+          seq: item.itemSeq ?? 10,
+          component: item.component ?? "",
+          description: item.description ?? "",
+          qty: Number(item.quantity ?? 0),
+          uom: item.uom ?? "pcs",
+          status: "Available",
+        })) || [],
+
+        // ❗ FIXED OPERATIONS KEY (VERY IMPORTANT)
+  operations: newOperations?.map((op: any) => ({
+  sequence: op.sequence,
+  operation_code: op.operation_code || op.code || op.name || `OP-${op.sequence}`,
+  description: op.description || op.name || "",
+  work_center: op.workCenter || "",
+  department: op.department || "",
+  run_time: Number(op.duration || op.runTime || 0),
+  status: "Pending",
+})) || [],
+
+  // ✅ FIXED MAPPINGS BELOW
+   quantities: newBomItems?.map((q: any) => {
+    const perAssembly = q.quantity || 0;
+  const jobQty = jobData.quantity || 0;
+    const onHand =
+    q.onHand ??
+    q.quantityOnHand ??
+    q.availableQuantity ??
+    0;
+
+
+  const required = perAssembly * jobQty;
+
+  return {
+
+  component: q.component,
+  uom: q.uom,
+  basis: q.basisType || "",
+  per_assembly: q.quantity || 0,
+  inverse_usage: q.inverseUsage || (perAssembly ? 1 / perAssembly : 0),
+  yield: q.yield || "",
+  required: q.quantity || 0,
+  issued: 0,
+  open: q.quantity || 0,
+  on_hand: onHand,   
+  };
+}) || [],
+
+ moves: moveQuantities
+  ? Object.entries(moveQuantities).map(([seq, v]: any) => ({
+      seq: Number(seq),
+      in_queue: v?.inQueue || 0,
+      running: v?.running || 0,
+      to_move: v?.toMove || 0,
+      rejected: v?.rejected || 0,
+      scrapped: v?.scrapped || 0,
+      completed: v?.completed || 0,
+    }))
+  : [],
+
+  
+   lots:
+          newJobData.lotNum || newJobData.buildSeq || newJobData.task
+            ? [
+                {
+                  lot_number: newJobData.lotNum ?? "",
+                  build_seq: newJobData.buildSeq ?? "",
+                  task: newJobData.task ?? "",
+                },
+              ]
+            : [],
       };
 
-      // Commit materials if BOM items exist
-      for (const bomItem of newBomItems) {
-        const requiredQty = parseFloat(bomItem.quantity?.toString() || "0");
-        if (requiredQty > 0) {
-          const { data: currentStock } = await supabase
-            .from("inventory_stock")
-            .select("*")
-            .eq("item_code", bomItem.component)
-            .maybeSingle();
+      console.log("JOB PAYLOAD ", payload);
+      console.log("moveQuantities:", moveQuantities);
+        console.log("lots:", {
+        lotNum: newJobData.lotNum,
+        buildSeq: newJobData.buildSeq,
+        task: newJobData.task,
+      });
 
-          if (currentStock) {
-            const newCommittedQty = ((currentStock as any).committed_quantity || 0) + requiredQty;
-            await supabase
-              .from("inventory_stock")
-              .update({
-                committed_quantity: newCommittedQty,
-                updated_at: new Date().toISOString(),
-              } as any)
-              .eq("item_code", bomItem.component);
 
-            await (supabase as any).from("job_allocations").insert({
-              job_number: newJobData.jobNumber,
-              item_code: bomItem.component,
-              allocated_quantity: requiredQty,
-              status: "allocated",
-            });
+      const response = await axios.post("/api/jobs", payload);
 
-            await supabase.from("stock_transactions").insert({
-              item_code: bomItem.component,
-              transaction_type: "Commit",
-              quantity: requiredQty,
-              reference_type: "Job",
-              reference_number: newJobData.jobNumber,
-              notes: `Material committed for job ${newJobData.jobNumber}`,
-            });
-          }
-        }
+      const createdJob = response.data?.data;
+
+      if (!createdJob) {
+        throw new Error("Job creation failed - no response data");
       }
 
-      const updatedJobs = [...jobs, newJob];
-      localStorage.setItem("jobs", JSON.stringify(updatedJobs));
-      setJobs(updatedJobs);
+      // ✅ NO localStorage
+      setJobs((prev: any[]) => [...prev, createdJob]);
 
-      // Update order status
+      const order = orders.find((o: any) => o.id === newJobData.orderId);
+
       if (order) {
         const updatedOrders = orders.map((o: any) =>
-          o.id === newJobData.orderId ? { ...o, status: "Processing" } : o
+          o.id === newJobData.orderId
+            ? { ...o, status: "Processing" }
+            : o
         );
-        localStorage.setItem("orders", JSON.stringify(updatedOrders));
+
         setOrders(updatedOrders);
       }
 
@@ -1471,6 +1756,8 @@ const Planning = () => {
         title: "Job Created",
         description: `Job ${newJobData.jobNumber} created successfully.`,
       });
+
+      setIsDialogOpen(false);
     } catch (error: any) {
       toast({
         title: "Error Creating Job",
@@ -1478,97 +1765,158 @@ const Planning = () => {
         variant: "destructive",
       });
     }
-  }, [jobs, orders, toast]);
+  },
+  [jobs, orders, toast,]
+);
 
   // Memoize generateJobNumber for JobCardDialog
-  const memoizedGenerateJobNumber = useCallback(() => generateJobNumber(), []);
+  const memoizedGenerateJobNumber = useCallback(() => {
+  console.log("JOBS11:", jobs);
+  return generateJobNumber(jobs);
+}, [jobs]);
 
   // Handler for finding jobs with filters
-  const handleFindJobs = useCallback((filters: JobFilters) => {
-    // Get fresh jobs data from localStorage
-    const currentJobs = JSON.parse(localStorage.getItem("jobs") || "[]");
-    
-    let filtered = [...currentJobs];
+const handleFindJobs = useCallback(
+  (filters: JobFilters) => {
 
-    // Filter by job number range
-    if (filters.jobFrom) {
-      filtered = filtered.filter((job: any) => {
-        const jobId = job.id || job.jobNumber || "";
-        return jobId.toLowerCase() >= filters.jobFrom.toLowerCase();
+    let filtered = [...jobs];
+
+    // ----------------------------
+    // helper: extract JOB NUMBER safely
+    // JOB-000001 → 1
+    // ----------------------------
+    const getJobNum = (job: any) => {
+      const raw = job.job_number || job.jobNumber || job.id || "";
+      const num = String(raw).match(/\d+/g)?.join("");
+      return num ? Number(num) : null;
+    };
+
+    // ----------------------------
+    // 1. TEXT SEARCH (JOB NUMBER LIKE JOB-000001)
+    // ----------------------------
+    if (filters.jobFrom || filters.jobTo) {
+      const searchTextFrom = filters.jobFrom?.toLowerCase();
+      const searchTextTo = filters.jobTo?.toLowerCase();
+
+      if (searchTextFrom && searchTextTo) {
+        // if both entered → treat as RANGE text fallback
+        filtered = filtered.filter((job) => {
+          const jobNo = String(job.job_number || "").toLowerCase();
+          return (
+            jobNo >= searchTextFrom && jobNo <= searchTextTo
+          );
+        });
+      } else if (searchTextFrom) {
+        filtered = filtered.filter((job) =>
+          String(job.job_number || "")
+            .toLowerCase()
+            .includes(searchTextFrom)
+        );
+      }
+    }
+
+    // ----------------------------
+    // 2. NUMERIC RANGE FILTER (CORRECT FIX)
+    // ----------------------------
+    const fromNum = filters.jobFrom ? Number(filters.jobFrom.replace(/\D/g, "")) : null;
+    const toNum = filters.jobTo ? Number(filters.jobTo.replace(/\D/g, "")) : null;
+
+    if (fromNum !== null || toNum !== null) {
+      filtered = filtered.filter((job) => {
+        const jobNum = getJobNum(job);
+
+        console.log("➡️ CHECK:", job.job_number, jobNum);
+
+        if (jobNum === null) return false;
+
+        if (fromNum !== null && jobNum < fromNum) return false;
+        if (toNum !== null && jobNum > toNum) return false;
+
+        return true;
       });
     }
-    if (filters.jobTo) {
-      filtered = filtered.filter((job: any) => {
-        const jobId = job.id || job.jobNumber || "";
-        return jobId.toLowerCase() <= filters.jobTo.toLowerCase();
-      });
-    }
 
-    // Filter by type
+    // ----------------------------
+    // 3. TYPE FILTER
+    // ----------------------------
     if (filters.type) {
-      filtered = filtered.filter((job: any) => 
-        (job.type || job.jobType || "Standard") === filters.type
+      filtered = filtered.filter(
+        (job) =>
+          (job.type || job.jobType || "Standard") === filters.type
       );
     }
 
-    // Filter by assembly/item code
+    // ----------------------------
+    // 4. ASSEMBLY FILTER
+    // ----------------------------
     if (filters.assembly) {
-      filtered = filtered.filter((job: any) => 
-        job.itemCode?.toLowerCase().includes(filters.assembly.toLowerCase()) ||
-        job.productName?.toLowerCase().includes(filters.assembly.toLowerCase())
-      );
-    }
+  const search = filters.assembly.toLowerCase();
 
-    // Filter by class
+  filtered = filtered.filter((job) => {
+    const itemCode = job.item_code || "";
+    const assembly = job.assembly || "";
+    const productName = job.product_name || "";
+
+    const match =
+      itemCode.toLowerCase().includes(search) ||
+      assembly.toLowerCase().includes(search) ||
+      productName.toLowerCase().includes(search);
+
+    return match;
+  });
+
+}
+
+    // ----------------------------
+    // 5. CLASS FILTER
+    // ----------------------------
     if (filters.class) {
-      filtered = filtered.filter((job: any) => 
-        (job.class || job.jobClass || "").toLowerCase().includes(filters.class.toLowerCase())
+      const search = filters.class.toLowerCase();
+
+      filtered = filtered.filter((job) =>
+        (job.class || job.jobClass || "")
+          .toLowerCase()
+          .includes(search)
       );
     }
 
-    // Filter by start date range
-    if (filters.startDateFrom) {
-      filtered = filtered.filter((job: any) => {
-        const jobDate = job.createdAt || job.startDate;
-        return jobDate >= filters.startDateFrom;
-      });
-    }
-    if (filters.startDateTo) {
-      filtered = filtered.filter((job: any) => {
-        const jobDate = job.createdAt || job.startDate;
-        return jobDate <= filters.startDateTo;
-      });
-    }
+    // ----------------------------
+    // 6. STATUS FILTER
+    // ----------------------------
+    const selectedStatuses: string[] = [
+      ...(filters.statusUnreleased
+        ? ["Pending", "Created", "Unreleased"]
+        : []),
+      ...(filters.statusReleased
+        ? ["In Progress", "Released"]
+        : []),
+      ...(filters.statusComplete
+        ? ["Completed", "Complete", "Ready for Dispatch"]
+        : []),
+      ...(filters.statusOnHold ? ["On Hold"] : []),
+    ];
 
-    // Filter by completion date range
-    if (filters.completionDateFrom) {
-      filtered = filtered.filter((job: any) => job.dueDate >= filters.completionDateFrom);
-    }
-    if (filters.completionDateTo) {
-      filtered = filtered.filter((job: any) => job.dueDate <= filters.completionDateTo);
-    }
-
-    // Filter by status checkboxes
-    const selectedStatuses: string[] = [];
-    if (filters.statusUnreleased) selectedStatuses.push("Pending", "Created", "Unreleased");
-    if (filters.statusReleased) selectedStatuses.push("In Progress", "Released");
-    if (filters.statusComplete) selectedStatuses.push("Completed", "Complete", "Ready for Dispatch");
-    if (filters.statusOnHold) selectedStatuses.push("On Hold");
-    
     if (selectedStatuses.length > 0) {
-      filtered = filtered.filter((job: any) => selectedStatuses.includes(job.status));
+      filtered = filtered.filter((job) =>
+        selectedStatuses.includes(job.status)
+      );
     }
 
-    // Update jobs state with fresh data
-    setJobs(currentJobs);
+    // ----------------------------
+    // FINAL RESULT
+    // ----------------------------
+    console.log("✅ FINAL FILTERED JOBS:", filtered);
+
     setFilteredJobs(filtered);
     setIsSearchResultsOpen(true);
+
     toast({
       title: "Jobs Found",
-      description: `Found ${filtered.length} job(s) matching your criteria.`,
+      description: `Found ${filtered.length} job(s)`,
     });
-  }, [toast]);
-
+  },
+  [jobs, toast]
+);
   // Handler for opening a job from search results
   const handleOpenJobFromSearch = useCallback((job: any) => {
     setSelectedJob(job);
@@ -1603,7 +1951,7 @@ const Planning = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Production Jobs</h1>
-            <p className="text-muted-foreground mt-1">Manage and track production jobs</p>
+            <p className="text-muted-foreground mt-1">Manage and track production jobs</p>     
           </div>
           
           <div className="flex gap-2">
@@ -1632,6 +1980,7 @@ const Planning = () => {
           onOpenChange={setIsDialogOpen}
           pendingOrders={pendingOrders}
           orders={orders}
+          nextJobNumber={nextJobNumber} 
           onCreateJob={handleCreateJobFromDialog}
           generateJobNumber={memoizedGenerateJobNumber}
           calculateInProgressJobQty={calculateInProgressJobQty}
@@ -1681,10 +2030,10 @@ const Planning = () => {
                 {(filteredJobs.length > 0 ? filteredJobs : jobs).map((job: any) => (
                   <Card key={job.id} className="flex flex-col border border-border/60 shadow-sm h-full">
                     <CardHeader className="pb-3">
-                      <div className="text-xs font-semibold text-primary mb-1">{job.id}</div>
+                      <div className="text-xs font-semibold text-primary mb-1">{job.job_number}</div>
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
-                          <CardTitle className="text-base truncate">{job.productName}</CardTitle>
+                          <CardTitle className="text-base truncate">{job.product_name}</CardTitle>
                           <p className="mt-1 text-[11px] uppercase tracking-wide text-muted-foreground">
                             {job.orderId && <>ORDER {job.orderId}</>}
                           </p>
@@ -1710,11 +2059,11 @@ const Planning = () => {
                       <div className="space-y-2 text-sm">
                         <div className="flex items-center justify-between">
                           <span className="text-muted-foreground">Item Code</span>
-                          <span className="font-medium">{job.itemCode || "N/A"}</span>
+                          <span className="font-medium">{job.assembly || "N/A"}</span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-muted-foreground">Job Quantity</span>
-                          <span className="font-medium">{job.quantity}</span>
+                          <span className="font-medium">{job.start}</span>
                         </div>
                         {job.orderId && (() => {
                           const order = orders.find((o: any) => o.id === job.orderId);
@@ -1751,11 +2100,11 @@ const Planning = () => {
                         })()}
                         <div className="flex items-center justify-between">
                           <span className="text-muted-foreground">Quantity</span>
-                          <span className="font-medium">{job.quantity}</span>
+                          <span className="font-medium">{job.start}</span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-muted-foreground">Due Date</span>
-                          <span className="font-medium">{job.dueDate || "-"}</span>
+                          <span className="font-medium">{job.completion_date || "-"}</span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-muted-foreground">Priority</span>
@@ -1771,7 +2120,7 @@ const Planning = () => {
                       <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
                         <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-muted-foreground">
                           <Clock className="mr-1 h-3 w-3" />
-                          Created: {new Date(job.createdAt).toLocaleDateString()}
+                          Created: {new Date(job.created_at).toLocaleDateString()}
                         </span>
                         <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-muted-foreground">
                           <TrendingUp className="mr-1 h-3 w-3" />
@@ -1832,7 +2181,7 @@ const Planning = () => {
                             variant="ghost"
                             size="sm"
                             className="h-9 flex-1 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                            onClick={() => handleDeleteJob(job.id)}
+                            onClick={() => handleDeleteJob(job)}
                           >
                             <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                             Delete

@@ -1,0 +1,39 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+       Schema::create('job_moves', function (Blueprint $table) {
+    $table->id();
+
+    $table->foreignId('job_id')->constrained()->cascadeOnDelete();
+
+    $table->integer('seq')->default(10);
+
+    $table->integer('in_queue')->default(0);
+    $table->integer('running')->default(0);
+    $table->integer('to_move')->default(0);
+    $table->integer('rejected')->default(0);
+    $table->integer('scrapped')->default(0);
+    $table->integer('completed')->default(0);
+
+    $table->timestamps();
+});
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('job_moves');
+    }
+};

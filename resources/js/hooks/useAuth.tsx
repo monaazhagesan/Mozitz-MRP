@@ -19,6 +19,7 @@ interface AuthContextType {
   signUp: (email: string, password: string) => Promise<any>;
   signIn: (email: string, password: string) => Promise<any>;
   signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<any>;
   loading: boolean;
 }
 
@@ -121,6 +122,33 @@ const signIn = async (email: string, password: string) => {
 };
 
 
+const resetPassword = async (email: string) => {
+  try {
+    await axios.get('/sanctum/csrf-cookie');
+
+    const res = await axios.post('/api/forgot-password', {
+      email,
+    });
+
+    return {
+      error: null,
+      message: res.data.message,
+    };
+  } catch (error: any) {
+    if (error.response) {
+      return {
+        error:
+          error.response.data?.message ||
+          'Failed to send reset email',
+      };
+    }
+
+    return {
+      error: 'Server not responding',
+    };
+  }
+};
+
   const signOut = async () => {
     await axios.post('/logout');
     setUser(null);
@@ -129,7 +157,7 @@ const signIn = async (email: string, password: string) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user,session, signUp, signIn, signOut, loading }}>
+    <AuthContext.Provider value={{ user,session, signUp, signIn, signOut, resetPassword, loading }}>
       {children}
     </AuthContext.Provider>
   );

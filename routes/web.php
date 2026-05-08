@@ -40,6 +40,13 @@ use App\Http\Controllers\UserRoleController;
 |
 */
 
+Route::get('/user/reset-password-form', [AuthController::class, 'showResetForm'])
+    ->name('user.reset-password-form');
+
+Route::post('/user/reset-password-submit', [AuthController::class, 'submitNewPassword'])
+    ->name('user.reset-password-submit');
+
+
 Route::get('{any}', function () {
     return view('app');
 })->where('any', '.*');

@@ -537,7 +537,7 @@ const loadInventory = async () => {
   // Migrate existing items to set usability based on item type
 
 
-const migrateUsabilityData = async () => {
+/* const migrateUsabilityData = async () => {
   try {
     console.log("Starting usability data migration...");
 
@@ -750,7 +750,7 @@ const migrateUsabilityData = async () => {
       variant: "destructive",
     });
   }
-};
+};  */
 
 
   // Load items from database on mount and listen for realtime updates
@@ -759,7 +759,7 @@ useEffect(() => {
   const loadItems = async () => {
     try {
       // 1️⃣ Run migration first
-      await migrateUsabilityData();
+   //   await migrateUsabilityData();
 
       // 2️⃣ Fetch inventory items
       const itemsRes = await axios.get("/api/inventory-stock", {

@@ -1,6 +1,6 @@
 {
-  "_html2canvas-CsDZQLvH.js": {
-    "file": "assets/html2canvas-CsDZQLvH.js",
+  "_html2canvas-Cx7ltl3J.js": {
+    "file": "assets/html2canvas-Cx7ltl3J.js",
     "name": "html2canvas",
     "isDynamicEntry": true,
     "imports": [
@@ -8,7 +8,7 @@
     ]
   },
   "node_modules/canvg/lib/index.es.js": {
-    "file": "assets/index.es-3Q0L44JW.js",
+    "file": "assets/index.es-BLl-SPJt.js",
     "name": "index.es",
     "src": "node_modules/canvg/lib/index.es.js",
     "isDynamicEntry": true,
@@ -23,7 +23,7 @@
     "isDynamicEntry": true
   },
   "resources/css/app.css": {
-    "file": "assets/app-ByAknZEB.css",
+    "file": "assets/app-CGc0aHiV.css",
     "src": "resources/css/app.css",
     "isEntry": true
   },
@@ -32,17 +32,17 @@
     "src": "resources/js/assets/logo.jpg"
   },
   "resources/js/main.tsx": {
-    "file": "assets/main-brl4rCZ2.js",
+    "file": "assets/main-BgR4-4PQ.js",
     "name": "main",
     "src": "resources/js/main.tsx",
     "isEntry": true,
     "dynamicImports": [
-      "_html2canvas-CsDZQLvH.js",
+      "_html2canvas-Cx7ltl3J.js",
       "node_modules/dompurify/dist/purify.es.mjs",
       "node_modules/canvg/lib/index.es.js"
     ],
     "css": [
-      "assets/main-DtVP931n.css"
+      "assets/main-DBcStZ7Z.css"
     ],
     "assets": [
       "assets/logo-Dzy0b47O.jpg"

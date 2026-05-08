@@ -37,7 +37,7 @@ export const ViewJobDialog = ({ open, onOpenChange, job }: ViewJobDialogProps) =
   // Get BOM items and operations from job data
   const bomItems = job?.bomItems || [];
   const operations = job?.operations || [];
-  const moveQuantities = job?.moveQuantities || {};
+const moveQuantities = Array.isArray(job?.moves) ? job.moves : [];
   const rejectionTransactions = job?.rejectionTransactions || [];
 
   // Issued quantities map (synced from Material Issues module)
@@ -45,26 +45,36 @@ export const ViewJobDialog = ({ open, onOpenChange, job }: ViewJobDialogProps) =
 
   // Calculate quantities data from BOM items
   const bomQuantities = bomItems.map((item: any) => {
-    const itemCode = item.itemCode || item.item_code || item.component;
-    const issued = issuedQuantities[itemCode] ?? item.issuedQty ?? 0;
-    return {
-      component: item.component,
-      uom: item.uom || "EA",
-      basisType: "Item",
-      perAssembly: item.quantity / (parseFloat(job?.quantity) || 1),
-      inverseUsage: ((parseFloat(job?.quantity) || 1) / item.quantity).toFixed(4),
-      yield: 100,
-      required: item.quantity,
-      issued,
-      open: Math.max(0, item.quantity - issued),
-      onHand: item.onHand || 0,
-    };
-  });
+  const itemCode = item.itemCode || item.item_code || item.component;
+
+  const qty = Number(item.qty ?? item.quantity ?? item.required_qty ?? 0);
+
+  const issued = Number(
+    issuedQuantities[itemCode] ?? item.issuedQty ?? 0
+  );
+
+  const perAssembly = Number(
+    item.per_assembly ?? item.perAssembly ?? item.bom_qty ?? item.qty ?? 0
+  );
+
+  return {
+    component: item.component || item.itemCode || "-",
+    uom: item.uom || "pcs",
+
+    per_assembly: isNaN(perAssembly) ? 0 : perAssembly,
+    required: isNaN(qty) ? 0 : qty,
+    issued: isNaN(issued) ? 0 : issued,
+
+    open: Math.max(0, qty - issued),
+  };
+});
   
   // Get operation sequences for move quantities display
-  const operationSequences = operations.length > 0 
-    ? operations.map((op: any) => op.sequence || op.operationSeq)
-    : Object.keys(moveQuantities).map(Number).sort((a, b) => a - b);
+ const operationSequences = [
+  ...new Set(
+    moveQuantities.map((m: any) => Number(m.seq))
+  )
+].sort((a, b) => a - b);
 
   const getStatusColor = (status: string) => {
     switch (status?.toLowerCase()) {
@@ -87,11 +97,11 @@ export const ViewJobDialog = ({ open, onOpenChange, job }: ViewJobDialogProps) =
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl p-0 gap-0 overflow-hidden bg-portal-fieldset border-2 border-portal-border shadow-lg">
-        {/* Header Bar - Portal Style */}
+<DialogContent className="max-w-5xl p-0 gap-0 overflow-hidden bg-white z-[999] border-2 border-portal-border shadow-lg">
+          {/* Header Bar - Portal Style */}
         <div className="flex items-center justify-between px-3 py-1.5 bg-portal-header text-portal-header-foreground">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">View Job - {job.jobNumber || job.id}</span>
+            <span className="text-sm font-medium">View Job - {job.job_number || job.id}</span>
             <Badge className={`${getStatusColor(job.status)} text-[10px] ml-2`}>
               {job.status}
             </Badge>
@@ -116,13 +126,13 @@ export const ViewJobDialog = ({ open, onOpenChange, job }: ViewJobDialogProps) =
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <ErpLabel className="w-20 text-right">Job</ErpLabel>
-                <ErpDisplay value={job.jobNumber || job.id} className="flex-1" />
+                <ErpDisplay value={job.job_number || job.id} className="flex-1" />
               </div>
               
               <div className="flex items-center gap-2">
                 <ErpLabel className="w-20 text-right">Assembly</ErpLabel>
-                <ErpDisplay value={job.itemCode} className="flex-1" />
-                <ErpDisplay value={job.itemDescription || job.productName} className="flex-1" />
+                <ErpDisplay value={job.assembly || job.item_code} className="flex-1" />
+                <ErpDisplay value={job.item_description || job.product_name} className="flex-1" />
               </div>
               
               <div className="flex items-center gap-2">
@@ -170,7 +180,7 @@ export const ViewJobDialog = ({ open, onOpenChange, job }: ViewJobDialogProps) =
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <ErpLabel className="w-20 text-right">Start</ErpLabel>
-                  <ErpDisplay value={job.quantity} className="w-32" />
+                  <ErpDisplay value={job.start} className="w-32" />
                 </div>
                 <div className="flex items-center gap-2">
                   <ErpLabel className="w-20 text-right">Completed</ErpLabel>
@@ -188,14 +198,14 @@ export const ViewJobDialog = ({ open, onOpenChange, job }: ViewJobDialogProps) =
                 <div className="flex items-center gap-2">
                   <ErpLabel className="w-24 text-right">Start</ErpLabel>
                   <ErpDisplay 
-                    value={job.startDate ? new Date(job.startDate).toLocaleString() : "-"} 
+                    value={job.start_date ? new Date(job.start_date).toLocaleString() : "-"} 
                     className="flex-1" 
                   />
                 </div>
                 <div className="flex items-center gap-2">
                   <ErpLabel className="w-24 text-right">Due Date</ErpLabel>
                   <ErpDisplay 
-                    value={job.dueDate ? new Date(job.dueDate).toLocaleDateString() : "-"} 
+                    value={job.completion_date ? new Date(job.completion_date).toLocaleString() : "-"} 
                     className="flex-1" 
                   />
                 </div>
@@ -391,7 +401,7 @@ export const ViewJobDialog = ({ open, onOpenChange, job }: ViewJobDialogProps) =
                               <TableCell className="text-xs py-1">{item.itemSeq || idx + 1}</TableCell>
                               <TableCell className="text-xs py-1">{item.component}</TableCell>
                               <TableCell className="text-xs py-1">{item.description}</TableCell>
-                              <TableCell className="text-xs py-1">{item.quantity}</TableCell>
+                              <TableCell className="text-xs py-1">{item.qty}</TableCell>
                               <TableCell className="text-xs py-1">{item.uom}</TableCell>
                               <TableCell className="text-xs py-1">
                                 <Badge variant="outline" className="text-[10px]">{item.status || "Available"}</Badge>
@@ -431,7 +441,7 @@ export const ViewJobDialog = ({ open, onOpenChange, job }: ViewJobDialogProps) =
                           >
                             <TableCell className="text-[11px] py-1 px-2 font-medium border-r border-portal-border">{item.component}</TableCell>
                             <TableCell className="text-[11px] py-1 px-2 border-r border-portal-border">{item.uom}</TableCell>
-                            <TableCell className="text-[11px] py-1 px-2 border-r border-portal-border text-right">{item.perAssembly.toFixed(2)}</TableCell>
+                            <TableCell className="text-[11px] py-1 px-2 border-r border-portal-border text-right">{Number(item.per_assembly || 0).toFixed(2)}</TableCell>
                             <TableCell className="text-[11px] py-1 px-2 border-r border-portal-border text-right bg-yellow-100 font-medium">{item.required}</TableCell>
                             <TableCell className="text-[11px] py-1 px-2 border-r border-portal-border text-right">{item.issued}</TableCell>
                             <TableCell className="text-[11px] py-1 px-2 text-right">{item.open}</TableCell>
@@ -504,33 +514,63 @@ export const ViewJobDialog = ({ open, onOpenChange, job }: ViewJobDialogProps) =
                           <TableHead className="text-[10px] py-1 px-2 font-medium text-portal-input-foreground text-right">Completed</TableHead>
                         </TableRow>
                       </TableHeader>
-                      <TableBody>
-                        {operationSequences.length > 0 ? (
-                          operationSequences.map((seq: number, idx: number) => {
-                            const op = operations.find((o: any) => (o.sequence || o.operationSeq) === seq);
-                            const qtyData = moveQuantities[seq] || { inQueue: 0, running: 0, rejected: 0, completed: 0 };
-                            return (
-                              <TableRow 
-                                key={seq} 
-                                className={`${idx % 2 === 0 ? "bg-white" : "bg-portal-input"} hover:bg-blue-50 border-b border-portal-border`}
-                              >
-                                <TableCell className="text-[11px] py-1 px-2 font-medium border-r border-portal-border">{seq}</TableCell>
-                                <TableCell className="text-[11px] py-1 px-2 border-r border-portal-border">{op?.name || op?.operationCode || "-"}</TableCell>
-                                <TableCell className="text-[11px] py-1 px-2 border-r border-portal-border text-right">{qtyData.inQueue || 0}</TableCell>
-                                <TableCell className="text-[11px] py-1 px-2 border-r border-portal-border text-right">{qtyData.running || 0}</TableCell>
-                                <TableCell className="text-[11px] py-1 px-2 border-r border-portal-border text-right text-red-600 font-medium">{qtyData.rejected || 0}</TableCell>
-                                <TableCell className="text-[11px] py-1 px-2 text-right text-green-600 font-medium">{qtyData.completed || 0}</TableCell>
-                              </TableRow>
-                            );
-                          })
-                        ) : (
-                          <TableRow>
-                            <TableCell colSpan={6} className="text-center text-sm text-portal-label py-4">
-                              No move transactions recorded.
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
+                     <TableBody>
+  {operationSequences.length > 0 ? (
+    operationSequences.map((seq: number, idx: number) => {
+      const op = operations.find(
+        (o: any) => Number(o.seq || o.operationSeq) === Number(seq)
+      );
+
+      const raw = moveQuantities.find(
+        (m: any) => Number(m.seq) === Number(seq)
+      );
+
+      const qtyData = {
+        inQueue: raw?.in_queue ?? 0,
+        running: raw?.running ?? 0,
+        rejected: raw?.rejected ?? 0,
+        completed: raw?.completed ?? 0,
+      };
+
+      return (
+        <TableRow
+          key={seq}
+          className={`${idx % 2 === 0 ? "bg-white" : "bg-portal-input"} hover:bg-blue-50 border-b border-portal-border`}
+        >
+          <TableCell className="text-[11px] py-1 px-2 font-medium border-r border-portal-border">
+            {seq}
+          </TableCell>
+
+          <TableCell className="text-[11px] py-1 px-2 border-r border-portal-border">
+            {op?.name || op?.operationCode || `Operation ${seq}`}
+          </TableCell>
+
+          <TableCell className="text-[11px] py-1 px-2 border-r border-portal-border text-right">
+            {qtyData.inQueue}
+          </TableCell>
+
+          <TableCell className="text-[11px] py-1 px-2 border-r border-portal-border text-right">
+            {qtyData.running}
+          </TableCell>
+
+          <TableCell className="text-[11px] py-1 px-2 border-r border-portal-border text-right text-red-600 font-medium">
+            {qtyData.rejected}
+          </TableCell>
+
+          <TableCell className="text-[11px] py-1 px-2 text-right text-green-600 font-medium">
+            {qtyData.completed}
+          </TableCell>
+        </TableRow>
+      );
+    })
+  ) : (
+    <TableRow>
+      <TableCell colSpan={6} className="text-center text-sm text-portal-label py-4">
+        No move transactions recorded.
+      </TableCell>
+    </TableRow>
+  )}
+</TableBody>
                     </Table>
                   </div>
                 </div>
@@ -582,7 +622,7 @@ export const ViewJobDialog = ({ open, onOpenChange, job }: ViewJobDialogProps) =
                   <div className="flex items-center gap-2">
                     <ErpLabel className="w-24 text-right">Created</ErpLabel>
                     <ErpDisplay 
-                      value={job.createdAt ? new Date(job.createdAt).toLocaleString() : "-"} 
+                      value={job.created_at ? new Date(job.created_at).toLocaleString() : "-"} 
                       className="flex-1" 
                     />
                   </div>

@@ -6,6 +6,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use App\Models\User;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Facades\Validator;
+use App\Mail\UserResetPasswordMail;
+use Illuminate\Support\Facades\Mail;
+
 
 class AuthController extends Controller
 {
@@ -73,6 +78,63 @@ class AuthController extends Controller
             'message' => 'Logged out'
         ]);
     }
+
+    public function forgotPassword(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email|exists:users,email',
+        ]);
+
+        $user = User::where('email', $request->email)->first();
+
+         $token = Password::createToken($user);
+
+        Mail::to($user->email)->send(new UserResetPasswordMail($token, $user->email));
+
+        return response()->json([
+            'message' => 'Password reset link sent successfully.'
+        ]);
+    }
+
+
+     public function showResetForm(Request $request)
+    {
+        return view('user.reset-password-form', [
+            'token' => $request->token,
+            'email' => $request->email,
+        ]);
+    }
+
+    // ✅ Handle form submission and save new password
+   public function submitNewPassword(Request $request)
+{
+    $request->validate([
+        'token' => 'required|string',
+        'email' => 'required|email|exists:users,email',
+        'password' => 'required|string|min:8|confirmed',
+    ]);
+
+    $status = Password::broker('users')->reset(
+        $request->only('email', 'password', 'password_confirmation', 'token'),
+        function ($admin, $password) {
+            $admin->password = Hash::make($password);
+            $admin->save();
+        }
+    );
+
+    if ($status === Password::PASSWORD_RESET) {
+        // ✅ Return JSON response for React SPA
+        return response()->json([
+            'success' => true,
+            'message' => 'Password reset successfully. You can now log in.',
+        ]);
+    }
+
+    return response()->json([
+        'success' => false,
+        'message' => 'Invalid token or email.',
+    ], 400);
+}
 
     // Get authenticated user
     public function user()

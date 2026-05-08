@@ -114,16 +114,16 @@ export function JobSearchResultsDialog({
                           <div className="w-0 h-0 border-t-4 border-t-transparent border-b-4 border-b-transparent border-l-6 border-l-current ml-1"></div>
                         )}
                       </td>
-                      <td className="px-2 py-1 border-r border-[#d4d0c8] font-normal">{job.id || job.jobNumber || ""}</td>
+                      <td className="px-2 py-1 border-r border-[#d4d0c8] font-normal">{job.job_number || job.job_number || ""}</td>
                       <td className="px-2 py-1 border-r border-[#d4d0c8]">
                         <div className="flex items-center">
                           <span>{job.type || "Standard"}</span>
                           <span className="ml-1 text-[10px]">▼</span>
                         </div>
                       </td>
-                      <td className="px-2 py-1 border-r border-[#d4d0c8]">{job.itemCode || job.productName || ""}</td>
-                      <td className="px-2 py-1 border-r border-[#d4d0c8]">{job.quantity || ""}</td>
-                      <td className="px-2 py-1">{job.class || `${job.status?.substring(0, 3).toUpperCase() || "PND"}-WAC-M4`}</td>
+                      <td className="px-2 py-1 border-r border-[#d4d0c8]">{job.assembly || job.product_name || ""}</td>
+                      <td className="px-2 py-1 border-r border-[#d4d0c8]">{job.start || ""}</td>
+                      <td className="px-2 py-1">{ `${job.status?.substring(0, 3).toUpperCase() || "PND"}-WAC-M4`}</td>
                     </tr>
                   ))
                 )}

@@ -1,15 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogHeader } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Search, Eye, Play, CheckCircle, Clock, Factory, ArrowRight, AlertTriangle, XCircle, History } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import axios from "axios";
 
 // ERP-style input component
 const ErpInput = ({ className = "", ...props }: React.ComponentProps<"input">) => (
@@ -33,6 +34,7 @@ interface MoveQuantity {
   rejected: number;
   scrapped: number;
   completed: number;
+  startQty?: number; // for first operation
 }
 
 interface RejectionTransaction {
@@ -60,7 +62,9 @@ const ShopFloor = () => {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  
+  const hasCompletedRef = useRef(false);
+  const hasInitializedRef = useRef(false);
+
   // Load jobs from localStorage
   const [jobs, setJobs] = useState<any[]>(() => {
     const saved = localStorage.getItem("jobs");
@@ -69,61 +73,83 @@ const ShopFloor = () => {
 
   const [selectedJob, setSelectedJob] = useState<any>(null);
   const [isJobMoveDialogOpen, setIsJobMoveDialogOpen] = useState(false);
-  
+
   // Move quantities state for each operation
   const [moveQuantities, setMoveQuantities] = useState<{ [seq: number]: MoveQuantity }>({});
-  
+
+  console.log("SELECTED JOB:", selectedJob);
+  console.log("OPERATIONS:", selectedJob?.operations);
+  console.log("MOVE QTY:", moveQuantities);
+
   // Rejection reason dialog state
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
-  
+
   // History dialog state
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
+  const [transactions, setTransactions] = useState([]);
 
   useEffect(() => {
-    const handleStorageChange = () => {
-      const saved = localStorage.getItem("jobs");
-      if (saved) {
-        setJobs(JSON.parse(saved));
+    if (!selectedJob?.id) return;
+
+    axios
+      .get(`/api/move-transactions/job/${selectedJob.id}`)
+      .then((res) => {
+        setTransactions(res.data.data);
+      });
+  }, [selectedJob]);
+
+
+  useEffect(() => {
+    const fetchJobs = async () => {
+      try {
+        const res = await fetch("/api/jobs");
+        const data = await res.json();
+
+        console.log("parsed data:", data);
+        console.log("jobs array:", data.data);
+
+        setJobs(data.data); // ✅ FIX HERE
+      } catch (err) {
+        console.error("Failed to fetch jobs:", err);
       }
     };
 
-    window.addEventListener("storage", handleStorageChange);
-    // Also poll for changes (in case storage event doesn't fire in same tab)
-    const interval = setInterval(handleStorageChange, 1000);
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-      clearInterval(interval);
-    };
+    fetchJobs();
   }, []);
 
   // Initialize move quantities when a job is selected
   useEffect(() => {
-    if (selectedJob) {
-      const qty = parseInt(selectedJob.quantity) || 0;
-      const operations = selectedJob.operations || [];
-      const sequences = operations.length > 0 
-        ? operations.map((op: any, idx: number) => op.sequence || (idx + 1) * 10)
+    if (!selectedJob) return;
+
+    const qty = parseInt(selectedJob.start || selectedJob.start || 0);
+
+    const moves = selectedJob.moves || [];
+
+    const sequences =
+      moves.length > 0
+        ? moves.map((m: any) => m.seq)
         : [10, 20, 30];
-      
-      // Load saved move quantities or initialize
-      const savedMoveData = selectedJob.moveQuantities || {};
-      
-      const initialQuantities: { [seq: number]: MoveQuantity } = {};
-      sequences.forEach((seq: number, idx: number) => {
-        initialQuantities[seq] = savedMoveData[seq] || {
-          inQueue: idx === 0 ? qty : 0,
-          running: 0,
-          toMove: 0,
-          toReject: 0,
-          toScrap: 0,
-          rejected: 0,
-          scrapped: 0,
-          completed: 0,
-        };
-      });
-      setMoveQuantities(initialQuantities);
-    }
+
+    const initialQuantities: { [seq: number]: MoveQuantity } = {};
+
+    sequences.forEach((seq: number, idx: number) => {
+      const move = moves.find((m: any) => m.seq === seq);
+
+      initialQuantities[seq] = {
+        inQueue: move?.inQueue ?? move?.in_queue ?? (idx === 0 ? qty : 0),
+        running: move?.running ?? 0,
+        startQty: move?.startQty ?? 0,
+        toMove: move?.toMove ?? move?.to_move ?? 0,
+        toReject: move?.toReject ?? 0,
+        toScrap: 0,
+        rejected: move?.rejected ?? 0,
+        scrapped: move?.scrapped ?? 0,
+        completed: move?.completed ?? 0,
+      };
+    });
+
+    setMoveQuantities(initialQuantities);
   }, [selectedJob]);
 
   const handleOpenJobMove = (job: any) => {
@@ -143,257 +169,288 @@ const ShopFloor = () => {
   };
 
   // Calculate total active quantities (excluding rejected/scrapped which are removed from flow)
-  const calculateTotalActiveQty = (quantities: { [seq: number]: MoveQuantity }) => {
-    let totalActive = 0;
-    Object.values(quantities).forEach(q => {
-      totalActive += (q.inQueue || 0) + (q.running || 0) + (q.completed || 0);
+  const calculateTotalActiveQty = (quantities: any) => {
+    let total = 0;
+
+    Object.values(quantities).forEach((q: any) => {
+      total += (q.inQueue || 0) + (q.running || 0);
     });
-    return totalActive;
+
+    return total;
   };
+
+
+  const calculateJobStatus = (quantities: any, job: any) => {
+  const totalQty = Number(job?.quantity || 0);
+
+  let completed = 0;
+
+  Object.values(quantities).forEach((q: any) => {
+    completed += q.completed || 0;
+  });
+
+  if (completed >= totalQty) return "Completed";
+
+  const hasRunning = Object.values(quantities).some(
+    (q: any) => q.running > 0
+  );
+
+  if (hasRunning) return "In Progress";
+
+  return "Released";
+};
 
   // Handle Move Transaction - moves quantities through the workflow
   // Flow: In Queue -> Running -> To Move -> Next Operation's In Queue (or Completed if last)
-  const handleMoveTransaction = () => {
-    const sequences = Object.keys(moveQuantities).map(Number).sort((a, b) => a - b);
-    let hasChanges = false;
-    let errorMessage = "";
-    const jobQty = parseInt(selectedJob?.quantity) || 0;
-    
+  const handleMoveTransaction = async () => {
+    if (!selectedJob) return;
+
+    const sequences = Object.keys(moveQuantities)
+      .map(Number)
+      .sort((a, b) => a - b);
+
+    const movesPayload: any[] = [];
     const newQuantities = { ...moveQuantities };
-    const newTransactions: MoveTransaction[] = [];
-    const operations = selectedJob?.operations || [];
-    
-    sequences.forEach((seq, idx) => {
+
+    for (let i = 0; i < sequences.length; i++) {
+      const seq = sequences[i];
       const current = newQuantities[seq];
-      const toMoveQty = current.toMove || 0;
-      
-      if (toMoveQty > 0) {
-        // Validate: toMove cannot exceed running quantity
-        if (toMoveQty > current.running) {
-          errorMessage = `Seq ${seq}: Cannot move ${toMoveQty} - only ${current.running} in Running.`;
-          return;
-        }
-        
-        // Validate: next operation's In Queue cannot exceed Job Quantity
-        if (idx < sequences.length - 1) {
-          const nextSeq = sequences[idx + 1];
-          const nextInQueue = (newQuantities[nextSeq]?.inQueue || 0) + toMoveQty;
-          if (nextInQueue > jobQty) {
-            errorMessage = `Seq ${nextSeq}: In-Queue (${nextInQueue}) would exceed Job Quantity (${jobQty}). Rejected quantities cannot move forward.`;
-            return;
-          }
-        }
-        
-        hasChanges = true;
-        
-        // Get operation name for logging
-        const op = operations.find((o: any) => (o.sequence || 10) === seq);
-        const opName = op?.name || op?.operationCode || op?.description || `Operation ${seq / 10}`;
-        
-        // Deduct from Running
-        newQuantities[seq] = {
-          ...newQuantities[seq],
-          running: current.running - toMoveQty,
-          toMove: 0,
-        };
-        
-        // Move to next operation's In Queue or to Completed if last operation
-        if (idx < sequences.length - 1) {
-          const nextSeq = sequences[idx + 1];
-          const nextOp = operations.find((o: any) => (o.sequence || 10) === nextSeq);
-          const nextOpName = nextOp?.name || nextOp?.operationCode || nextOp?.description || `Operation ${nextSeq / 10}`;
-          
-          newQuantities[nextSeq] = {
-            ...newQuantities[nextSeq],
-            inQueue: (newQuantities[nextSeq]?.inQueue || 0) + toMoveQty,
-          };
-          
-          // Log move transaction
-          newTransactions.push({
-            id: `TXN-${Date.now()}-${seq}`,
-            seq,
-            operationName: opName,
-            transactionType: 'move',
-            quantity: toMoveQty,
-            fromStatus: `Running (${opName})`,
-            toStatus: `In Queue (${nextOpName})`,
-            timestamp: new Date().toISOString(),
-            user: 'Current User',
-          });
-        } else {
-          // Last operation - move to Completed
-          newQuantities[seq] = {
-            ...newQuantities[seq],
-            completed: (newQuantities[seq].completed || 0) + toMoveQty,
-          };
-          
-          // Log completion transaction
-          newTransactions.push({
-            id: `TXN-${Date.now()}-${seq}`,
-            seq,
-            operationName: opName,
-            transactionType: 'complete',
-            quantity: toMoveQty,
-            fromStatus: `Running (${opName})`,
-            toStatus: 'Completed',
-            timestamp: new Date().toISOString(),
-            user: 'Current User',
-          });
-        }
+
+      const toMoveQty = Number(current?.toMove || 0);
+      if (!toMoveQty) continue;
+
+      if (toMoveQty > (current?.running || 0)) {
+        toast({
+          title: "Error",
+          description: `Seq ${seq}: Only ${current.running} running available`,
+          variant: "destructive",
+        });
+        return;
       }
-    });
-    
-    if (errorMessage) {
-      toast({
-        title: "Move Transaction Error",
-        description: errorMessage,
-        variant: "destructive",
-      });
-      return;
+
+      const nextSeq = sequences[i + 1];
+
+      // 🔥 update UI logic
+      newQuantities[seq] = {
+        ...current,
+        running: (current.running || 0) - toMoveQty,
+        toMove: 0,
+      };
+
+      if (nextSeq) {
+        newQuantities[nextSeq] = {
+          ...newQuantities[nextSeq],
+          inQueue: (newQuantities[nextSeq]?.inQueue || 0) + toMoveQty,
+        };
+      } else {
+        newQuantities[seq].completed += toMoveQty;
+      }
+
+      // ================================
+      // 1️⃣ JOB MOVE UPDATE PAYLOAD
+      // ================================
+      const jobMovePayload = {
+        seq,
+        in_queue: newQuantities[seq].inQueue || 0,
+        running: newQuantities[seq].running || 0,
+        to_move: toMoveQty,
+        rejected: newQuantities[seq].rejected || 0,
+        scrapped: newQuantities[seq].scrapped || 0,
+        completed: newQuantities[seq].completed || 0,
+      };
+
+      movesPayload.push(jobMovePayload);
+
+      // ================================
+      // 2️⃣ MOVE TRANSACTION PAYLOAD (NEW)
+      // ================================
+      const txnPayload = {
+        job_id: selectedJob.id,
+        seq: seq,
+        quantity: toMoveQty,
+        transaction_type: "move",
+        operation_name: getOperationName(seq),
+        from_status: "Running",
+        to_status: nextSeq ? "In Queue" : "Completed",
+        user: "Current User",
+      };
+
+      // 🔥 SAVE TRANSACTION (NEW API)
+      try {
+        await axios.post("/api/move-transactions", txnPayload);
+      } catch (err) {
+        console.error("Transaction save failed:", err);
+      }
     }
-    
-    // Final validation: total active quantities should not exceed job quantity
-    const totalActive = calculateTotalActiveQty(newQuantities);
-    if (totalActive > jobQty) {
-      toast({
-        title: "Move Transaction Error",
-        description: `Total active quantity (${totalActive}) would exceed Job Quantity (${jobQty}). Check your quantities.`,
-        variant: "destructive",
+
+    try {
+      // ================================
+      // 3️⃣ UPDATE JOB MOVE STATE
+      // ================================
+      const jobStatus = calculateJobStatus(newQuantities, selectedJob);
+
+      const res = await axios.post("/api/job-moves/update", {
+        job_id: selectedJob.id,
+        moves: movesPayload,
+        job_status: jobStatus,
       });
-      return;
-    }
-    
-    if (hasChanges) {
-      setMoveQuantities(newQuantities);
-      
-      // Update job status to "In Progress" and save move quantities with transactions
-      const existingTransactions = selectedJob.moveTransactions || [];
-      const updatedJobs = jobs.map((job: any) => {
-        if (job.id === selectedJob.id) {
-          const newStatus = job.status === "Released" || job.status === "Pending" ? "In Progress" : job.status;
-          return { 
-            ...job, 
-            status: newStatus,
-            moveQuantities: newQuantities,
-            moveTransactions: [...existingTransactions, ...newTransactions],
-          };
-        }
-        return job;
+
+      console.log("📥 DB RESPONSE:", res.data);
+
+      // refresh job
+      const refreshed = await axios.get(`/api/jobs/${selectedJob.id}`);
+      const job = refreshed.data;
+
+      setSelectedJob(job);
+
+      // rebuild from DB
+      const rebuilt: any = {};
+
+      (job.moves || []).forEach((m: any) => {
+        rebuilt[m.seq] = {
+          inQueue: m.in_queue || 0,
+          running: m.running || 0,
+          toMove: 0,
+          toReject: 0,
+          toScrap: 0,
+          rejected: m.rejected || 0,
+          scrapped: m.scrapped || 0,
+          completed: m.completed || 0,
+          startQty: 0,
+        };
       });
-      
-      localStorage.setItem("jobs", JSON.stringify(updatedJobs));
-      setJobs(updatedJobs);
-      setSelectedJob((prev: any) => ({ 
-        ...prev, 
-        status: prev.status === "Released" || prev.status === "Pending" ? "In Progress" : prev.status,
-        moveQuantities: newQuantities,
-        moveTransactions: [...existingTransactions, ...newTransactions],
-      }));
-      
+
+      setMoveQuantities(rebuilt);
+
       toast({
-        title: "Move Transaction Completed",
-        description: "Quantities moved successfully. Job status updated.",
+        title: "Success",
+        description: "Move + Transactions saved successfully",
       });
-    } else {
+    } catch (err: any) {
+      console.error(err);
+
       toast({
-        title: "No Quantities to Move",
-        description: "Enter quantities in 'To Move' column first.",
+        title: "Error",
+        description: err.message,
         variant: "destructive",
       });
     }
   };
 
   // Move from In Queue to Running
-  const handleMoveToRunning = (seq: number, qty: number) => {
+  const handleMoveToRunning = async (seq: number, qty: number) => {
     const current = moveQuantities[seq];
-    const jobQty = parseInt(selectedJob?.quantity) || 0;
-    
-    // Validate: quantity cannot exceed what's in queue
-    if (qty > current.inQueue) {
+    if (!current) return;
+
+    const startQty = Number(qty || 0);
+    const jobQty = Number(selectedJob?.start || 0);
+
+    if (startQty <= 0) return;
+
+    if (startQty > current.inQueue) {
       toast({
         title: "Invalid Quantity",
-        description: `Cannot move ${qty} - only ${current.inQueue} in queue.`,
+        description: `Cannot start ${startQty} - only ${current.inQueue} in queue.`,
         variant: "destructive",
       });
       return;
     }
-    
-    // Validate: In-Queue cannot exceed Job Quantity
-    if (current.inQueue > jobQty) {
-      toast({
-        title: "Invalid In-Queue Quantity",
-        description: `In-Queue (${current.inQueue}) exceeds Job Quantity (${jobQty}). This should not happen - please check the data.`,
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    const newQuantities = {
+
+    const updated = {
       ...moveQuantities,
       [seq]: {
         ...current,
-        inQueue: current.inQueue - qty,
-        running: current.running + qty,
+        inQueue: current.inQueue - startQty,
+        running: current.running + startQty,
+        startQty: 0,
       },
     };
-    
-    // Final validation: total active quantities should not exceed job quantity
-    const totalActive = calculateTotalActiveQty(newQuantities);
+
+    // ✅ 1. update UI immediately
+    setMoveQuantities(updated);
+
+    const totalActive = calculateTotalActiveQty(updated);
+
     if (totalActive > jobQty) {
       toast({
         title: "Invalid Operation",
-        description: `Total active quantity (${totalActive}) would exceed Job Quantity (${jobQty}).`,
+        description: `Total active quantity (${totalActive}) exceeds Job Quantity (${jobQty}).`,
         variant: "destructive",
       });
       return;
     }
-    
-    // Log the transaction
+
     const transaction: MoveTransaction = {
       id: `TXN-${Date.now()}`,
       seq,
       operationName: getOperationName(seq),
-      transactionType: 'start',
-      quantity: qty,
-      fromStatus: 'In Queue',
-      toStatus: 'Running',
+      transactionType: "start",
+      quantity: startQty,
+      fromStatus: "In Queue",
+      toStatus: "Running",
       timestamp: new Date().toISOString(),
-      user: 'Current User',
+      user: "Current User",
     };
-    
-    setMoveQuantities(newQuantities);
-    saveJobMoveQuantities(newQuantities, [transaction]);
+
+    try {
+      // ✅ 2. persist to DB
+      const res = await axios.put(`/api/jobs/${selectedJob.id}`, {
+        ...selectedJob,
+        moves: Object.keys(updated).map((seq) => ({
+          seq: Number(seq),
+          in_queue: updated[seq].inQueue,
+          running: updated[seq].running,
+          to_move: updated[seq].toMove,
+          rejected: updated[seq].rejected,
+          scrapped: updated[seq].scrapped,
+          completed: updated[seq].completed,
+        })),
+      });
+
+      toast({
+        title: "Started Successfully",
+        description: "Quantity moved to Running.",
+      });
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  // Save move quantities to job
-  const saveJobMoveQuantities = (quantities: { [seq: number]: MoveQuantity }, newTransactions?: MoveTransaction[]) => {
-    const updatedJobs = jobs.map((job: any) => {
-      if (job.id === selectedJob.id) {
-        const newStatus = job.status === "Released" || job.status === "Pending" ? "In Progress" : job.status;
-        const existingTransactions = job.moveTransactions || [];
-        return { 
-          ...job, 
-          status: newStatus,
-          moveQuantities: quantities,
-          moveTransactions: newTransactions ? [...existingTransactions, ...newTransactions] : existingTransactions,
-        };
-      }
-      return job;
-    });
-    
-    localStorage.setItem("jobs", JSON.stringify(updatedJobs));
-    setJobs(updatedJobs);
-    setSelectedJob((prev: any) => {
-      const existingTransactions = prev.moveTransactions || [];
-      return { 
-        ...prev, 
-        status: prev.status === "Released" || prev.status === "Pending" ? "In Progress" : prev.status,
+  const saveJobMoveQuantities = async (
+    quantities: { [seq: number]: MoveQuantity },
+    newTransactions: MoveTransaction[] = []
+  ) => {
+    try {
+      const payload = {
+        ...selectedJob,
         moveQuantities: quantities,
-        moveTransactions: newTransactions ? [...existingTransactions, ...newTransactions] : existingTransactions,
+        moveTransactions: [
+          ...(selectedJob?.moveTransactions ?? []),
+          ...newTransactions,
+        ],
       };
-    });
-  };
 
+      const res = await axios.put(`/api/jobs/${selectedJob.id}`, payload);
+
+      const savedJob = res.data;
+
+      console.log("PUT RESPONSE:", savedJob);
+
+      // 🔥 ALWAYS trust backend response
+      setJobs((prev) =>
+        prev.map((job: any) =>
+          job.id === savedJob.id ? savedJob : job
+        )
+      );
+
+      setSelectedJob(savedJob);
+
+      // 🔥 normalize fallback
+      setMoveQuantities(savedJob.moveQuantities || {});
+    } catch (err) {
+      console.error("DB update failed", err);
+    }
+  };
   // Get operation name by sequence
   const getOperationName = (seq: number) => {
     const operations = selectedJob?.operations || [];
@@ -422,7 +479,7 @@ const ShopFloor = () => {
   };
 
   // Handle Reject Transaction - moves quantities from Running to Rejected (cannot proceed further)
-  const handleRejectTransaction = () => {
+  const handleRejectTransaction = async () => {
     if (!rejectReason.trim()) {
       toast({
         title: "Reason Required",
@@ -433,28 +490,25 @@ const ShopFloor = () => {
     }
 
     const sequences = Object.keys(moveQuantities).map(Number).sort((a, b) => a - b);
-    let hasChanges = false;
+
     let errorMessage = "";
-    
     const newQuantities = { ...moveQuantities };
+
     const newRejectionTransactions: RejectionTransaction[] = [];
     const newMoveTransactions: MoveTransaction[] = [];
-    
+
     sequences.forEach((seq) => {
       const current = newQuantities[seq];
       const toRejectQty = current.toReject || 0;
-      
+
       if (toRejectQty > 0) {
-        // Validate: toReject cannot exceed running quantity
         if (toRejectQty > current.running) {
           errorMessage = `Seq ${seq}: Cannot reject ${toRejectQty} - only ${current.running} in Running.`;
           return;
         }
-        
-        hasChanges = true;
+
         const opName = getOperationName(seq);
-        
-        // Record rejection transaction (legacy)
+
         newRejectionTransactions.push({
           seq,
           quantity: toRejectQty,
@@ -462,31 +516,29 @@ const ShopFloor = () => {
           timestamp: new Date().toISOString(),
           user: "Current User",
         });
-        
-        // Record move transaction for history
+
         newMoveTransactions.push({
           id: `TXN-${Date.now()}-${seq}`,
           seq,
           operationName: opName,
-          transactionType: 'reject',
+          transactionType: "reject",
           quantity: toRejectQty,
-          fromStatus: 'Running',
-          toStatus: 'Rejected',
+          fromStatus: "Running",
+          toStatus: "Rejected",
           reason: rejectReason.trim(),
           timestamp: new Date().toISOString(),
-          user: 'Current User',
+          user: "Current User",
         });
-        
-        // Deduct from Running and add to Rejected (rejected stays at this operation, cannot move forward)
+
         newQuantities[seq] = {
-          ...newQuantities[seq],
+          ...current,
           running: current.running - toRejectQty,
           toReject: 0,
           rejected: (current.rejected || 0) + toRejectQty,
         };
       }
     });
-    
+
     if (errorMessage) {
       toast({
         title: "Reject Transaction Error",
@@ -495,43 +547,71 @@ const ShopFloor = () => {
       });
       return;
     }
-    
-    if (hasChanges) {
-      // Save with rejection history
-      const existingRejections = selectedJob.rejectionTransactions || [];
-      const existingMoveTransactions = selectedJob.moveTransactions || [];
-      const updatedJobs = jobs.map((job: any) => {
-        if (job.id === selectedJob.id) {
-          const newStatus = job.status === "Released" || job.status === "Pending" ? "In Progress" : job.status;
-          return { 
-            ...job, 
-            status: newStatus,
-            moveQuantities: newQuantities,
-            rejectionTransactions: [...existingRejections, ...newRejectionTransactions],
-            moveTransactions: [...existingMoveTransactions, ...newMoveTransactions],
-          };
-        }
-        return job;
+
+    try {
+      const res = await axios.put(`/api/jobs/${selectedJob.id}`, {
+        ...selectedJob,
+        status:
+          selectedJob.status === "Released" || selectedJob.status === "Pending"
+            ? "In Progress"
+            : selectedJob.status,
+
+        moves: Object.keys(newQuantities).map((seq) => ({
+          seq: Number(seq),
+          in_queue: newQuantities[Number(seq)].inQueue,
+          running: newQuantities[Number(seq)].running,
+          to_move: newQuantities[Number(seq)].toMove,
+          rejected: newQuantities[Number(seq)].rejected,
+          scrapped: newQuantities[Number(seq)].scrapped,
+          completed: newQuantities[Number(seq)].completed,
+        })),
+
+        rejectionTransactions: [
+          ...(selectedJob.rejectionTransactions || []),
+          ...newRejectionTransactions,
+        ],
+
+        moveTransactions: [
+          ...(selectedJob.moveTransactions || []),
+          ...newMoveTransactions,
+        ],
       });
-      
-      localStorage.setItem("jobs", JSON.stringify(updatedJobs));
-      setJobs(updatedJobs);
-      setSelectedJob((prev: any) => ({ 
-        ...prev, 
-        status: prev.status === "Released" || prev.status === "Pending" ? "In Progress" : prev.status,
-        moveQuantities: newQuantities,
-        rejectionTransactions: [...existingRejections, ...newRejectionTransactions],
-        moveTransactions: [...existingMoveTransactions, ...newMoveTransactions],
-      }));
-      setMoveQuantities(newQuantities);
-      
+
+      const updatedJob = res.data;
+
+      setSelectedJob(updatedJob);
+      setMoveQuantities(
+        Object.fromEntries(
+          (updatedJob.moves || []).map((m: any) => [
+            m.seq,
+            {
+              inQueue: m.in_queue || 0,
+              running: m.running || 0,
+              toMove: 0,
+              toReject: 0,
+              toScrap: 0,
+              rejected: m.rejected || 0,
+              scrapped: m.scrapped || 0,
+              completed: m.completed || 0,
+              startQty: 0,
+            },
+          ])
+        )
+      );
+
+      setJobs((prev) =>
+        prev.map((j) => (j.id === updatedJob.id ? updatedJob : j))
+      );
+
       setIsRejectDialogOpen(false);
       setRejectReason("");
-      
+
       toast({
-        title: "Reject Transaction Completed",
-        description: "Rejected quantities recorded with reason. These cannot move to next operations.",
+        title: "Success",
+        description: "Rejection updated successfully",
       });
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -540,22 +620,22 @@ const ShopFloor = () => {
     const sequences = Object.keys(moveQuantities).map(Number).sort((a, b) => a - b);
     let hasChanges = false;
     let errorMessage = "";
-    
+
     const newQuantities = { ...moveQuantities };
-    
+
     sequences.forEach((seq) => {
       const current = newQuantities[seq];
       const toScrapQty = current.toScrap || 0;
-      
+
       if (toScrapQty > 0) {
         // Validate: toScrap cannot exceed running quantity
         if (toScrapQty > current.running) {
           errorMessage = `Seq ${seq}: Cannot scrap ${toScrapQty} - only ${current.running} in Running.`;
           return;
         }
-        
+
         hasChanges = true;
-        
+
         // Deduct from Running and add to Scrapped
         newQuantities[seq] = {
           ...newQuantities[seq],
@@ -565,7 +645,7 @@ const ShopFloor = () => {
         };
       }
     });
-    
+
     if (errorMessage) {
       toast({
         title: "Scrap Transaction Error",
@@ -574,11 +654,11 @@ const ShopFloor = () => {
       });
       return;
     }
-    
+
     if (hasChanges) {
       setMoveQuantities(newQuantities);
       saveJobMoveQuantities(newQuantities);
-      
+
       toast({
         title: "Scrap Transaction Completed",
         description: "Scrapped quantities recorded.",
@@ -593,44 +673,75 @@ const ShopFloor = () => {
   };
 
   // Check if job is complete (all quantities in completed column of last operation)
-  const checkJobCompletion = () => {
-    const sequences = Object.keys(moveQuantities).map(Number).sort((a, b) => a - b);
-    if (sequences.length === 0) return;
-    
-    const lastSeq = sequences[sequences.length - 1];
-    const lastOp = moveQuantities[lastSeq];
-    const totalQty = parseInt(selectedJob?.quantity) || 0;
-    
-    if (lastOp.completed >= totalQty) {
+  const checkJobCompletion = async () => {
+    if (!selectedJob) return;
+    if (hasCompletedRef.current) return;
+
+    const totalQty = Number(selectedJob?.quantity || 0);
+
+    const sequences = Object.keys(moveQuantities).map(Number);
+
+    const totalCompleted = sequences.reduce((sum, seq) => {
+      return sum + (moveQuantities[seq]?.completed || 0);
+    }, 0);
+
+    // ✅ correct rule: job is complete only if total completed >= job qty
+    if (totalCompleted < totalQty) return;
+
+    hasCompletedRef.current = true;
+
+    try {
       const updatedJobs = jobs.map((job: any) => {
         if (job.id === selectedJob.id) {
-          return { ...job, status: "Completed", moveQuantities };
+          return {
+            ...job,
+            status: "Completed",
+            moveQuantities,
+          };
         }
         return job;
       });
-      
-      localStorage.setItem("jobs", JSON.stringify(updatedJobs));
+
       setJobs(updatedJobs);
-      setSelectedJob((prev: any) => ({ ...prev, status: "Completed" }));
-      
+
+      setSelectedJob((prev: any) => ({
+        ...prev,
+        status: "Completed",
+      }));
+
+      await fetch(`/api/jobs/${selectedJob.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "Completed",
+          moveQuantities,
+        }),
+      });
+
       toast({
         title: "Job Completed!",
-        description: `Job ${selectedJob.id} has been completed successfully.`,
+        description: `Job ${selectedJob.job_number} completed successfully.`,
       });
+    } catch (err) {
+      console.error(err);
     }
   };
 
-  useEffect(() => {
-    if (selectedJob && Object.keys(moveQuantities).length > 0) {
-      checkJobCompletion();
-    }
-  }, [moveQuantities]);
 
-  const filteredJobs = jobs.filter((job: any) => {
-    const matchesSearch = 
-      job.id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      job.productName?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === "all" || job.status === statusFilter;
+
+
+  const safeJobs = Array.isArray(jobs) ? jobs : [];
+
+  const filteredJobs = safeJobs.filter((job: any) => {
+    const search = searchTerm.toLowerCase();
+
+    const matchesSearch =
+      String(job.job_number ?? "").toLowerCase().includes(search) ||
+      String(job.product_name ?? "").toLowerCase().includes(search);
+
+    const matchesStatus =
+      statusFilter === "all" || job.status === statusFilter;
+
     return matchesSearch && matchesStatus;
   });
 
@@ -700,34 +811,34 @@ const ShopFloor = () => {
             </Card>
           ) : (
             filteredJobs.map((job: any) => (
-              <Card 
-                key={job.id} 
+              <Card
+                key={job.id}
                 className="hover:shadow-lg transition-shadow cursor-pointer"
                 onClick={() => handleOpenJobMove(job)}
               >
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">{job.id}</CardTitle>
+                    <CardTitle className="text-lg">{job.job_number}</CardTitle>
                     <Badge className={getStatusBadge(job.status)}>
                       {job.status}
                     </Badge>
                   </div>
-                  <CardDescription>{job.productName}</CardDescription>
+                  <CardDescription>{job.product_name}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
                       <span className="text-muted-foreground">Quantity:</span>
-                      <span className="ml-2 font-medium">{job.quantity}</span>
+                      <span className="ml-2 font-medium">{job.start}</span>
                     </div>
                     <div>
                       <span className="text-muted-foreground">Due:</span>
-                      <span className="ml-2 font-medium">{job.dueDate}</span>
+                      <span className="ml-2 font-medium">{job.completion_date}</span>
                     </div>
                     <div>
                       <span className="text-muted-foreground">Priority:</span>
-                      <Badge 
-                        variant="outline" 
+                      <Badge
+                        variant="outline"
                         className={`ml-2 ${job.priority === "High" ? "border-red-500 text-red-500" : ""}`}
                       >
                         {job.priority}
@@ -738,8 +849,8 @@ const ShopFloor = () => {
                       <span className="ml-2 font-medium">{job.operations?.length || 0}</span>
                     </div>
                   </div>
-                  <Button 
-                    className="w-full mt-4" 
+                  <Button
+                    className="w-full mt-4"
                     variant="outline"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -758,11 +869,14 @@ const ShopFloor = () => {
         {/* Job Move Dialog */}
         <Dialog open={isJobMoveDialogOpen} onOpenChange={setIsJobMoveDialogOpen}>
           <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden p-0">
+            <DialogHeader className="hidden">
+              <DialogTitle>Shop Floor - Job Move</DialogTitle>
+            </DialogHeader>
             {/* ERP-style Header */}
             <div className="bg-gradient-to-r from-[#2c5282] to-[#1a365d] text-white px-4 py-2">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-medium">Shop Floor - Job Move</h2>
-                <span className="text-xs opacity-80">Job: {selectedJob?.id}</span>
+                <span className="text-xs opacity-80">Job: {selectedJob?.job_number}</span>
               </div>
             </div>
 
@@ -772,28 +886,27 @@ const ShopFloor = () => {
                 <div className="grid grid-cols-4 gap-4 bg-[#f0f0e0] p-3 border border-[#b8b8a0]">
                   <div className="flex items-center gap-2">
                     <ErpLabel className="w-16 text-right">Job:</ErpLabel>
-                    <ErpInput value={selectedJob.id} readOnly className="flex-1 bg-gray-100" />
+                    <ErpInput value={selectedJob.job_number || ""} readOnly className="flex-1 bg-gray-100" />
                   </div>
                   <div className="flex items-center gap-2">
                     <ErpLabel className="w-16 text-right">Product:</ErpLabel>
-                    <ErpInput value={selectedJob.productName || ""} readOnly className="flex-1 bg-gray-100" />
+                    <ErpInput value={selectedJob.product_name || ""} readOnly className="flex-1 bg-gray-100" />
                   </div>
                   <div className="flex items-center gap-2">
                     <ErpLabel className="w-16 text-right">Quantity:</ErpLabel>
-                    <ErpInput value={selectedJob.quantity || ""} readOnly className="flex-1 bg-gray-100" />
+                    <ErpInput value={selectedJob.start || ""} readOnly className="flex-1 bg-gray-100" />
                   </div>
                   <div className="flex items-center gap-2">
                     <ErpLabel className="w-16 text-right">Status:</ErpLabel>
-                    <Badge 
-                      className={`text-xs ${
-                        selectedJob.status === "In Progress" 
-                          ? "bg-blue-500 hover:bg-blue-600" 
+                    <Badge
+                      className={`text-xs ${selectedJob.status === "In Progress"
+                          ? "bg-blue-500 hover:bg-blue-600"
                           : selectedJob.status === "Released"
-                          ? "bg-green-500 hover:bg-green-600"
-                          : selectedJob.status === "Completed"
-                          ? "bg-gray-500 hover:bg-gray-600"
-                          : "bg-yellow-500 hover:bg-yellow-600"
-                      }`}
+                            ? "bg-green-500 hover:bg-green-600"
+                            : selectedJob.status === "Completed"
+                              ? "bg-gray-500 hover:bg-gray-600"
+                              : "bg-yellow-500 hover:bg-yellow-600"
+                        }`}
                     >
                       {selectedJob.status}
                     </Badge>
@@ -802,9 +915,9 @@ const ShopFloor = () => {
 
                 {/* Action Buttons */}
                 <div className="flex gap-2">
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     className="h-7 text-xs bg-[#d8d8c8] hover:bg-[#c8c8b8] border-[#b8b8a0] text-gray-700"
                     onClick={handleMoveTransaction}
                     disabled={selectedJob.status === "Completed"}
@@ -812,18 +925,18 @@ const ShopFloor = () => {
                     <Play className="h-3 w-3 mr-1" />
                     Move Transaction
                   </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     className="h-7 text-xs bg-red-50 hover:bg-red-100 border-red-300 text-red-700"
                     onClick={openRejectDialog}
                     disabled={selectedJob.status === "Completed"}
                   >
                     Reject
                   </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     className="h-7 text-xs bg-[#d8d8c8] hover:bg-[#c8c8b8] border-[#b8b8a0] text-gray-700"
                     onClick={() => setIsHistoryDialogOpen(true)}
                   >
@@ -837,7 +950,7 @@ const ShopFloor = () => {
                     </Badge>
                   )}
                 </div>
-                
+
                 {/* Move Table */}
                 <div className="border border-[#b8b8a0] overflow-auto bg-white">
                   <Table>
@@ -858,17 +971,17 @@ const ShopFloor = () => {
                     <TableBody>
                       {(() => {
                         const operations = selectedJob.operations || [];
-                        const sequences = operations.length > 0 
+                        const sequences = operations.length > 0
                           ? operations.map((op: any, idx: number) => ({ seq: op.sequence || (idx + 1) * 10, op }))
                           : [10, 20, 30].map(seq => ({ seq, op: null }));
-                        
+
                         return sequences.map(({ seq, op }: { seq: number; op: any }, index: number) => {
                           const qtyData = moveQuantities[seq] || { inQueue: 0, running: 0, toMove: 0, toReject: 0, toScrap: 0, rejected: 0, scrapped: 0, completed: 0 };
                           const startQtyId = `startQty_${seq}`;
-                          
+
                           return (
-                            <TableRow 
-                              key={seq} 
+                            <TableRow
+                              key={seq}
                               className={`${index % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-blue-50 border-b border-[#b8b8a0]`}
                             >
                               <TableCell className="text-[11px] py-1 px-2 border-r border-[#b8b8a0]">
@@ -878,7 +991,7 @@ const ShopFloor = () => {
                                 </div>
                               </TableCell>
                               <TableCell className="text-[11px] py-1 px-2 border-r border-[#b8b8a0]">
-                                {op?.name || op?.operationCode || op?.description || `Operation ${seq/10}`}
+                                {op?.name || op?.operationCode || op?.description || `Operation ${seq / 10}`}
                               </TableCell>
                               {/* In Queue - Read Only */}
                               <TableCell className="text-[11px] py-1 px-2 border-r border-[#b8b8a0] bg-green-50">
@@ -886,14 +999,17 @@ const ShopFloor = () => {
                               </TableCell>
                               {/* Start Qty - User enters how much to start */}
                               <TableCell className="text-[11px] py-1 px-2 border-r border-[#b8b8a0]">
-                                <input 
+                                <input
                                   id={startQtyId}
-                                  type="number" 
+                                  type="number"
                                   min="0"
                                   max={qtyData.inQueue}
-                                  defaultValue={0}
+                                  value={qtyData.startQty || 0}
+                                  onChange={(e) =>
+                                    updateMoveQuantity(seq, "startQty", Number(e.target.value))
+                                  }
                                   className="w-full h-5 px-1 text-[11px] border border-gray-300 bg-white focus:outline-none focus:border-blue-400"
-                                  disabled={selectedJob.status === "Completed" || qtyData.inQueue === 0}
+                                  disabled={selectedJob.status === "Completed"}
                                 />
                               </TableCell>
                               {/* Running - Read Only */}
@@ -902,20 +1018,30 @@ const ShopFloor = () => {
                               </TableCell>
                               {/* To Move - User enters how much to move to next */}
                               <TableCell className="text-[11px] py-1 px-2 border-r border-[#b8b8a0] bg-yellow-50">
-                                <input 
-                                  type="number" 
-                                  min="0"
-                                  max={qtyData.running}
-                                  value={qtyData.toMove || 0}
-                                  onChange={(e) => updateMoveQuantity(seq, 'toMove', Math.min(parseInt(e.target.value) || 0, qtyData.running))}
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={qtyData.running || 0}
+                                  value={qtyData.toMove ?? 0}
+                                  onChange={(e) => {
+                                    const val = Number(e.target.value) || 0;
+
+                                    updateMoveQuantity(
+                                      seq,
+                                      "toMove",
+                                      Math.min(val, qtyData.running || 0)
+                                    );
+                                  }}
                                   className="w-full h-5 px-1 text-[11px] border border-gray-300 bg-yellow-50 focus:outline-none focus:border-blue-400"
-                                  disabled={selectedJob.status === "Completed" || qtyData.running === 0}
+                                  disabled={
+                                    selectedJob.status === "Completed" || qtyData.running === 0
+                                  }
                                 />
                               </TableCell>
                               {/* To Reject - User enters how much to reject from Running */}
                               <TableCell className="text-[11px] py-1 px-2 border-r border-[#b8b8a0] bg-red-50">
-                                <input 
-                                  type="number" 
+                                <input
+                                  type="number"
                                   min="0"
                                   max={qtyData.running}
                                   value={qtyData.toReject || 0}
@@ -940,11 +1066,10 @@ const ShopFloor = () => {
                                   className="h-5 px-2 text-[10px] bg-green-50 hover:bg-green-100 border-green-300 text-green-700"
                                   disabled={selectedJob.status === "Completed" || qtyData.inQueue === 0}
                                   onClick={() => {
-                                    const inputEl = document.getElementById(startQtyId) as HTMLInputElement;
-                                    const startQty = parseInt(inputEl?.value) || 0;
+                                    const startQty = qtyData.startQty || 0;
+
                                     if (startQty > 0 && startQty <= qtyData.inQueue) {
                                       handleMoveToRunning(seq, startQty);
-                                      inputEl.value = "0";
                                     } else if (startQty > qtyData.inQueue) {
                                       toast({
                                         title: "Invalid Quantity",
@@ -967,8 +1092,8 @@ const ShopFloor = () => {
 
                 {/* Footer Buttons */}
                 <div className="flex justify-end gap-2 pt-2 border-t border-[#b8b8a0]">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     size="sm"
                     onClick={() => setIsJobMoveDialogOpen(false)}
                     className="bg-[#d8d8c8] hover:bg-[#c8c8b8] border-[#b8b8a0]"
@@ -988,7 +1113,7 @@ const ShopFloor = () => {
               <div className="bg-[#4a5568] text-white px-4 py-2 -mx-6 -mt-6">
                 <h3 className="text-sm font-semibold">Rejection Reason</h3>
               </div>
-              
+
               <div className="space-y-3 pt-2">
                 <div>
                   <ErpLabel>Reason for Rejection *</ErpLabel>
@@ -999,15 +1124,15 @@ const ShopFloor = () => {
                     className="w-full h-24 px-2 py-1 text-sm bg-[#fffff0] text-gray-800 border border-[#b8b8a0] focus:outline-none focus:ring-1 focus:ring-[#b8b8a0] resize-none mt-1"
                   />
                 </div>
-                
+
                 <div className="text-xs text-gray-600">
                   <span className="font-medium">Note:</span> Rejected quantities will be recorded with this reason and timestamp.
                 </div>
               </div>
-              
+
               <div className="flex justify-end gap-2 pt-2 border-t border-[#b8b8a0]">
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="sm"
                   onClick={() => {
                     setIsRejectDialogOpen(false);
@@ -1017,7 +1142,7 @@ const ShopFloor = () => {
                 >
                   Cancel
                 </Button>
-                <Button 
+                <Button
                   size="sm"
                   onClick={handleRejectTransaction}
                   className="bg-red-600 hover:bg-red-700 text-white"
@@ -1041,12 +1166,12 @@ const ShopFloor = () => {
                 <span className="text-xs opacity-80">Job: {selectedJob?.id}</span>
               </div>
             </div>
-            
+
             <div className="p-4">
               <ScrollArea className="h-[60vh]">
                 {(() => {
-                  const transactions = selectedJob?.moveTransactions || [];
-                  
+                  const transactionsData = transactions || [];
+
                   if (transactions.length === 0) {
                     return (
                       <div className="text-center py-12 text-muted-foreground">
@@ -1056,12 +1181,12 @@ const ShopFloor = () => {
                       </div>
                     );
                   }
-                  
+
                   // Sort transactions by timestamp descending (most recent first)
-                  const sortedTransactions = [...transactions].sort((a: MoveTransaction, b: MoveTransaction) => 
+                  const sortedTransactions = [...transactions].sort((a: MoveTransaction, b: MoveTransaction) =>
                     new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
                   );
-                  
+
                   return (
                     <Table>
                       <TableHeader>
@@ -1087,7 +1212,7 @@ const ShopFloor = () => {
                               default: return <Clock className="h-3 w-3 text-gray-600" />;
                             }
                           };
-                          
+
                           const getTypeBadge = () => {
                             const styles: Record<string, string> = {
                               start: "bg-green-100 text-green-700 border-green-300",
@@ -1098,30 +1223,33 @@ const ShopFloor = () => {
                             };
                             return styles[txn.transactionType] || "bg-gray-100 text-gray-700 border-gray-300";
                           };
-                          
+
                           return (
-                            <TableRow 
-                              key={txn.id || idx} 
+                            <TableRow
+                              key={txn.id || idx}
                               className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} hover:bg-blue-50`}
                             >
                               <TableCell className="text-[11px] py-2 px-3">
                                 <div className="flex flex-col">
                                   <span className="font-medium">
-                                    {new Date(txn.timestamp).toLocaleDateString()}
+                                    {new Date(txn.created_at || txn.createdAt).toLocaleDateString()}
                                   </span>
                                   <span className="text-gray-500">
-                                    {new Date(txn.timestamp).toLocaleTimeString()}
+                                    {new Date(txn.created_at || txn.createdAt).toLocaleTimeString()}
                                   </span>
                                 </div>
                               </TableCell>
                               <TableCell className="text-[11px] py-2 px-3">
                                 <div className="flex items-center gap-1">
                                   {getTypeIcon()}
-                                  <Badge 
-                                    variant="outline" 
+                                  <Badge
+                                    variant="outline"
                                     className={`text-[10px] ${getTypeBadge()}`}
                                   >
-                                    {txn.transactionType.charAt(0).toUpperCase() + txn.transactionType.slice(1)}
+                                    {(txn.transactionType || txn.transaction_type || "unknown")
+                                      .charAt(0)
+                                      .toUpperCase() +
+                                      (txn.transactionType || txn.transaction_type || "unknown").slice(1)}
                                   </Badge>
                                 </div>
                               </TableCell>
@@ -1129,7 +1257,7 @@ const ShopFloor = () => {
                                 <div className="flex items-center gap-1">
                                   <span className="text-blue-600 font-medium">Seq {txn.seq}</span>
                                   <span className="text-gray-500">-</span>
-                                  <span>{txn.operationName}</span>
+                                  <span>{txn.operation_name}</span>
                                 </div>
                               </TableCell>
                               <TableCell className="text-[11px] py-2 px-3 font-semibold">
@@ -1137,9 +1265,9 @@ const ShopFloor = () => {
                               </TableCell>
                               <TableCell className="text-[11px] py-2 px-3">
                                 <div className="flex items-center gap-1 text-gray-600">
-                                  <span>{txn.fromStatus}</span>
+                                  <span>{txn.from_status}</span>
                                   <ArrowRight className="h-3 w-3" />
-                                  <span>{txn.toStatus}</span>
+                                  <span>{txn.to_status}</span>
                                 </div>
                               </TableCell>
                               <TableCell className="text-[11px] py-2 px-3 max-w-[150px]">
@@ -1162,13 +1290,13 @@ const ShopFloor = () => {
                   );
                 })()}
               </ScrollArea>
-              
+
               <div className="flex justify-between items-center mt-4 pt-3 border-t border-[#b8b8a0]">
                 <span className="text-xs text-gray-600">
                   Total transactions: {(selectedJob?.moveTransactions || []).length}
                 </span>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="sm"
                   onClick={() => setIsHistoryDialogOpen(false)}
                   className="bg-[#d8d8c8] hover:bg-[#c8c8b8] border-[#b8b8a0]"

@@ -14,6 +14,7 @@ use App\Http\Controllers\BomDeletionLogController;
 use App\Http\Controllers\BomHeaderController;
 use App\Http\Controllers\BomOperationController;
 use App\Http\Controllers\JobAllocationController;
+use App\Http\Controllers\JobController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\UserRoleController;
 use App\Http\Controllers\LocationController;
@@ -43,6 +44,7 @@ use App\Http\Controllers\RecurringInvoiceController;
 use App\Http\Controllers\StocktakeController;
 use App\Http\Controllers\MaterialIssueController;
 use App\Http\Controllers\StockAdjustmentController;
+use App\Http\Controllers\MoveTransactionController;
 
 /*
 |--------------------------------------------------------------------------
@@ -65,7 +67,9 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout']);
 Route::get('/user', [AuthController::class, 'user']);
 Route::get('/check-session', [AuthController::class, 'checkSession']);
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword']); 
 });
+
 
 Route::get('/customers', [CustomerController::class, 'index']);
 Route::get('/customers/{id}', [CustomerController::class, 'show']);
@@ -272,3 +276,17 @@ Route::get('/material-issues', [MaterialIssueController::class, 'index']);
 Route::get('/material-issues/{id}', [MaterialIssueController::class, 'show']);
 Route::post('/material-issues', [MaterialIssueController::class, 'store']);
 Route::delete('/material-issues/{id}', [MaterialIssueController::class, 'destroy']);
+
+Route::get('/jobs', [JobController::class, 'index']);
+Route::post('/jobs', [JobController::class, 'store']);
+Route::get('/jobs/{id}', [JobController::class, 'show']);
+Route::put('/jobs/{id}', [JobController::class, 'update']);
+Route::delete('/jobs/{id}', [JobController::class, 'destroy']);
+Route::post('/job-move/update-bulk', [JobController::class, 'updateMoveTransaction']);
+Route::post('/job-move/update-bulk', [JobController::class, 'bulkUpdate']);
+Route::post('/job-moves/update', [JobController::class, 'updateMoves']);
+
+
+Route::post('/move-transactions', [MoveTransactionController::class, 'store']);
+Route::get('/move-transactions/job/{jobId}', [MoveTransactionController::class, 'getByJob']);
+Route::get('/move-transactions/summary/{jobId}', [MoveTransactionController::class, 'summary']);

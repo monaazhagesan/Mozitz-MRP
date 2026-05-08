@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Search, Check, X, Plus, Trash2 } from "lucide-react";
+import axios from "axios";
 import {
   Command,
   CommandEmpty,
@@ -24,14 +25,15 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { supabase } from "@/integrations/supabase/client";
+import { AIJobBanner } from "./AIJobBanner";
+
 
 interface JobCardDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pendingOrders: any[];
   orders: any[];
-  onCreateJob: (jobData: any, operations: any[], bomItems: any[], jobSplits: any[]) => void;
+  onCreateJob: (jobData: any, operations: any[], bomItems: any[], jobSplits: any[], moveQuantities: any) => void;
   generateJobNumber: () => string;
   calculateInProgressJobQty: (orderId: string) => number;
   calculatePendingJobQty: (order: any) => number;
@@ -70,6 +72,10 @@ export const JobCardDialog = ({
     completionDate: "",
     mrpNet: "0",
     lotNum: "",
+    buildSeq: "",
+    task: "",
+    alternate: "",
+  revision: "",
   });
   
   const [operations, setOperations] = useState<any[]>([]);
@@ -192,8 +198,13 @@ export const JobCardDialog = ({
     item_code: string;
     item_name: string;
     description: string | null;
+    hasBom: boolean;
   }>>([]);
   const [isSearchingItems, setIsSearchingItems] = useState(false);
+
+  const [loadingOps, setLoadingOps] = useState(false);
+const [opsLoaded, setOpsLoaded] = useState(false);
+
 
   useEffect(() => {
     if (open) {
@@ -219,6 +230,10 @@ export const JobCardDialog = ({
         completionDate: "",
         mrpNet: "0",
         lotNum: "",
+        buildSeq: "",
+        task: "",
+        alternate: "",
+  revision: "",
       });
       setOperations([]);
       setBomItems([]);
@@ -229,170 +244,320 @@ export const JobCardDialog = ({
     }
   }, [open, generateJobNumber]);
 
-  useEffect(() => {
-    const searchItems = async () => {
-      if (itemSearchQuery.length < 2) {
-        setItemSuggestions([]);
-        return;
-      }
-      
-      setIsSearchingItems(true);
-      try {
-        const { data: bomItems } = await (supabase as any)
-          .from("bom_headers")
-          .select("item_code, item_name")
-          .or(`item_code.ilike.%${itemSearchQuery}%,item_name.ilike.%${itemSearchQuery}%`)
-          .eq("status", "Active")
-          .limit(10);
+ useEffect(() => {
+  const searchItems = async () => {
+    if (itemSearchQuery.length < 2) {
+      console.log("🔎 Query too short, clearing suggestions");
+      setItemSuggestions([]);
+      return;
+    }
 
-        const { data: inventoryItems } = await (supabase as any)
-          .from("inventory_stock")
-          .select("item_code, item_name, description")
-          .or(`item_code.ilike.%${itemSearchQuery}%,item_name.ilike.%${itemSearchQuery}%`)
-          .limit(10);
+    console.log("🚀 Searching items for:", itemSearchQuery);
+    setIsSearchingItems(true);
 
-        const combined: Array<{ item_code: string; item_name: string; description: string | null }> = [];
-        const seenCodes = new Set<string>();
-
-        if (bomItems) {
-          bomItems.forEach((item: any) => {
-            if (!seenCodes.has(item.item_code)) {
-              seenCodes.add(item.item_code);
-              combined.push({ 
-                item_code: item.item_code, 
-                item_name: item.item_name,
-                description: null 
-              });
-            }
-          });
-        }
-
-        if (inventoryItems) {
-          inventoryItems.forEach((item: any) => {
-            if (!seenCodes.has(item.item_code)) {
-              seenCodes.add(item.item_code);
-              combined.push({
-                item_code: item.item_code,
-                item_name: item.item_name,
-                description: item.description
-              });
-            }
-          });
-        }
-
-        setItemSuggestions(combined);
-      } catch (error) {
-        console.error("Error searching items:", error);
-      } finally {
-        setIsSearchingItems(false);
-      }
-    };
-
-    const debounceTimer = setTimeout(searchItems, 300);
-    return () => clearTimeout(debounceTimer);
-  }, [itemSearchQuery]);
-
-  const loadItemData = async (itemCode: string, quantity: number) => {
     try {
-      const openOrders = orders.filter((order: any) => {
-        if (!order.items || !Array.isArray(order.items)) return false;
-        const hasMatchingItem = order.items.some((item: any) => 
-          item.itemCode === itemCode && item.itemType === "Product"
-        );
-        return hasMatchingItem;
+      // -------------------------
+      // 1. FETCH BOM ITEMS
+      // -------------------------
+      const bomRes = await axios.get("/api/bom-headers", {
+        params: {
+          search: itemSearchQuery,
+          status: "Active",
+          limit: 10,
+        },
       });
-      setFilteredOrders(openOrders);
 
-      const { data: bomHeaders } = await (supabase as any)
-        .from("bom_headers")
-        .select("*")
-        .eq("item_code", itemCode)
-        .eq("status", "Active")
-        .order("created_at", { ascending: false })
-        .limit(1);
+      const bomItems = Array.isArray(bomRes.data)
+        ? bomRes.data
+        : bomRes.data?.data || [];
 
-      if (bomHeaders && bomHeaders.length > 0) {
-        const bomHeader = bomHeaders[0];
-        setJobData(prev => ({
-          ...prev,
-          productName: bomHeader.item_name,
-          itemDescription: `${bomHeader.item_name} ${bomHeader.item_code}`,
-          uom: bomHeader.uom || "EA",
-          routingAvailable: true,
-        }));
+      console.log("📦 BOM Items:", bomItems);
 
-        const { data: components } = await (supabase as any)
-          .from("bom_components")
-          .select("*")
-          .eq("bom_id", bomHeader.id);
+      // -------------------------
+      // 2. BUILD BOM LOOKUP MAP
+      // -------------------------
+      const bomMap = new Map<string, boolean>();
 
-        if (components) {
-          const mappedComponents = components.map((comp: any, index: number) => ({
-            id: comp.id,
-            itemSeq: comp.item_seq || index + 1,
-            operationSeq: comp.operation_seq || 10,
-            component: comp.component,
-            description: comp.description,
-            quantity: (comp.quantity || 1) * quantity,
-            uom: comp.uom || "EA",
-            status: "Available",
-          }));
-          setBomItems(mappedComponents);
+      for (const item of bomItems) {
+        const code = item.item_code || item.itemCode;
+        if (code) bomMap.set(code, true);
+      }
 
-          const componentCodes = components.map((c: any) => c.component);
-          const { data: inventoryData } = await (supabase as any)
-            .from("inventory_stock")
-            .select("item_code, quantity_on_hand")
-            .in("item_code", componentCodes);
+      console.log("🎯 BOM Map:", [...bomMap.keys()]);
 
-          const quantitiesData = components.map((comp: any) => {
-            const inventory = inventoryData?.find((inv: any) => inv.item_code === comp.component);
-            const perAssembly = comp.quantity || 1;
-            const required = perAssembly * quantity;
-            const issued = 0;
-            const open = required - issued;
-            
-            return {
-              component: comp.component,
-              uom: comp.uom || "EA",
-              basisType: comp.basis || "Item",
-              perAssembly: perAssembly,
-              inverseUsage: perAssembly > 0 ? (1 / perAssembly).toFixed(4) : "0",
-              yield: comp.yield || 100,
-              required: required,
-              issued: issued,
-              open: open,
-              onHand: inventory?.quantity_on_hand || 0,
-            };
+      // -------------------------
+      // 3. FETCH INVENTORY ITEMS
+      // -------------------------
+      const inventoryRes = await axios.get("/api/inventory-stock", {
+        params: {
+          search: itemSearchQuery,
+          limit: 10,
+        },
+      });
+
+      const inventoryItems = Array.isArray(inventoryRes.data)
+        ? inventoryRes.data
+        : inventoryRes.data?.data ||
+          inventoryRes.data?.items ||
+          inventoryRes.data?.results ||
+          [];
+
+      console.log("🏭 Inventory Items:", inventoryItems);
+
+      // -------------------------
+      // 4. NORMALIZER
+      // -------------------------
+      const normalizeItem = (item: any) => ({
+        item_code: item.item_code || item.itemCode,
+        item_name: item.item_name || item.itemName,
+        description: item.description || null,
+      });
+
+      // -------------------------
+      // 5. MERGE ITEMS (ALL SHOWN)
+      // -------------------------
+      const combined: any[] = [];
+      const seenCodes = new Set<string>();
+
+      // BOM first
+      for (const item of bomItems) {
+        const normalized = normalizeItem(item);
+
+        if (normalized.item_code && !seenCodes.has(normalized.item_code)) {
+          seenCodes.add(normalized.item_code);
+
+          combined.push({
+            ...normalized,
+            hasBom: true,
           });
-          setBomQuantities(quantitiesData);
-        }
-
-        const { data: ops } = await (supabase as any)
-          .from("bom_operations")
-          .select("*")
-          .eq("bom_id", bomHeader.id);
-
-        if (ops) {
-          const mappedOps = ops.map((op: any) => ({
-            id: op.id,
-            sequence: op.operation_seq,
-            operationCode: op.operation_code,
-            name: op.description,
-            description: op.description,
-            duration: op.run_time || 0,
-            runTime: op.run_time,
-            workCenter: op.work_center,
-            department: op.department,
-            status: "Pending",
-          }));
-          setOperations(mappedOps);
         }
       }
+
+      // Inventory second
+      for (const item of inventoryItems) {
+        const normalized = normalizeItem(item);
+
+        if (normalized.item_code && !seenCodes.has(normalized.item_code)) {
+          seenCodes.add(normalized.item_code);
+
+          combined.push({
+            ...normalized,
+            hasBom: bomMap.has(normalized.item_code),
+          });
+        }
+      }
+
+      console.log("✅ Final Suggestions:", combined);
+
+      setItemSuggestions(combined);
     } catch (error) {
-      console.error("Error loading item data:", error);
+      console.error("❌ Error searching items:", error);
+      setItemSuggestions([]);
+    } finally {
+      setIsSearchingItems(false);
+      console.log("🏁 Search complete");
     }
   };
+
+  const debounceTimer = setTimeout(searchItems, 300);
+  return () => clearTimeout(debounceTimer);
+}, [itemSearchQuery]);
+
+
+const loadItemData = async (itemCode: string, quantity: number) => {
+  try {
+
+    setLoadingOps(true);
+setOpsLoaded(false);
+setOperations([]); // clear previous routing immediately
+    // 1. Filter orders locally (unchanged logic)
+    const openOrders = orders.filter((order: any) => {
+      if (!Array.isArray(order.items)) return false;
+
+      return order.items.some(
+        (item: any) =>
+          item.itemCode === itemCode && item.itemType === "Product"
+      );
+    });
+
+    setFilteredOrders(openOrders);
+
+    // 2. Fetch BOM header
+    const bomRes = await axios.get("/api/bom-headers", {
+      params: {
+        item_code: itemCode,
+        status: "Active",
+        limit: 1,
+      },
+    });
+
+    const bomHeaders = bomRes.data || [];
+
+    if (bomHeaders.length > 0) {
+    const bomHeader = Array.isArray(bomHeaders)
+  ? bomHeaders.find((b: any) => b.item_code === itemCode)
+  : null;
+
+if (!bomHeader) {
+  console.log("❌ BOM header not found for item:", itemCode);
+  setBomItems([]);
+  setBomQuantities([]);
+  setOperations([]);
+  return;
+}
+
+setJobData((prev) => ({
+  ...prev,
+  productName: bomHeader.item_name ?? "",
+  itemDescription: `${bomHeader.item_name ?? ""} ${bomHeader.item_code ?? ""}`,
+  uom: bomHeader.uom ?? "EA",
+  routingAvailable: true,
+}));
+
+      // 3. Fetch components
+      const compRes = await axios.get("/api/bom-components", {
+        params: {
+          bom_id: bomHeader.id,
+        },
+      });
+
+      const components = compRes.data || [];
+
+      const mappedComponents = components.map((comp: any, index: number) => {
+        const perAssembly = Number(comp.quantity || 1);
+        const required = perAssembly * quantity;
+        const issued = 0;
+
+        return {
+          id: comp.id || index + 1,
+          itemSeq: comp.item_seq || index + 1,
+          operationSeq: comp.operation_seq || 10,
+          component: comp.component,
+          description: comp.description,
+          quantity: required,
+          uom: comp.uom || "EA",
+          status: "Available",
+        };
+      });
+
+      setBomItems(mappedComponents);
+
+      // 4. Fetch inventory stock for components
+      const componentCodes = components.map((c: any) => c.component);
+
+      const invRes = await axios.get("/api/inventory-stock", {
+        params: {
+          items: componentCodes.join(","),
+        },
+      });
+
+      const inventoryData = Array.isArray(invRes.data)
+  ? invRes.data
+  : invRes.data?.data ||
+    invRes.data?.items ||
+    invRes.data?.results ||
+    [];
+
+      const quantitiesData = components.map((comp: any) => {
+        const inventory = inventoryData.find((inv: any) => {
+  const code = inv.item_code || inv.itemCode;
+  return code === comp.component;
+});
+
+        const perAssembly = Number(comp.quantity || 1);
+        const required = perAssembly * quantity;
+        const onHand =
+  inventory?.quantityOnHand ??
+  inventory?.quantity_on_hand ??
+  inventory?.availableQuantity ??
+  inventory?.quantity_available ??
+  0;
+
+        return {
+          component: comp.component,
+          uom: comp.uom || "EA",
+          basisType: comp.basis || "Item",
+          perAssembly,
+          inverseUsage: perAssembly ? (1 / perAssembly).toFixed(4) : "0",
+          yield: comp.yield || 100,
+          required,
+          issued: 0,
+          open: required,
+          onHand,
+        };
+      });
+
+      setBomQuantities(quantitiesData);
+
+      // 5. Fetch operations
+      const opsRes = await axios.get("/api/bom-operations", {
+        params: {
+          bom_id: bomHeader.id,
+        },
+      });
+
+
+      const ops = Array.isArray(opsRes.data)
+  ? opsRes.data
+  : opsRes.data?.data || [];
+
+  
+
+      const mappedOps = ops.map((op: any) => ({
+        id: op.id,
+        sequence: op.operation_seq,
+        operationCode: op.operation_code,
+        name: op.description,
+        description: op.description,
+        duration: op.run_time || 0,
+        runTime: op.run_time,
+        workCenter: op.work_center,
+        department: op.department,
+        status: "Pending",
+      }));
+
+      setOperations(mappedOps);
+setOpsLoaded(true);
+    }
+  } catch (error) {
+    setOperations([]);
+setOpsLoaded(true);
+  }
+  finally {
+  setLoadingOps(false);
+}
+};
+
+
+
+const checkAndLoadBom = async (code: string) => {
+  try {
+    const res = await axios.get("/api/bom-headers", {
+      params: {
+        item_code: code,
+        status: "Active",
+        limit: 1,
+      },
+    });
+
+    const bom = Array.isArray(res.data)
+      ? res.data[0]
+      : res.data?.data?.[0];
+
+    if (bom?.id) {
+      console.log("✅ BOM FOUND → loading routing");
+      await loadItemData(code, parseFloat(jobData.quantity) || 1);
+    } else {
+      console.log("❌ No BOM found");
+
+      setBomItems([]);
+      setBomQuantities([]);
+      setOperations([]);
+    }
+  } catch (err) {
+    console.error("BOM check failed:", err);
+  }
+};
 
   const handleSelectOrder = (order: any) => {
     const productItems = Array.isArray(order.items) 
@@ -417,7 +582,7 @@ export const JobCardDialog = ({
   };
 
   const handleCreateJob = () => {
-    onCreateJob(jobData, operations, bomItems, jobSplits);
+    onCreateJob(jobData, operations, bomItems, jobSplits, moveQuantities);
     onOpenChange(false);
   };
 
@@ -429,6 +594,36 @@ export const JobCardDialog = ({
           <DialogTitle className="text-lg font-semibold">Create Discrete Job</DialogTitle>
         </DialogHeader>
 
+
+{/* AI Auto-fill Banner */}
+        <div className="px-6 pt-4">
+          <AIJobBanner
+            onDataExtracted={(data) => {
+              setJobData(prev => ({
+                ...prev,
+                itemCode: data.assembly || prev.itemCode,
+                itemDescription: data.assemblyDesc || prev.itemDescription,
+                productName: data.assembly || prev.productName,
+                uom: data.uom || prev.uom,
+                salesOrderNum: data.salesOrder || prev.salesOrderNum,
+                jobType: data.jobType || prev.jobType,
+                jobClass: data.jobClass || prev.jobClass,
+                status: data.status || prev.status,
+                quantity: data.quantity || prev.quantity,
+                startDate: data.startDate || prev.startDate,
+                completionDate: data.completionDate || prev.completionDate,
+                firm: data.firm ?? prev.firm,
+                priority: data.priority || prev.priority,
+                notes: data.notes || prev.notes,
+              }));
+              // If assembly was extracted, try to load BOM data
+              if (data.assembly) {
+                loadItemData(data.assembly, parseFloat(data.quantity || "1") || 1);
+              }
+            }}
+          />
+        </div>
+        
         {/* Main Form Content */}
         <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
           {/* Job Details Grid */}
@@ -500,12 +695,46 @@ export const JobCardDialog = ({
                                     <CommandItem
                                       key={item.item_code}
                                       value={item.item_code}
-                                      onSelect={() => {
-                                        setJobData({ ...jobData, itemCode: item.item_code, productName: item.item_name });
-                                        setItemCodeOpen(false);
-                                        setItemSearchQuery("");
-                                        loadItemData(item.item_code, parseFloat(jobData.quantity) || 1);
-                                      }}
+                                   onSelect={async () => {
+  if (!item?.item_code) return;
+
+  const code = item.item_code;
+
+  setJobData((prev) => ({
+    ...prev,
+    itemCode: code,
+    productName: item.item_name ?? "",
+  }));
+
+  setItemCodeOpen(false);
+  setItemSearchQuery("");
+
+  try {
+    const res = await axios.get("/api/bom-headers", {
+      params: {
+        item_code: code,
+        status: "Active",
+        limit: 1,
+      },
+    });
+
+    const bom = Array.isArray(res.data)
+      ? res.data[0]
+      : res.data?.data?.[0];
+
+    if (bom?.id) {
+      console.log("✅ BOM FOUND → loading BOM for:", code);
+      loadItemData(code, parseFloat(jobData.quantity) || 1);
+    } else {
+      console.log("❌ No BOM found for:", code);
+      setBomItems([]);
+      setBomQuantities([]);
+      setOperations([]);
+    }
+  } catch (err) {
+    console.error("BOM check failed", err);
+  }
+}}
                                     >
                                       <Check
                                         className={`mr-2 h-4 w-4 ${
@@ -605,7 +834,7 @@ export const JobCardDialog = ({
                   <Checkbox 
                     id="firm" 
                     checked={jobData.firm}
-                    onCheckedChange={(checked) => setJobData({ ...jobData, firm: !!checked })}
+                    onCheckedChange={(checked) => setJobData({ ...jobData, firm: Boolean(checked),})}
                   />
                   <label htmlFor="firm" className="text-sm cursor-pointer">Mark as Firm</label>
                 </div>
@@ -631,7 +860,7 @@ export const JobCardDialog = ({
                   <Label className="text-sm text-right">MRP Net</Label>
                   <Input 
                     type="number"
-                    value={jobData.mrpNet}
+                    value={jobData.mrpNet ?? 0}
                     onChange={(e) => setJobData({ ...jobData, mrpNet: e.target.value })}
                     className="col-span-2"
                   />
@@ -683,14 +912,28 @@ export const JobCardDialog = ({
                 <Card>
                   <CardContent className="p-4 space-y-4">
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="flex items-center gap-3">
-                        <Label className="text-sm w-24">Alternate</Label>
-                        <Input className="flex-1" />
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Label className="text-sm w-24">Revision</Label>
-                        <Input className="flex-1" />
-                      </div>
+                     <div className="flex items-center gap-3">
+  <Label className="text-sm w-24">Alternate</Label>
+  <Input
+    className="flex-1"
+    value={jobData.alternate}
+    onChange={(e) =>
+      setJobData({ ...jobData, alternate: e.target.value })
+    }
+  />
+</div>
+
+<div className="flex items-center gap-3">
+  <Label className="text-sm w-24">Revision</Label>
+  <Input
+    className="flex-1"
+    value={jobData.revision}
+    onChange={(e) =>
+      setJobData({ ...jobData, revision: e.target.value })
+    }
+  />
+</div>
+                      
                     </div>
                     
                     {jobData.jobType === "Non-standard" && (
@@ -1048,9 +1291,19 @@ export const JobCardDialog = ({
                       </div>
                     )}
                     
-                    {operations.length === 0 && jobData.jobType !== "Non-standard" && (
-                      <p className="text-sm text-muted-foreground">Select an item to load routing operations.</p>
-                    )}
+                    {loadingOps ? (
+  <p className="text-sm text-muted-foreground">
+    Loading routing operations...
+  </p>
+) : opsLoaded && operations.length === 0 && jobData.jobType !== "Non-standard" ? (
+  <p className="text-sm text-muted-foreground">
+    No routing operations found for this item
+  </p>
+) : operations.length === 0 && jobData.jobType !== "Non-standard" ? (
+  <p className="text-sm text-muted-foreground">
+    Select an item to load routing operations
+  </p>
+) : null}
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -1175,11 +1428,23 @@ export const JobCardDialog = ({
                       </div>
                       <div className="flex items-center gap-3">
                         <Label className="text-sm w-24">Build Seq</Label>
-                        <Input className="flex-1" />
+                        <Input
+  className="flex-1"
+  value={jobData.buildSeq}
+  onChange={(e) =>
+    setJobData({ ...jobData, buildSeq: e.target.value })
+  }
+/>
                       </div>
                       <div className="flex items-center gap-3">
                         <Label className="text-sm w-24">Task</Label>
-                        <Input className="flex-1" />
+                        <Input
+                          className="flex-1"
+                          value={jobData.task}
+                          onChange={(e) =>
+                            setJobData({ ...jobData, task: e.target.value })
+                          }
+                        />
                       </div>
                     </div>
                   </CardContent>

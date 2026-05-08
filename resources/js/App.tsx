@@ -10,9 +10,9 @@ import Index from "./pages/Index";
 import Inventory from "./pages/Inventory";
 import Orders from "./pages/Orders";
 import BOM from "./pages/BOM";
-/*import Planning from "./pages/Planning";
-import Assembly from "./pages/Assembly";
-import ShopFloor from "./pages/ShopFloor"; */
+import Planning from "./pages/Planning";
+/*import Assembly from "./pages/Assembly";  */
+import ShopFloor from "./pages/ShopFloor";
 import Dashboard from "./pages/Dashboard";
 import PurchaseOrders from "./pages/PurchaseOrders";
 /*import MRPRun from "./pages/MRPRun";
@@ -56,11 +56,11 @@ const App = () => (
                <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />  
             <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
             <Route path="/bom" element={<ProtectedRoute><BOM /></ProtectedRoute>} />
-         {/*  <Route path="/barcode" element={<ProtectedRoute><Barcode /></ProtectedRoute>} />  
+         {/*  <Route path="/barcode" element={<ProtectedRoute><Barcode /></ProtectedRoute>} />  */}
             <Route path="/planning" element={<ProtectedRoute><Planning /></ProtectedRoute>} />
-            <Route path="/assembly" element={<ProtectedRoute><Assembly /></ProtectedRoute>} />
+          {/*   <Route path="/assembly" element={<ProtectedRoute><Assembly /></ProtectedRoute>} /> */}
             <Route path="/shopfloor" element={<ProtectedRoute><ShopFloor /></ProtectedRoute>} />
-            <Route path="/import-tally" element={<ProtectedRoute><ImportTally /></ProtectedRoute>} />    */}
+         {/*   <Route path="/import-tally" element={<ProtectedRoute><ImportTally /></ProtectedRoute>} />    */}
             <Route path="/accounting/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/accounting/customers" element={<ProtectedRoute><Customers /></ProtectedRoute>} />
            <Route path="/accounting/invoices" element={<ProtectedRoute><Invoices /></ProtectedRoute>} />
