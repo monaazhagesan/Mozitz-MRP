@@ -11,10 +11,18 @@ use Illuminate\Support\Facades\DB;
 class InvoiceController extends Controller
 {
     // 🔹 Get All Invoices
-    public function index()
-    {
-        return Invoice::with(['items', 'payments'])->latest()->get();
+   public function index(Request $request)
+{
+    $customerId = $request->query('customer_id');
+
+    $query = Invoice::with(['items', 'payments']);
+
+    if ($customerId) {
+        $query->where('customer_id', $customerId);
     }
+
+    return $query->latest()->get();
+}
 
     public function update(Request $request, $id)
     {

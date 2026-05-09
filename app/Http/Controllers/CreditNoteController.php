@@ -9,10 +9,27 @@ use Illuminate\Support\Facades\Log;
 class CreditNoteController extends Controller
 {
     // Get all credit notes with items
-    public function index()
-    {
-        return CreditNote::with('items')->get();
+    public function index(Request $request)
+{
+    try {
+        $customerId = $request->query('customer_id');
+
+        $query = CreditNote::with('items');
+
+        if ($customerId) {
+            $query->where('customer_id', $customerId);
+        }
+
+        return response()->json([
+            'data' => $query->get()
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'message' => 'Failed to fetch credit notes',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
 
     // Get single credit note
     public function show($id)

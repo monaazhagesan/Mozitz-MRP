@@ -877,17 +877,34 @@ if (newCustomer.company_name?.trim()) {
         </label>
       </div>
 
-      {newCustomer.separateShipping && (
-        <Textarea
-          id="shipping_address"
-          value={newCustomer.shipping_address || ""}
-          onChange={(e) =>
-            setNewCustomer({ ...newCustomer, shipping_address: e.target.value })
-          }
-          placeholder="Enter shipping address"
-          rows={3}
-        />
-      )}
+      {(newCustomer.sameAsBilling || newCustomer.separateShipping) && (
+  <div className="space-y-2">
+   
+    <Textarea
+      id="shipping_address"
+      value={
+        newCustomer.sameAsBilling
+          ? newCustomer.billing_address || ""
+          : newCustomer.shipping_address || ""
+      }
+      onChange={(e) =>
+        setNewCustomer({
+          ...newCustomer,
+          shipping_address: e.target.value,
+        })
+      }
+      placeholder="Enter shipping address"
+      rows={3}
+      disabled={newCustomer.sameAsBilling} // 👈 important
+    />
+
+    {newCustomer.sameAsBilling && (
+      <p className="text-xs text-muted-foreground">
+        Shipping address is same as billing (auto-updated)
+      </p>
+    )}
+  </div>
+)}
     </div>
 
     {/* City, State, Country, Postal Code */}
@@ -1390,57 +1407,73 @@ if (newCustomer.company_name?.trim()) {
               />
             </div>
 
-           <div className="space-y-2 md:col-span-2">
+          <div className="space-y-2 md:col-span-2">
   <Label>Shipping Address</Label>
 
   <div className="flex flex-col md:flex-row md:items-center gap-4">
+    
+    {/* SAME AS BILLING */}
     <label className="inline-flex items-center space-x-2">
       <input
         type="checkbox"
         checked={selectedCustomer.sameAsBilling || false}
         onChange={(e) => {
           const isChecked = e.target.checked;
+
           setSelectedCustomer({
             ...selectedCustomer,
             sameAsBilling: isChecked,
             separateShipping: !isChecked,
-            shipping_address: isChecked ? selectedCustomer.billing_address || "" : "",
+            shipping_address: isChecked
+              ? selectedCustomer.billing_address || ""
+              : "",
           });
         }}
       />
       <span>Same as Billing</span>
     </label>
 
+    {/* SEPARATE SHIPPING */}
     <label className="inline-flex items-center space-x-2">
       <input
         type="checkbox"
         checked={selectedCustomer.separateShipping || false}
         onChange={(e) => {
           const isChecked = e.target.checked;
+
           setSelectedCustomer({
             ...selectedCustomer,
             separateShipping: isChecked,
             sameAsBilling: !isChecked,
-            shipping_address: isChecked ? "" : selectedCustomer.billing_address || "",
+            shipping_address: isChecked
+              ? selectedCustomer.shipping_address || ""
+              : selectedCustomer.billing_address || "",
           });
         }}
       />
-      <span>Separate Shipping Address (Optional)</span>
+      <span>Separate Shipping Address</span>
     </label>
   </div>
 
-  {selectedCustomer.separateShipping && (
+  {(selectedCustomer.sameAsBilling || selectedCustomer.separateShipping) && (
     <Textarea
-      value={selectedCustomer.shipping_address || ""}
+      value={
+        selectedCustomer.sameAsBilling
+          ? selectedCustomer.billing_address || ""
+          : selectedCustomer.shipping_address || ""
+      }
       onChange={(e) =>
-        setSelectedCustomer({ ...selectedCustomer, shipping_address: e.target.value })
+        setSelectedCustomer({
+          ...selectedCustomer,
+          shipping_address: e.target.value,
+        })
       }
       placeholder="Enter shipping address"
       rows={3}
+      disabled={selectedCustomer.sameAsBilling}
     />
   )}
 </div>
-
             <div className="grid grid-cols-2 gap-4 md:col-span-2">
               <div className="space-y-2">
                 <Label>City *</Label>

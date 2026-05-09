@@ -120,45 +120,52 @@ if (isset($item['available_stock'])) {
         }
     }
     // Fetch all orders
-    public function index()
-    {
-        try {
-            $orders = Order::orderBy('order_date', 'desc')->get();
+   public function index(Request $request)
+{
+    try {
+        $customerId = $request->query('customer_id');
 
-            // Build fake 'items' array for frontend compatibility
-            $orders->transform(function ($order) {
-                $order->items = [
-                    [
-                        'item_code' => $order->item_code,
-                        'item_name' => $order->item_name,
-                        'uom' => $order->uom,
-                        'quantity' => $order->quantity,
-                        'rate' => $order->rate,
-                        'tax' => $order->tax,
-                        'total_amount' => $order->total_amount,
-                        'item_location' => $order->item_location,
-                        'available_stock' => $order->available_stock,
-                    ]
-                ];
+        $query = Order::orderBy('order_date', 'desc');
 
-                $order->order_total = $order->total_amount; // total amount for frontend
-                $order->status = $order->status;
-                return $order;
-            });
-
-            return response()->json([
-                'success' => true,
-                'data' => $orders
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Fetch orders failed: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to fetch orders',
-                'error' => $e->getMessage()
-            ], 500);
+        if ($customerId) {
+            $query->where('customer_id', $customerId);
         }
+
+        $orders = $query->get();
+
+        // Build items array for frontend
+        $orders->transform(function ($order) {
+            $order->items = [
+                [
+                    'item_code' => $order->item_code,
+                    'item_name' => $order->item_name,
+                    'uom' => $order->uom,
+                    'quantity' => $order->quantity,
+                    'rate' => $order->rate,
+                    'tax' => $order->tax,
+                    'total_amount' => $order->total_amount,
+                    'item_location' => $order->item_location,
+                    'available_stock' => $order->available_stock,
+                ]
+            ];
+
+            $order->order_total = $order->total_amount;
+
+            return $order;
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $orders
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to fetch orders',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
 
     public function updateStatus(Request $request, $id)
     {

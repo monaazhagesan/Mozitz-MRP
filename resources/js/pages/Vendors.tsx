@@ -80,7 +80,8 @@ const Vendors = () => {
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
   const [vendorsData, setVendorsData] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
-  
+  const [searchTerm, setSearchTerm] = useState("");
+
   const initialVendorState = {
     name: "",
     contact: "",
@@ -576,6 +577,18 @@ const handleUpdateVendor = async () => {
   }
 };
 
+const filteredVendors = vendorsData.filter((vendor) => {
+  const search = searchTerm.toLowerCase();
+
+  return (
+    vendor.vendor_name?.toLowerCase().includes(search) ||
+    vendor.contact_person?.toLowerCase().includes(search) ||
+    vendor.company?.toLowerCase().includes(search) ||
+    vendor.email?.toLowerCase().includes(search) ||
+    vendor.phone?.toLowerCase().includes(search) ||
+    vendor.vendor_id?.toLowerCase().includes(search)
+  );
+});
 
   const handleExport = () => {
     const csvContent = [
@@ -1043,9 +1056,13 @@ const handleUpdateVendor = async () => {
                 <Input
                   placeholder="Search by vendor name, contact, or email..."
                   className="pl-10"
+                  value={searchTerm}
+  onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <Button variant="outline">Filter</Button>
+              <Button variant="outline" onClick={() => setSearchTerm("")}>
+  Clear
+</Button>
             </div>
           </CardContent>
         </Card>
@@ -1071,7 +1088,7 @@ const handleUpdateVendor = async () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {vendorsData.map((vendor) => (
+                {filteredVendors.map((vendor) => (
                   <TableRow key={vendor.id}>
                     <TableCell className="font-medium">{vendor.vendor_id}</TableCell>
                     <TableCell className="font-semibold">{vendor.vendor_name}</TableCell>

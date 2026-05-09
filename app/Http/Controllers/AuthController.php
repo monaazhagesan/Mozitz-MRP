@@ -81,11 +81,18 @@ class AuthController extends Controller
 
     public function forgotPassword(Request $request)
     {
-        $request->validate([
-            'email' => 'required|email|exists:users,email',
-        ]);
+       $request->validate([
+        'email' => 'required|email',
+    ]);
 
         $user = User::where('email', $request->email)->first();
+
+         // ✅ FIX: prevent null crash
+    if (!$user) {
+        return response()->json([
+            'message' => 'Email is not registered'
+        ], 404);
+    }
 
          $token = Password::createToken($user);
 

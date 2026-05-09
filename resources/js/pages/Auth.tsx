@@ -112,31 +112,39 @@ const Auth = () => {
   };
 
 
-  const handleForgotPassword = async () => {
-    if (!email) {
-      toast.error('Please enter your email first');
-      return;
-    }
+ const handleForgotPassword = async () => {
+  if (!email) {
+    toast.error('Please enter your email first');
+    return;
+  }
 
-    try {
-      z.string().email().parse(email);
-    } catch {
-      toast.error('Please enter a valid email');
-      return;
-    }
+  try {
+    z.string().email().parse(email);
+  } catch {
+    toast.error('Please enter a valid email');
+    return;
+  }
 
-    setLoading(true);
+  // ✅ Instant message
+  toast.loading('Sending password reset email...', {
+    id: 'reset-password',
+  });
 
-    const { error } = await resetPassword(email);
+  const { error } = await resetPassword(email);
 
-    setLoading(false);
-
-    if (error) {
-      toast.error(error.message || 'Failed to send reset email');
-    } else {
-      toast.success('Password reset email sent!');
-    }
-  };
+  if (error) {
+    toast.error(error.message || 'Email is not registered', {
+      id: 'reset-password',
+    });
+  } else {
+    toast.success(
+      'Password reset email has been sent to your email address.',
+      {
+        id: 'reset-password',
+      }
+    );
+  }
+};
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -189,12 +197,12 @@ const Auth = () => {
                 {/* 👇 FORGOT PASSWORD BUTTON */}
                 <div className="flex justify-center">
                   <button
-                    type="button"
-                    onClick={handleForgotPassword}
-                    className="text-sm text-blue-600 hover:underline"
-                  >
-                    Forgot Password?
-                  </button>
+  type="button"
+  onClick={() => navigate('/forgot-password')}
+  className="text-sm text-blue-600 hover:underline"
+>
+  Forgot Password?
+</button>
                 </div>
 
                 <Button type="submit" className="w-full" disabled={loading}>

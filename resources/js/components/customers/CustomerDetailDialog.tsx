@@ -45,45 +45,80 @@ const CustomerDetailDialog = ({ customer, open, onOpenChange }: CustomerDetailDi
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (open && customer) {
-      loadCustomerData();
-    }
-  }, [open, customer]);
+  if (!open || !customer?.id) return;
 
- const loadCustomerData = async () => {
-  if (!customer) return;
+  loadCustomerData(customer.id);
+}, [open, customer?.id]);
+
+const loadCustomerData = async (customerId: string) => {
+  if (!customerId) return;
 
   setLoading(true);
 
-  try {
-    // Fetch invoices
-    const invoiceRes = await fetch(
-      `/api/invoices?customer_name=${encodeURIComponent(customer.customer_name)}`
-    );
-    if (!invoiceRes.ok) throw new Error("Failed to fetch invoices");
-    const invoiceData = await invoiceRes.json();
-    setInvoices(invoiceData || []);
+  const safeFetch = async (url: string) => {
+    try {
+      const res = await fetch(url);
+      const text = await res.text();
 
-    // Fetch credit notes
-    const creditRes = await fetch(
-      `/api/credit_notes?customer_name=${encodeURIComponent(customer.customer_name)}`
-    );
-    if (!creditRes.ok) throw new Error("Failed to fetch credit notes");
-    const creditData = await creditRes.json();
-    setCreditNotes(creditData || []);
+      if (!res.ok || text.trim().startsWith("<!DOCTYPE")) {
+        console.error("API Error:", text);
+        return [];
+      }
 
-    // Load orders from localStorage
-    const saved = localStorage.getItem("orders");
-    if (saved) {
-      const allOrders = JSON.parse(saved);
-      const customerOrders = allOrders.filter(
-        (o: any) => o.customer === customer.customer_name
+      const json = JSON.parse(text);
+
+      return (
+        json?.data ??
+        json?.invoices ??
+        json?.orders ??
+        json?.credit_notes ??
+        json ??
+        []
       );
-      setOrders(customerOrders);
-    } else {
-      setOrders([]);
+    } catch (err) {
+      console.error("Fetch error:", err);
+      return [];
     }
-  } catch (error: any) {
+  };
+
+  try {
+    const [invoices, credits, orders] = await Promise.all([
+      safeFetch(`/api/invoices?customer_id=${customerId}`),
+      safeFetch(`/api/credit_notes?customer_id=${customerId}`),
+      safeFetch(`/api/orders?customer_id=${customerId}`),
+    ]);
+
+    setInvoices(Array.isArray(invoices) ? invoices : []);
+    setCreditNotes(Array.isArray(credits) ? credits : []);
+
+    // Group orders properly
+    const groupedOrders = Object.values(
+      (Array.isArray(orders) ? orders : []).reduce(
+        (acc: Record<string, any>, row: any) => {
+          const key = row.order_no;
+
+          if (!acc[key]) {
+            acc[key] = {
+              id: row.order_no,
+              orderDate: row.order_date,
+              status: row.status,
+              paymentType: row.payment_type,
+              items: [],
+            };
+          }
+
+          acc[key].items.push({
+            totalAmount: Number(row.total_amount) || 0,
+          });
+
+          return acc;
+        },
+        {}
+      )
+    );
+
+    setOrders(groupedOrders);
+  } catch (error) {
     console.error("Error loading customer data:", error);
     setInvoices([]);
     setCreditNotes([]);
@@ -95,13 +130,27 @@ const CustomerDetailDialog = ({ customer, open, onOpenChange }: CustomerDetailDi
 
   if (!customer) return null;
 
-  const totalSales = invoices.reduce((sum, inv) => sum + (inv.total_amount || 0), 0);
-  const totalPaid = invoices.reduce((sum, inv) => sum + (inv.amount_paid || 0), 0);
-  const pendingPayments = totalSales - totalPaid;
-  const inProgressOrders = orders.filter(
-    (o) => o.status !== "Done" && o.status !== "Cancelled"
-  );
-  const totalCreditNotes = creditNotes.reduce((sum, cn) => sum + (cn.total_amount || 0), 0);
+ const totalSales = invoices.reduce(
+  (sum, inv) => sum + (Number(inv.total_amount) || 0),
+  0
+);
+
+const totalPaid = invoices.reduce(
+  (sum, inv) => sum + (Number(inv.amount_paid) || 0),
+  0
+);
+
+const pendingPayments =
+  (Number(totalSales) || 0) - (Number(totalPaid) || 0);
+
+const inProgressOrders = orders.filter(
+  (o) => o.status !== "Done" && o.status !== "Cancelled"
+);
+
+const totalCreditNotes = creditNotes.reduce(
+  (sum, cn) => sum + (Number(cn.total_amount) || 0),
+  0
+);
 
   const orderTotal = (order: OrderData) =>
     order.items?.reduce((s, i) => s + (i.totalAmount || 0), 0) || 0;
@@ -181,7 +230,7 @@ const CustomerDetailDialog = ({ customer, open, onOpenChange }: CustomerDetailDi
               </div>
               <div>
                 <p className="text-muted-foreground">Phone</p>
-                <p className="font-medium">{customer.phone || "-"}</p>
+                <p className="font-medium">{customer.mobile || "-"}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Country</p>
@@ -244,7 +293,7 @@ const CustomerDetailDialog = ({ customer, open, onOpenChange }: CustomerDetailDi
                 <TableBody>
                   {orders.map((order) => (
                     <TableRow key={order.id}>
-                      <TableCell className="font-medium">{order.id.slice(0, 8)}...</TableCell>
+                      <TableCell className="font-medium">{String(order.id ?? "")}</TableCell>
                       <TableCell>{order.orderDate ? new Date(order.orderDate).toLocaleDateString() : "-"}</TableCell>
                       <TableCell>
                         <Badge

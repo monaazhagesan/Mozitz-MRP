@@ -39,6 +39,7 @@ import POReturn from "./pages/POReturn";
 import CreditNotes from "./pages/CreditNotes";
 //import AccountingAI from "./pages/AccountingAI";
 import PitchDeck from "./pages/PitchDeck";
+import ForgotPassword from "./pages/ForgotPassword";
 import NotFound from "./pages/NotFound"; 
 
 const queryClient = new QueryClient();
@@ -84,6 +85,7 @@ const App = () => (
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         {/*     <Route path="/stock-transfer" element={<ProtectedRoute><StockTransfer /></ProtectedRoute>} />*/}
             <Route path="/tax-configuration" element={<ProtectedRoute><TaxConfiguration /></ProtectedRoute>} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/pitch-deck" element={<PitchDeck />} />
             <Route path="*" element={<NotFound />} /> 
           </Routes>

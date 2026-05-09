@@ -329,7 +329,7 @@ const Orders = () => {
     nextOrderDate: todayISO(),
     price: 0,
   });
-  
+
   const [rfqDialogOpen, setRfqDialogOpen] = useState(false);
   const [rfqItem, setRfqItem] = useState<{
     item_code: string;
@@ -341,17 +341,17 @@ const Orders = () => {
   const [refundOrder, setRefundOrder] = useState<Order | null>(null);
 
   const safeOrders = Array.isArray(orders) ? orders : [];
-const safeInventoryItems = Array.isArray(inventoryItems) ? inventoryItems : [];
-const safeLineItems = Array.isArray(lineItems) ? lineItems : [];
+  const safeInventoryItems = Array.isArray(inventoryItems) ? inventoryItems : [];
+  const safeLineItems = Array.isArray(lineItems) ? lineItems : [];
 
-// Add this after your interfaces (around line 100)
-const getOrderField = (order: any, field: string, fallback: any = "—") => {
-  if (!order) return fallback;
-  return order[field] ?? 
-         order[field.replace(/_/g, '')] ??  // try camelCase version
-         order[field.toLowerCase()] ?? 
-         fallback;
-};
+  // Add this after your interfaces (around line 100)
+  const getOrderField = (order: any, field: string, fallback: any = "—") => {
+    if (!order) return fallback;
+    return order[field] ??
+      order[field.replace(/_/g, '')] ??  // try camelCase version
+      order[field.toLowerCase()] ??
+      fallback;
+  };
 
   useEffect(() => {
     localStorage.setItem("orders", JSON.stringify(orders));
@@ -365,17 +365,17 @@ const getOrderField = (order: any, field: string, fallback: any = "—") => {
     localStorage.setItem("regularOrderTemplates", JSON.stringify(regularOrders));
   }, [regularOrders]);
 
-  
- const generateSONumber = async () => {
-  try {
-    const res = await axios.get("/api/orders/next-so");
 
-    return res.data.data;
-  } catch (err) {
-    console.error("SO GENERATION FAILED:", err.response?.data || err);
-    return "SO-ERROR";
-  }
-};
+  const generateSONumber = async () => {
+    try {
+      const res = await axios.get("/api/orders/next-so");
+
+      return res.data.data;
+    } catch (err) {
+      console.error("SO GENERATION FAILED:", err.response?.data || err);
+      return "SO-ERROR";
+    }
+  };
 
   const generateRegularNumber = () => {
     const year = new Date().getFullYear();
@@ -384,288 +384,288 @@ const getOrderField = (order: any, field: string, fallback: any = "—") => {
 
 
   const calculateOrderValue = (order: any) =>
-  (order.items || []).reduce(
-    (sum: number, item: any) =>
-      sum +
-      (Number(item.quantity || 0) *
-       Number(item.rate || item.price || 0)),
-    0
-  );
+    (order.items || []).reduce(
+      (sum: number, item: any) =>
+        sum +
+        (Number(item.quantity || 0) *
+          Number(item.rate || item.price || 0)),
+      0
+    );
 
   useEffect(() => {
-  const loadSO = async () => {
-    const so = await generateSONumber();
-    setFormData((prev) => ({ ...prev, orderNo: so }));
-  };
+    const loadSO = async () => {
+      const so = await generateSONumber();
+      setFormData((prev) => ({ ...prev, orderNo: so }));
+    };
 
-  loadSO();
-}, []);
+    loadSO();
+  }, []);
 
- const inventoryByCode = useMemo(() => {
-  if (!Array.isArray(inventoryItems) || inventoryItems.length === 0) {
-    console.log("⚠️ inventoryItems is empty");
-    return new Map();
-  }
+  const inventoryByCode = useMemo(() => {
+    if (!Array.isArray(inventoryItems) || inventoryItems.length === 0) {
+      console.log("⚠️ inventoryItems is empty");
+      return new Map();
+    }
 
-  const map = new Map();
-  inventoryItems.forEach((item) => {
-    const code1 = normalizeText(item.item_code);
-    const code2 = normalizeText(item.itemCode);
-    
-    if (code1) map.set(code1, item);
-    if (code2 && code2 !== code1) map.set(code2, item);
-  });
+    const map = new Map();
+    inventoryItems.forEach((item) => {
+      const code1 = normalizeText(item.item_code);
+      const code2 = normalizeText(item.itemCode);
 
-  console.log(`✅ Inventory map created with ${map.size} items`);
-  return map;
-}, [inventoryItems]);
+      if (code1) map.set(code1, item);
+      if (code2 && code2 !== code1) map.set(code2, item);
+    });
+
+    console.log(`✅ Inventory map created with ${map.size} items`);
+    return map;
+  }, [inventoryItems]);
 
   const customerByName = useMemo(() => {
     return new Map(customers.map((customer) => [normalizeText(customer.customer_name), customer]));
   }, [customers]);
 
   const getInventoryRecord = (itemCode: string) => {
-  if (!itemCode) return null;
-  const normalized = normalizeText(itemCode);
-  return inventoryByCode.get(normalized) || null;
-};
+    if (!itemCode) return null;
+    const normalized = normalizeText(itemCode);
+    return inventoryByCode.get(normalized) || null;
+  };
 
- const getAvailableStock = (itemCode: string): number => {
-  if (!itemCode) return 0;
+  const getAvailableStock = (itemCode: string): number => {
+    if (!itemCode) return 0;
 
-  const inventory = getInventoryRecord(itemCode);
-  if (!inventory) {
-    console.log(`❌ No inventory found for: ${itemCode}`);
-    return 0;
-  }
-
-
-  const available = 
-    Number(inventory.available_quantity) ||
-    Number(inventory.availableQuantity) ||
-    Number(inventory.available_stock) ||
-    (Number(inventory.quantity_on_hand || 0) - Number(inventory.allocated_quantity || 0)) ||
-    Number(inventory.quantity) ||
-    0;
-
-  return Math.max(0, Math.round(available));
-};
-
-const fetchInventory = async () => {
-  try {
-    const res = await axios.get("/api/inventory-stock");
-    console.log("📦 INVENTORY RAW RESPONSE:", res.data);
-
-    const data = res.data?.items ?? [];   // ✅ FIX HERE
-
-    setInventoryItems(data);
-  } catch (error) {
-    console.error("❌ Inventory fetch error:", error);
-    setInventoryItems([]);
-  }
-};
-
-useEffect(() => {
-  fetchInventory();
-}, []);
-
-
-const fetchBOMComponents = async (itemCode: string, qty: number) => {
-  try {
-    console.log("📦 ITEM CODE:", itemCode);
-
-    // 🔹 1. BOM API
-    const res = await axios.get("/api/bom-component", {
-      params: { item_code: itemCode },
-    });
-
-    const components = res.data;
-
-    console.log("📦 BOM RESPONSE:", components);
-
-    if (!Array.isArray(components) || components.length === 0) {
-      console.warn("⚠️ No BOM found");
-      return { components: [], noBOM: true };
+    const inventory = getInventoryRecord(itemCode);
+    if (!inventory) {
+      console.log(`❌ No inventory found for: ${itemCode}`);
+      return 0;
     }
 
-    // 🔹 2. STOCK API
-    const stockRes = await axios.get("/api/inventory-stock", {
-      params: {
-        item_codes: components.map((c: any) => c.component).join(","),
-      },
-    });
 
-    console.log("📦 STOCK RAW RESPONSE:", stockRes.data);
+    const available =
+      Number(inventory.available_quantity) ||
+      Number(inventory.availableQuantity) ||
+      Number(inventory.available_stock) ||
+      (Number(inventory.quantity_on_hand || 0) - Number(inventory.allocated_quantity || 0)) ||
+      Number(inventory.quantity) ||
+      0;
 
-    // 🔹 3. Normalize stock
-    const stockArray = Array.isArray(stockRes.data)
-      ? stockRes.data
-      : stockRes.data?.data || stockRes.data?.stocks || [];
+    return Math.max(0, Math.round(available));
+  };
 
-    console.log("📦 STOCK ARRAY:", stockArray);
+  const fetchInventory = async () => {
+    try {
+      const res = await axios.get("/api/inventory-stock");
+      console.log("📦 INVENTORY RAW RESPONSE:", res.data);
 
-    // 🔹 4. Build map
-    const stockMap = new Map(
-      stockArray.map((s: any) => [
-        String(s.item_code).trim().toUpperCase(),
-        Number(s.available_quantity || 0),
-      ])
-    );
+      const data = res.data?.items ?? [];   // ✅ FIX HERE
 
-    console.log("📦 STOCK MAP:", Object.fromEntries(stockMap));
+      setInventoryItems(data);
+    } catch (error) {
+      console.error("❌ Inventory fetch error:", error);
+      setInventoryItems([]);
+    }
+  };
 
-    // 🔹 5. Final merge
-    const result = components.map((c: any) => {
-      const key = String(c.component).trim().toUpperCase();
-      const available = stockMap.get(key) || 0;
+  useEffect(() => {
+    fetchInventory();
+  }, []);
 
-      console.log("🔍 COMPONENT CHECK:", {
-        component: c.component,
-        key,
-        available,
+
+  const fetchBOMComponents = async (itemCode: string, qty: number) => {
+    try {
+      console.log("📦 ITEM CODE:", itemCode);
+
+      // 🔹 1. BOM API
+      const res = await axios.get("/api/bom-component", {
+        params: { item_code: itemCode },
       });
 
+      const components = res.data;
+
+      console.log("📦 BOM RESPONSE:", components);
+
+      if (!Array.isArray(components) || components.length === 0) {
+        console.warn("⚠️ No BOM found");
+        return { components: [], noBOM: true };
+      }
+
+      // 🔹 2. STOCK API
+      const stockRes = await axios.get("/api/inventory-stock", {
+        params: {
+          item_codes: components.map((c: any) => c.component).join(","),
+        },
+      });
+
+      console.log("📦 STOCK RAW RESPONSE:", stockRes.data);
+
+      // 🔹 3. Normalize stock
+      const stockArray = Array.isArray(stockRes.data)
+        ? stockRes.data
+        : stockRes.data?.data || stockRes.data?.stocks || [];
+
+      console.log("📦 STOCK ARRAY:", stockArray);
+
+      // 🔹 4. Build map
+      const stockMap = new Map(
+        stockArray.map((s: any) => [
+          String(s.item_code).trim().toUpperCase(),
+          Number(s.available_quantity || 0),
+        ])
+      );
+
+      console.log("📦 STOCK MAP:", Object.fromEntries(stockMap));
+
+      // 🔹 5. Final merge
+      const result = components.map((c: any) => {
+        const key = String(c.component).trim().toUpperCase();
+        const available = stockMap.get(key) || 0;
+
+        console.log("🔍 COMPONENT CHECK:", {
+          component: c.component,
+          key,
+          available,
+        });
+
+        return {
+          component: c.component,
+          description: c.description,
+          type: c.type,
+          uom: c.uom || "NOS",
+
+          bomQuantity: Number(c.quantity),
+          requiredQty: Number(c.quantity) * qty,
+
+          availableQty: stockMap.get(key) || 0,
+
+        };
+      });
+
+      console.log("📦 FINAL COMPONENTS:", result);
+
       return {
-        component: c.component,
-        description: c.description,
-        type: c.type,
-        uom: c.uom || "NOS",
-
-        bomQuantity: Number(c.quantity),
-        requiredQty: Number(c.quantity) * qty,
-
-             availableQty: stockMap.get(key) || 0,
-
+        components: result,
+        noBOM: false,
       };
-    });
-
-    console.log("📦 FINAL COMPONENTS:", result);
-
-    return {
-      components: result,
-      noBOM: false,
-    };
-  } catch (err) {
-    console.error("❌ BOM fetch error:", err);
-    return { components: [], noBOM: true };
-  }
-};
-
-const getLineAssessment = (item: LineItem) => {
-  const code = (item.itemCode || item.item_code || "").trim();
-
-  // Get fresh inventory record
-  const inventory = code ? getInventoryRecord(code) : null;
-  
-  // Get available stock - use the most reliable method
-  const available = code ? getAvailableStock(code) : 0;
-
-  const quantity = integer(item.quantityOrdered ?? item.quantity ?? 0);
-  const gap = Math.max(0, quantity - available);
-
- const openPO = integer(inventory?.open_po ?? 0);
-
-  const reorderPoint = integer(inventory?.reorder_point || inventory?.reorderPoint || 0);
-
-  const rawType = item.itemType || inventory?.item_type || inventory?.itemType || "";
-  const type = normalizeItemType(rawType);
-
-  const isProduct = type === "Product";
-
-  if (!code) {
-    return {
-      state: "missing" as ValidationState,
-      label: "Missing item",
-      action: "Add an item code.",
-      available,
-      gap,
-      quantity,
-      reorderPoint,
-      inventory,
-      type,
-      openPO,
-    };
-  }
-
-  if (quantity <= 0) {
-    return {
-      state: "missing" as ValidationState,
-      label: "Missing qty",
-      action: "Enter quantity greater than zero.",
-      available,
-      gap: 0,
-      quantity,
-      reorderPoint,
-      inventory,
-      type,
-      openPO,
-    };
-  }
-
-  // FULL STOCK
-  if (available >= quantity) {
-    return {
-      state: "available" as ValidationState,
-      label: reorderPoint > 0 && available < reorderPoint ? "Below reorder" : "Stock OK",
-      action: reorderPoint > 0 && available < reorderPoint 
-        ? "Monitor stock and restock soon." 
-        : "Can be fulfilled from stock.",
-      available,
-      gap,
-      quantity,
-      reorderPoint,
-      inventory,
-      type,
-      openPO,
-    };
-  }
-
-  // PARTIAL STOCK
-  if (available > 0) {
-    return {
-      state: "partial" as ValidationState,
-      label: `Partial ${available}/${quantity}`,
-      action: `Short by ${gap}. Split delivery or trigger replenishment.`,
-      available,
-      gap,
-      quantity,
-      reorderPoint,
-      inventory,
-      type,
-      openPO,
-    };
-  }
-
-  // PRODUCE (for Products)
-  if (isProduct) {
-    return {
-      state: "produce" as ValidationState,
-      label: `Produce ${quantity}`,
-      action: "Trigger BOM-based production plan.",
-      available,
-      gap,
-      quantity,
-      reorderPoint,
-      inventory,
-      type,
-      openPO,
-    };
-  }
-
-  // PURCHASE (for Materials/Components)
-  return {
-    state: "purchase" as ValidationState,
-    label: `Buy ${gap}`,
-    action: "Raise RFQ or purchase request.",
-    available,
-    gap,
-    quantity,
-    reorderPoint,
-    inventory,
-    type,
-    openPO,
+    } catch (err) {
+      console.error("❌ BOM fetch error:", err);
+      return { components: [], noBOM: true };
+    }
   };
-};
+
+  const getLineAssessment = (item: LineItem) => {
+    const code = (item.itemCode || item.item_code || "").trim();
+
+    // Get fresh inventory record
+    const inventory = code ? getInventoryRecord(code) : null;
+
+    // Get available stock - use the most reliable method
+    const available = code ? getAvailableStock(code) : 0;
+
+    const quantity = integer(item.quantityOrdered ?? item.quantity ?? 0);
+    const gap = Math.max(0, quantity - available);
+
+    const openPO = integer(inventory?.open_po ?? 0);
+
+    const reorderPoint = integer(inventory?.reorder_point || inventory?.reorderPoint || 0);
+
+    const rawType = item.itemType || inventory?.item_type || inventory?.itemType || "";
+    const type = normalizeItemType(rawType);
+
+    const isProduct = type === "Product";
+
+    if (!code) {
+      return {
+        state: "missing" as ValidationState,
+        label: "Missing item",
+        action: "Add an item code.",
+        available,
+        gap,
+        quantity,
+        reorderPoint,
+        inventory,
+        type,
+        openPO,
+      };
+    }
+
+    if (quantity <= 0) {
+      return {
+        state: "missing" as ValidationState,
+        label: "Missing qty",
+        action: "Enter quantity greater than zero.",
+        available,
+        gap: 0,
+        quantity,
+        reorderPoint,
+        inventory,
+        type,
+        openPO,
+      };
+    }
+
+    // FULL STOCK
+    if (available >= quantity) {
+      return {
+        state: "available" as ValidationState,
+        label: reorderPoint > 0 && available < reorderPoint ? "Below reorder" : "Stock OK",
+        action: reorderPoint > 0 && available < reorderPoint
+          ? "Monitor stock and restock soon."
+          : "Can be fulfilled from stock.",
+        available,
+        gap,
+        quantity,
+        reorderPoint,
+        inventory,
+        type,
+        openPO,
+      };
+    }
+
+    // PARTIAL STOCK
+    if (available > 0) {
+      return {
+        state: "partial" as ValidationState,
+        label: `Partial ${available}/${quantity}`,
+        action: `Short by ${gap}. Split delivery or trigger replenishment.`,
+        available,
+        gap,
+        quantity,
+        reorderPoint,
+        inventory,
+        type,
+        openPO,
+      };
+    }
+
+    // PRODUCE (for Products)
+    if (isProduct) {
+      return {
+        state: "produce" as ValidationState,
+        label: `Produce ${quantity}`,
+        action: "Trigger BOM-based production plan.",
+        available,
+        gap,
+        quantity,
+        reorderPoint,
+        inventory,
+        type,
+        openPO,
+      };
+    }
+
+    // PURCHASE (for Materials/Components)
+    return {
+      state: "purchase" as ValidationState,
+      label: `Buy ${gap}`,
+      action: "Raise RFQ or purchase request.",
+      available,
+      gap,
+      quantity,
+      reorderPoint,
+      inventory,
+      type,
+      openPO,
+    };
+  };
 
   const lineAssessments = useMemo(() => lineItems.map((item) => ({ item, assessment: getLineAssessment(item) })), [lineItems, inventoryItems]);
 
@@ -694,10 +694,11 @@ const getLineAssessment = (item: LineItem) => {
     }));
   }, [totalSummary.total]);
 
- const resetComposer = async () => {
+  const resetComposer = async () => {
     const defaultType = getDefaultItemType("Sales");
     const newSONumber = await generateSONumber();
     setFormData({
+      customerId: "",
       customerName: "",
       customerCode: "",
       contactPerson: "",
@@ -729,59 +730,59 @@ const getLineAssessment = (item: LineItem) => {
     setValidationRun(false);
   };
 
- const applyCustomerSelection = async (id: number) => {
+  const applyCustomerSelection = async (id: number) => {
 
 
-  try {
+    try {
 
-    const res = await fetch(`/api/customers/${id}`);
+      const res = await fetch(`/api/customers/${id}`);
 
-    if (!res.ok) {
-      throw new Error("Customer not found");
+      if (!res.ok) {
+        throw new Error("Customer not found");
+      }
+
+      const customer = await res.json();
+
+
+      setFormData((prev) => {
+        const updated = {
+          ...prev,
+          customerId: id,
+
+          customerName:
+            customer.customer ??
+            customer.customer_name ??
+            prev.customerName ?? "",
+
+          customerCode: customer.customer_code || "",
+          email: customer.email || "",
+
+          // ✅ FIXED CONTACT NUMBER (safe mapping)
+          contactNumber:
+            customer.contact_number ||
+            customer.phone ||
+            customer.mobile ||
+            customer.phone_number ||
+            "",
+
+          contactPerson: customer.contact_person || "",
+
+          billingAddress: customer.billing_address || "",
+
+          shippingAddress:
+            customer.shipping_address || customer.billing_address || "",
+
+          location: customer.country || prev.location,
+        };
+
+        console.log("🧾 Updated form data:", updated);
+
+        return updated;
+      });
+    } catch (error) {
+      console.error("❌ Customer fetch error:", error);
     }
-
-    const customer = await res.json();
-
-
-    setFormData((prev) => {
-      const updated = {
-        ...prev,
-customerId: id,
-
-       customerName:
-  customer.customer ??
-  customer.customer_name ??
-  prev.customerName ?? "",
-
-        customerCode: customer.customer_code || "",
-        email: customer.email || "",
-
-        // ✅ FIXED CONTACT NUMBER (safe mapping)
-        contactNumber:
-          customer.contact_number ||
-          customer.phone ||
-          customer.mobile ||
-          customer.phone_number ||
-          "",
-
-        contactPerson: customer.contact_person || "",
-
-        billingAddress: customer.billing_address || "",
-
-        shippingAddress:
-          customer.shipping_address || customer.billing_address || "",
-
-        location: customer.country || prev.location,
-      };
-
-      console.log("🧾 Updated form data:", updated);
-
-      return updated;
-    });
-  } catch (error) {
-    console.error("❌ Customer fetch error:", error);
-  }
-};
+  };
 
   const syncItemCode = async (id: string, code: string) => {
     const inventory = getInventoryRecord(code);
@@ -894,25 +895,25 @@ customerId: id,
   };
 
 
-const allocateInventoryForOrder = async (items: LineItem[]) => {
-  try {
-    for (const item of items) {
-      if (!item.itemCode || item.quantityOrdered <= 0) continue;
+  const allocateInventoryForOrder = async (items: LineItem[]) => {
+    try {
+      for (const item of items) {
+        if (!item.itemCode || item.quantityOrdered <= 0) continue;
 
-      await axios.post("/api/inventory/allocate", {
-        itemCode: item.itemCode,
-        quantity: item.quantityOrdered,
-      });
+        await axios.post("/api/inventory/allocate", {
+          itemCode: item.itemCode,
+          quantity: item.quantityOrdered,
+        });
+      }
+    } catch (error) {
+      console.error("Error allocating inventory:", error);
     }
-  } catch (error) {
-    console.error("Error allocating inventory:", error);
-  }
-};
+  };
 
   const createOrderFromComposer = async (status: string) => {
   if (!validateComposer()) return;
 
-    // ✅ Phone validation (10 digits only)
+  // Phone validation
   const phoneRegex = /^[0-9]{10}$/;
   if (!phoneRegex.test(formData.contactNumber)) {
     toast({
@@ -923,7 +924,7 @@ const allocateInventoryForOrder = async (items: LineItem[]) => {
     return;
   }
 
-  // ✅ Email validation
+  // Email validation
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (formData.email && !emailRegex.test(formData.email)) {
     toast({
@@ -934,54 +935,73 @@ const allocateInventoryForOrder = async (items: LineItem[]) => {
     return;
   }
 
- const items = lineItems
-  .filter((item) => item.itemCode && item.quantityOrdered > 0)
-  .map((item) => ({
-    item_code: item.itemCode,
-    item_name: item.itemName,
-    item_type: item.itemType,
-    available_stock: item.availableStock,
-    uom: item.uom,
-    quantity: item.quantityOrdered,
-    rate: item.rate,
-    tax: item.tax,
-    total_amount: item.totalAmount,
-  }));
+  const items = lineItems
+    .filter((item) => item.itemCode && item.quantityOrdered > 0)
+    .map((item) => ({
+      item_code: item.itemCode,
+      item_name: item.itemName,
+      item_type: item.itemType,
+      available_stock: item.availableStock,
+      uom: item.uom,
+      quantity: Number(item.quantityOrdered),
+      rate: Number(item.rate || 0),
+      tax: Number(item.tax || 0),
+      total_amount: Number(item.totalAmount || 0),
+    }));
+
+  // ✅ ONLY IMPORTANT FIX (prevents 422)
+  if (!formData.customerId || items.length === 0) {
+    toast({
+      title: "Missing data",
+      description: "Customer and items are required.",
+      variant: "destructive",
+    });
+    return;
+  }
 
   const newOrder = {
     id: formData.orderNo || generateSONumber(),
-    customer_id: formData.customerId,
+
+    customer_id: Number(formData.customerId), // ✅ FIXED
     order_date: formData.orderDate,
     order_type: formData.orderType,
     customer: formData.customerName,
+
     contact_person: formData.contactPerson,
     contact_number: formData.contactNumber,
     email: formData.email,
+
     billing_address: formData.billingAddress,
     shipping_address: formData.shippingAddress,
+
     reference_no: formData.referenceNo,
     priority: formData.priority,
     remarks: formData.remarks,
+
     items,
+
     dispatch_mode: formData.dispatchMode,
     transporter_name: formData.transporterName,
     vehicle_no: formData.vehicleNo,
+
     expected_dispatch_date: formData.expectedDispatchDate,
     expected_delivery_date: formData.expectedDeliveryDate,
+
     delivery_status: formData.deliveryStatus,
     warehouse_location: formData.warehouseLocation,
     location: formData.location,
+
     payment_type: formData.paymentType,
     payment_terms: formData.paymentTerms,
+
     advance_amount: Number(formData.advanceAmount || 0),
-    balance_amount:
-      totalSummary.total - Number(formData.advanceAmount || 0),
+    balance_amount: totalSummary.total - Number(formData.advanceAmount || 0),
+
     invoice_required: formData.invoiceRequired,
     status,
   };
 
   try {
-    // ✅ Laravel API call (NO full URL)
     const res = await axios.post("/api/orders", newOrder);
 
     setOrders((prev) => [...prev, res.data]);
@@ -996,109 +1016,112 @@ const allocateInventoryForOrder = async (items: LineItem[]) => {
     });
 
     resetComposer();
+    await fetchOrders();
     setWorkspaceView("orders");
-  } catch (error) {
-    console.error(error);
-    toast({
-      title: "Error",
-      description: "Failed to create order",
-      variant: "destructive",
-    });
-  }
-};
-
-
-const fetchOrders = async () => {
-  try {
-    const res = await axios.get("/api/orders");
-    
-    console.log("🔵 FULL RESPONSE:", res);
-    console.log("🟢 RESPONSE DATA:", res.data);
-
-    let data = res.data?.data ?? res.data ?? [];
-
-    // Normalize inconsistent keys from backend
-    data = data.map((order: any) => ({
-      ...order,
-      id: order.id || order.order_no || order.orderNo,
-      order_no: order.order_no || order.id || order.orderNo,
-      orderDate: order.orderDate || order.order_date || order.created_at,
-      order_type: order.order_type || order.orderType || "Sales",
-      customer: order.customer || order.customer_name || "",
-      status: order.status || "Draft",
-      priority: order.priority || "Normal",
-      expected_delivery_date: order.expected_delivery_date || order.expectedDeliveryDate || "",
-      deliveryStatus: order.deliveryStatus || order.delivery_status || "Awaiting",
-      // Add more if needed
-    }));
-
-    console.log("🟣 FINAL NORMALIZED ORDERS ARRAY:", data);
-
-    setOrders(Array.isArray(data) ? data : []);
-  } catch (error) {
-    console.error("❌ FETCH ERROR:", error);
-    setOrders([]);
-  }
-};
-
-useEffect(() => {
-  console.log("FETCHING CUSTOMERS...");
-  fetch("/api/customers")
-    .then((res) => res.json())
-    .then((data) => {
-      console.log("API RESPONSE:", data);
-      setCustomers(data);
-    });
-}, []);
-
-useEffect(() => {
-  fetchOrders();
-}, []);
-
-
-const fetchCustomers = async () => {
-  try {
-    const res = await fetch("/api/customers");
-    const data = await res.json();
-
-    console.log("API RESPONSE11:", data);
-
-    setCustomers(data.data || data);
-  } catch (error) {
-    console.error("Error fetching customers:", error);
-  }
-};
-
-useEffect(() => {
-  fetchCustomers();
-}, []);
-
-const deleteRegularTemplate = async (id: string) => {
-  try {
-    const res = await fetch(`/api/regular-template/${id}`, {
-      method: "DELETE",
-    });
-
-    if (!res.ok) {
-      throw new Error("Failed to delete template");
-    }
-
-    setRegularOrders((prev) =>
-      prev.filter((item) => item.id !== id)
-    );
-
-    toast({
-      title: "Template deleted",
-      description: "Regular order template removed successfully.",
-    });
   } catch (error: any) {
+    console.error(error?.response?.data || error);
+
     toast({
       title: "Error",
-      description: error.message,
+      description:
+        error?.response?.data?.message || "Failed to create order",
       variant: "destructive",
     });
   }
 };
+
+
+  const fetchOrders = async () => {
+    try {
+      const res = await axios.get("/api/orders");
+
+      console.log("🔵 FULL RESPONSE:", res);
+      console.log("🟢 RESPONSE DATA:", res.data);
+
+      let data = res.data?.data ?? res.data ?? [];
+
+      // Normalize inconsistent keys from backend
+      data = data.map((order: any) => ({
+        ...order,
+        id: order.id || order.order_no || order.orderNo,
+        order_no: order.order_no || order.id || order.orderNo,
+        orderDate: order.orderDate || order.order_date || order.created_at,
+        order_type: order.order_type || order.orderType || "Sales",
+        customer: order.customer || order.customer_name || "",
+        status: order.status || "Draft",
+        priority: order.priority || "Normal",
+        expected_delivery_date: order.expected_delivery_date || order.expectedDeliveryDate || "",
+        deliveryStatus: order.deliveryStatus || order.delivery_status || "Awaiting",
+        // Add more if needed
+      }));
+
+      console.log("🟣 FINAL NORMALIZED ORDERS ARRAY:", data);
+
+      setOrders(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("❌ FETCH ERROR:", error);
+      setOrders([]);
+    }
+  };
+
+  useEffect(() => {
+    console.log("FETCHING CUSTOMERS...");
+    fetch("/api/customers")
+      .then((res) => res.json())
+      .then((data) => {
+        console.log("API RESPONSE:", data);
+        setCustomers(data);
+      });
+  }, []);
+
+  useEffect(() => {
+    fetchOrders();
+  }, []);
+
+
+  const fetchCustomers = async () => {
+    try {
+      const res = await fetch("/api/customers");
+      const data = await res.json();
+
+      console.log("API RESPONSE11:", data);
+
+      setCustomers(data.data || data);
+    } catch (error) {
+      console.error("Error fetching customers:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchCustomers();
+  }, []);
+
+  const deleteRegularTemplate = async (id: string) => {
+    try {
+      const res = await fetch(`/api/regular-template/${id}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to delete template");
+      }
+
+      setRegularOrders((prev) =>
+        prev.filter((item) => item.id !== id)
+      );
+
+      toast({
+        title: "Template deleted",
+        description: "Regular order template removed successfully.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
 
 
 
@@ -1107,25 +1130,25 @@ const deleteRegularTemplate = async (id: string) => {
     toast({ title: "Validation complete", description: "Stock and MRP recommendations are up to date." });
   };
 
- const filteredOrders = useMemo(() => {
-  if (!Array.isArray(orders)) return [];
+  const filteredOrders = useMemo(() => {
+    if (!Array.isArray(orders)) return [];
 
-  const search = (searchTerm || "").toLowerCase();
+    const search = (searchTerm || "").toLowerCase();
 
-  return orders.filter((order) => {
-    const matchesSearch =
-      (order?.customer || "").toLowerCase().includes(search) ||
-      (order?.id || "").toString().toLowerCase().includes(search);
+    return orders.filter((order) => {
+      const matchesSearch =
+        (order?.customer || "").toLowerCase().includes(search) ||
+        (order?.id || "").toString().toLowerCase().includes(search);
 
-    const matchesStatus =
-      statusFilter === "all" || order?.status === statusFilter;
+      const matchesStatus =
+        statusFilter === "all" || order?.status === statusFilter;
 
-    const matchesType =
-      typeFilter === "all" || order?.orderType === typeFilter;
+      const matchesType =
+        typeFilter === "all" || order?.orderType === typeFilter;
 
-    return matchesSearch && matchesStatus && matchesType;
-  });
-}, [orders, searchTerm, statusFilter, typeFilter]);
+      return matchesSearch && matchesStatus && matchesType;
+    });
+  }, [orders, searchTerm, statusFilter, typeFilter]);
 
 
   const selectedCloneOrder = useMemo(
@@ -1138,14 +1161,14 @@ const deleteRegularTemplate = async (id: string) => {
     [orders],
   );
 
- const validationRows = useMemo(() => {
-  return pendingOrders.flatMap((order) =>
-    (order.items ?? []).map((item) => {
-      const assessment = getLineAssessment(item);
-      return { order, item, assessment };
-    }),
-  );
-}, [pendingOrders, inventoryItems]);
+  const validationRows = useMemo(() => {
+    return pendingOrders.flatMap((order) =>
+      (order.items ?? []).map((item) => {
+        const assessment = getLineAssessment(item);
+        return { order, item, assessment };
+      }),
+    );
+  }, [pendingOrders, inventoryItems]);
 
   const purchaseNeeds = useMemo(() => {
     return validationRows.filter(({ item, assessment }) => {
@@ -1162,8 +1185,8 @@ const deleteRegularTemplate = async (id: string) => {
       });
     });
 
-   return (Array.isArray(inventoryItems) ? inventoryItems : [])
-  .map((inventory) => {
+    return (Array.isArray(inventoryItems) ? inventoryItems : [])
+      .map((inventory) => {
         const code = inventory.item_code;
         const available = getAvailableStock(code);
         const netOrders = demandMap.get(code) || 0;
@@ -1183,38 +1206,38 @@ const deleteRegularTemplate = async (id: string) => {
       .sort((a, b) => b.excessQty - a.excessQty);
   }, [inventoryItems, orders]);
 
- const dashboardStats = useMemo(() => {
-  const currentMonth = new Date().toISOString().slice(0, 7);
+  const dashboardStats = useMemo(() => {
+    const currentMonth = new Date().toISOString().slice(0, 7);
 
-  const monthOrders = orders.filter((order) => {
-    if (!order.orderDate) return false;
-    return String(order.orderDate).startsWith(currentMonth);
-  });
+    const monthOrders = orders.filter((order) => {
+      if (!order.orderDate) return false;
+      return String(order.orderDate).startsWith(currentMonth);
+    });
 
-  const orderValue = monthOrders.reduce((sum, order) => {
-    const itemsTotal = (order.items || []).reduce((itemSum, item) => {
-      return itemSum + (Number(item.total_amount) || 0);
+    const orderValue = monthOrders.reduce((sum, order) => {
+      const itemsTotal = (order.items || []).reduce((itemSum, item) => {
+        return itemSum + (Number(item.total_amount) || 0);
+      }, 0);
+
+      return sum + itemsTotal;
     }, 0);
 
-    return sum + itemsTotal;
-  }, 0);
+    const overdue = orders.filter(
+      (order) =>
+        order.expectedDispatchDate &&
+        order.expectedDispatchDate < todayISO() &&
+        !["Delivered", "Cancelled"].includes(order.status)
+    );
 
-  const overdue = orders.filter(
-    (order) =>
-      order.expectedDispatchDate &&
-      order.expectedDispatchDate < todayISO() &&
-      !["Delivered", "Cancelled"].includes(order.status)
-  );
-
-  return {
-    monthOrders: monthOrders.length,
-    orderValue,
-    pendingDelivery: orders.filter(
-      (order) => !["Delivered", "Cancelled"].includes(order.deliveryStatus)
-    ).length,
-    overdue: overdue.length,
-  };
-}, [orders]);
+    return {
+      monthOrders: monthOrders.length,
+      orderValue,
+      pendingDelivery: orders.filter(
+        (order) => !["Delivered", "Cancelled"].includes(order.deliveryStatus)
+      ).length,
+      overdue: overdue.length,
+    };
+  }, [orders]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -1231,30 +1254,30 @@ const deleteRegularTemplate = async (id: string) => {
   };
 
   const exportOrders = () => {
-  const rows = filteredOrders.map((order) => ({
-    "Order ID": order?.id || "",
-    Customer: order?.customer || "",
-    "Order Date": order?.order_date || order?.orderDate || "",
+    const rows = filteredOrders.map((order) => ({
+      "Order ID": order?.id || "",
+      Customer: order?.customer || "",
+      "Order Date": order?.order_date || order?.orderDate || "",
 
-    "Order Type": order?.order_type || order?.orderType || "",
-    Priority: order?.priority || "",
-    Status: order?.status || "",
-    "Delivery Status": order?.deliveryStatus || "",
+      "Order Type": order?.order_type || order?.orderType || "",
+      Priority: order?.priority || "",
+      Status: order?.status || "",
+      "Delivery Status": order?.deliveryStatus || "",
 
-    // ✅ FIX: correct total field mapping
-    Total: (order?.items || []).reduce(
-      (sum, item) =>
-        sum + Number(item?.total_amount || item?.totalAmount || 0),
-      0
-    ),
+      // ✅ FIX: correct total field mapping
+      Total: (order?.items || []).reduce(
+        (sum, item) =>
+          sum + Number(item?.total_amount || item?.totalAmount || 0),
+        0
+      ),
 
-    Items: (order?.items || []).length || 0,
-    Location: order?.location || "",
-  }));
+      Items: (order?.items || []).length || 0,
+      Location: order?.location || "",
+    }));
 
-  console.log("Export Rows:", rows);
+    console.log("Export Rows:", rows);
 
-  // your CSV/Excel logic continues here...
+    // your CSV/Excel logic continues here...
 
 
     const workbook = XLSX.utils.book_new();
@@ -1267,223 +1290,223 @@ const deleteRegularTemplate = async (id: string) => {
   const printOrders = () => window.print();
 
 
-const handleOrderStatusChange = async (
-  orderId: string,
-  nextStatus: string
-) => {
-  const current = orders.find((order) => order.id === orderId);
-  if (!current) return;
+  const handleOrderStatusChange = async (
+    orderId: string,
+    nextStatus: string
+  ) => {
+    const current = orders.find((order) => order.id === orderId);
+    if (!current) return;
 
-  try {
-    // 1️⃣ stock update logic
-    if (
-      current.status === "Awaiting Confirmation" &&
-      nextStatus === "Processing"
-    ) {
-      for (const item of current.items) {
-        const stockRes = await axios.get(
-          `/api/inventory-stock/${item.itemCode}`
-        );
+    try {
+      // 1️⃣ stock update logic
+      if (
+        current.status === "Awaiting Confirmation" &&
+        nextStatus === "Processing"
+      ) {
+        for (const item of current.items) {
+          const stockRes = await axios.get(
+            `/api/inventory-stock/${item.itemCode}`
+          );
 
-        const currentStock = stockRes.data;
+          const currentStock = stockRes.data;
 
-        const allocated = Number(currentStock?.allocated_quantity || 0);
-        const committed = Number(currentStock?.committed_quantity || 0);
-        const qty = Number(item.quantityOrdered);
+          const allocated = Number(currentStock?.allocated_quantity || 0);
+          const committed = Number(currentStock?.committed_quantity || 0);
+          const qty = Number(item.quantityOrdered);
 
-        await axios.put("/api/inventory-stock/update", {
-          itemCode: item.itemCode,
-          allocated_quantity: Math.max(0, allocated - qty),
-          committed_quantity: committed + qty,
-        });
+          await axios.put("/api/inventory-stock/update", {
+            itemCode: item.itemCode,
+            allocated_quantity: Math.max(0, allocated - qty),
+            committed_quantity: committed + qty,
+          });
+        }
       }
+
+      // 2️⃣ 🔥 UPDATE BACKEND ORDER STATUS (MISSING PART)
+      await axios.put(`/api/orders/${orderId}/status`, {
+        status: nextStatus,
+      });
+
+      // 3️⃣ update UI
+      setOrders((prev) =>
+        prev.map((order) =>
+          order.id === orderId
+            ? { ...order, status: nextStatus }
+            : order
+        )
+      );
+
+      toast({
+        title: "Status updated",
+        description: `${current.order_no} is now ${nextStatus}.`,
+      });
+    } catch (error) {
+      console.error("Error updating order status:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update order status.",
+      });
     }
-
-    // 2️⃣ 🔥 UPDATE BACKEND ORDER STATUS (MISSING PART)
-   await axios.put(`/api/orders/${orderId}/status`, {
-      status: nextStatus,
-    });
-
-    // 3️⃣ update UI
-    setOrders((prev) =>
-      prev.map((order) =>
-        order.id === orderId
-          ? { ...order, status: nextStatus }
-          : order
-      )
-    );
-
-    toast({
-      title: "Status updated",
-      description: `${current.order_no} is now ${nextStatus}.`,
-    });
-  } catch (error) {
-    console.error("Error updating order status:", error);
-    toast({
-      title: "Error",
-      description: "Failed to update order status.",
-    });
-  }
-};
+  };
   const startClone = (order: Order) => {
     setSelectedCloneId(order.id);
     setWorkspaceView("clone");
   };
 
-const cloneIntoComposer = async (row: any) => {
-  const newSONumber = await generateSONumber();
+  const cloneIntoComposer = async (row: any) => {
+    const newSONumber = await generateSONumber();
 
-  // 🔥 ALWAYS PICK CORRECT SOURCE
-  const order =
-    row.items ? row : row.data ? row.data[0] : row;
+    // 🔥 ALWAYS PICK CORRECT SOURCE
+    const order =
+      row.items ? row : row.data ? row.data[0] : row;
 
-  console.log("CLONING ORDER:", order); // DEBUG
+    console.log("CLONING ORDER:", order); // DEBUG
 
-  setFormData({
-    customerId: order.customer_id ?? "",   // 🔥 ADD THIS
-     customerName: order.customer ?? order.customer_name ?? "",
+    setFormData({
+      customerId: order.customer_id ?? "",   // 🔥 ADD THIS
+      customerName: order.customer ?? order.customer_name ?? "",
 
-    customerCode: "",
-    contactPerson: order.contact_person ?? "",
-    contactNumber: order.contact_number ?? "",
-    email: order.email ?? "",
+      customerCode: "",
+      contactPerson: order.contact_person ?? "",
+      contactNumber: order.contact_number ?? "",
+      email: order.email ?? "",
 
-    billingAddress: order.billing_address ?? "",
-    shippingAddress: order.shipping_address ?? "",
+      billingAddress: order.billing_address ?? "",
+      shippingAddress: order.shipping_address ?? "",
 
-    orderNo: newSONumber || `SO-${Date.now()}`,
-    orderDate: todayISO(),
+      orderNo: newSONumber || `SO-${Date.now()}`,
+      orderDate: todayISO(),
 
-    expectedDeliveryDate:
-      order.expected_delivery_date || order.order_date,
+      expectedDeliveryDate:
+        order.expected_delivery_date || order.order_date,
 
-    orderType: order.order_type ?? "",
-    referenceNo: order.reference_no ?? "",
-    priority: order.priority ?? "",
-    remarks: order.remarks ?? "",
+      orderType: order.order_type ?? "",
+      referenceNo: order.reference_no ?? "",
+      priority: order.priority ?? "",
+      remarks: order.remarks ?? "",
 
-    dispatchMode: order.dispatch_mode ?? "",
-    transporterName: order.transporter_name ?? "",
-    vehicleNo: order.vehicle_no ?? "",
-    expectedDispatchDate: order.expected_dispatch_date ?? "",
+      dispatchMode: order.dispatch_mode ?? "",
+      transporterName: order.transporter_name ?? "",
+      vehicleNo: order.vehicle_no ?? "",
+      expectedDispatchDate: order.expected_dispatch_date ?? "",
 
-    deliveryStatus: "Awaiting",
-    warehouseLocation: order.warehouse_location ?? "",
-    location: order.location ?? "",
+      deliveryStatus: "Awaiting",
+      warehouseLocation: order.warehouse_location ?? "",
+      location: order.location ?? "",
 
-    paymentType: order.payment_type ?? "",
-    paymentTerms: order.payment_terms ?? "",
+      paymentType: order.payment_type ?? "",
+      paymentTerms: order.payment_terms ?? "",
 
-    advanceAmount: Number(order.advance_amount ?? 0),
-    balanceAmount: Number(order.balance_amount ?? 0),
-    invoiceRequired: order.invoice_required ?? 0,
-  });
-
-  setLineItems([
-    {
-      id: crypto.randomUUID(),
-
-      itemCode: order.item_code,
-      itemName: order.item_name,
-      itemType: order.item_type,
-
-      quantityOrdered: Number(order.quantity ?? 0),
-      uom: order.uom ?? "",
-      rate: Number(order.rate ?? 0),
-      tax: Number(order.tax ?? 0),
-      totalAmount: Number(order.total_amount ?? 0),
-
-      bomComponents: order.items?.[0]?.bomComponents ?? [],
-      discount: Number(order.discount ?? 0),
-    },
-  ]);
-
-  setWorkspaceView("new");
-
-  toast({
-    title: "Order cloned",
-    description: `${order.order_no} copied into the composer.`,
-  });
-};
-
- const createRegularTemplate = async () => {
-  const inventory = getInventoryRecord(regularForm.itemCode);
-
-  if (!regularForm.customer || !regularForm.itemCode) {
-    toast({
-      title: "Missing fields",
-      description: "Customer and product are required.",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  const payload = {
-    template_number: generateRegularNumber(),
-    customer: regularForm.customer,
-    item_code: inventory?.item_code || regularForm.itemCode,
-    item_name: inventory?.item_name || regularForm.itemCode,
-    quantity: Number(regularForm.quantity),
-    frequency: regularForm.frequency,
-    next_order_date: regularForm.nextOrderDate,
-    price: Number(regularForm.price || inventory?.unit_cost || 0),
-  };
-
-  try {
-    const res = await fetch("/api/regular-template", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
+      advanceAmount: Number(order.advance_amount ?? 0),
+      balanceAmount: Number(order.balance_amount ?? 0),
+      invoiceRequired: order.invoice_required ?? 0,
     });
 
-    if (!res.ok) {
-      throw new Error("Failed to create template");
-    }
-
-    const data = await res.json();
-
-    // update UI state
-    setRegularOrders((prev) => [
+    setLineItems([
       {
-        id: data.data.id,
-        templateNumber: data.data.template_number,
-        customer: data.data.customer,
-        itemCode: data.data.item_code,
-        itemName: data.data.item_name,
-        quantity: data.data.quantity,
-        frequency: data.data.frequency,
-        nextOrderDate: data.data.next_order_date,
-        lastOrdered: "—",
-        status: data.data.status,
-        price: data.data.price,
+        id: crypto.randomUUID(),
+
+        itemCode: order.item_code,
+        itemName: order.item_name,
+        itemType: order.item_type,
+
+        quantityOrdered: Number(order.quantity ?? 0),
+        uom: order.uom ?? "",
+        rate: Number(order.rate ?? 0),
+        tax: Number(order.tax ?? 0),
+        totalAmount: Number(order.total_amount ?? 0),
+
+        bomComponents: order.items?.[0]?.bomComponents ?? [],
+        discount: Number(order.discount ?? 0),
       },
-      ...prev,
     ]);
 
-    setRegularDialogOpen(false);
-    setRegularForm({
-      customer: "",
-      itemCode: "",
-      quantity: 1,
-      frequency: "Weekly",
-      nextOrderDate: todayISO(),
-      price: 0,
-    });
+    setWorkspaceView("new");
 
     toast({
-      title: "Template created",
-      description: "Regular order template saved successfully.",
+      title: "Order cloned",
+      description: `${order.order_no} copied into the composer.`,
     });
-  } catch (error) {
-    toast({
-      title: "Error",
-      description: error.message,
-      variant: "destructive",
-    });
-  }
-};
+  };
+
+  const createRegularTemplate = async () => {
+    const inventory = getInventoryRecord(regularForm.itemCode);
+
+    if (!regularForm.customer || !regularForm.itemCode) {
+      toast({
+        title: "Missing fields",
+        description: "Customer and product are required.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const payload = {
+      template_number: generateRegularNumber(),
+      customer: regularForm.customer,
+      item_code: inventory?.item_code || regularForm.itemCode,
+      item_name: inventory?.item_name || regularForm.itemCode,
+      quantity: Number(regularForm.quantity),
+      frequency: regularForm.frequency,
+      next_order_date: regularForm.nextOrderDate,
+      price: Number(regularForm.price || inventory?.unit_cost || 0),
+    };
+
+    try {
+      const res = await fetch("/api/regular-template", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to create template");
+      }
+
+      const data = await res.json();
+
+      // update UI state
+      setRegularOrders((prev) => [
+        {
+          id: data.data.id,
+          templateNumber: data.data.template_number,
+          customer: data.data.customer,
+          itemCode: data.data.item_code,
+          itemName: data.data.item_name,
+          quantity: data.data.quantity,
+          frequency: data.data.frequency,
+          nextOrderDate: data.data.next_order_date,
+          lastOrdered: "—",
+          status: data.data.status,
+          price: data.data.price,
+        },
+        ...prev,
+      ]);
+
+      setRegularDialogOpen(false);
+      setRegularForm({
+        customer: "",
+        itemCode: "",
+        quantity: 1,
+        frequency: "Weekly",
+        nextOrderDate: todayISO(),
+        price: 0,
+      });
+
+      toast({
+        title: "Template created",
+        description: "Regular order template saved successfully.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
 
   const fireRegularOrder = (template: RegularOrderTemplate) => {
     const inventory = getInventoryRecord(template.itemCode);
@@ -1569,30 +1592,30 @@ const cloneIntoComposer = async (row: any) => {
   const recentOrders = [...orders].sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime()).slice(0, 5);
 
   const renderValidationBadge = (state: ValidationState, label: string = "Unknown") => {
-  const safeState: ValidationState = 
-    ["available", "partial", "purchase", "produce", "missing"].includes(state as any) 
-      ? (state as ValidationState) 
-      : "missing";
+    const safeState: ValidationState =
+      ["available", "partial", "purchase", "produce", "missing"].includes(state as any)
+        ? (state as ValidationState)
+        : "missing";
 
-  const safeLabel = (label || "—").toString().trim();
+    const safeLabel = (label || "—").toString().trim();
 
-  const classes: Record<ValidationState, string> = {
-    available: "border-success/20 bg-success/10 text-success",
-    partial: "border-warning/20 bg-warning/10 text-warning",
-    purchase: "border-primary/20 bg-primary/10 text-primary",
-    produce: "border-accent/20 bg-accent/10 text-accent",
-    missing: "border-border bg-muted text-muted-foreground",
+    const classes: Record<ValidationState, string> = {
+      available: "border-success/20 bg-success/10 text-success",
+      partial: "border-warning/20 bg-warning/10 text-warning",
+      purchase: "border-primary/20 bg-primary/10 text-primary",
+      produce: "border-accent/20 bg-accent/10 text-accent",
+      missing: "border-border bg-muted text-muted-foreground",
+    };
+
+    return (
+      <span className={cn(
+        "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+        classes[safeState]
+      )}>
+        {safeLabel}
+      </span>
+    );
   };
-
-  return (
-    <span className={cn(
-      "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold",
-      classes[safeState]
-    )}>
-      {safeLabel}
-    </span>
-  );
-};
 
   const renderWorkspaceSidebar = () => (
     <aside className="w-full border-b border-border bg-card lg:w-64 lg:border-b-0 lg:border-r">
@@ -1662,26 +1685,26 @@ const cloneIntoComposer = async (row: any) => {
             </div>
           </div>
           <div className="grid gap-4 p-5 md:grid-cols-2">
-          <div className="space-y-2">
-  <label>Customer Name *</label>
+            <div className="space-y-2">
+              <label>Customer Name *</label>
 
-  <select
-    className="w-full border rounded px-3 py-2"
-    value={formData.customerId}   // 🔥 ADD THIS
-    onChange={(e) => {
-      console.log("SELECTED ID:", e.target.value);
-      applyCustomerSelection(Number(e.target.value));
-    }}
-  >
-    <option value="">Select customer</option>
+              <select
+                className="w-full border rounded px-3 py-2"
+                value={formData.customerId}   // 🔥 ADD THIS
+                onChange={(e) => {
+                  console.log("SELECTED ID:", e.target.value);
+                  applyCustomerSelection(Number(e.target.value));
+                }}
+              >
+                <option value="">Select customer</option>
 
-    {customers?.map((customer: any) => (
-      <option key={customer.id} value={customer.id}>
-        {customer.customer_name}
-      </option>
-    ))}
-  </select>
-</div>
+                {customers?.map((customer: any) => (
+                  <option key={customer.id} value={customer.id}>
+                    {customer.customer_name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="space-y-2">
               <Label>Customer PO #</Label>
               <Input value={formData.referenceNo} onChange={(event) => setFormData((prev) => ({ ...prev, referenceNo: event.target.value }))} />
@@ -1744,7 +1767,7 @@ const cloneIntoComposer = async (row: any) => {
             </div>
             <div className="space-y-2 md:col-span-2">
               <Label>Delivery Address / Notes</Label>
-              <Textarea value={formData.remarks} onChange={(event) => setFormData((prev) => ({ ...prev, remarks: event.target.value }))} rows={3} />
+              <Textarea value={formData.remarks || formData.shippingAddress} onChange={(event) => setFormData((prev) => ({ ...prev, remarks: event.target.value }))} rows={3} />
             </div>
           </div>
         </section>
@@ -1768,10 +1791,10 @@ const cloneIntoComposer = async (row: any) => {
                   <TableHead className="min-w-[120px]">Type</TableHead>
                   <TableHead className="min-w-[170px]">Item Code</TableHead>
                   <TableHead className="min-w-[220px]">Item Name</TableHead>
-                  <TableHead className="w-[90px] text-right">Qty</TableHead>
-                  <TableHead className="w-[90px]">UOM</TableHead>
-                  <TableHead className="w-[120px] text-right">Rate</TableHead>
-                  <TableHead className="w-[100px] text-right">Tax %</TableHead>
+                  <TableHead className="min-w-[110px]">Qty</TableHead>
+                  <TableHead className="min-w-[110px]">UOM</TableHead>
+                  <TableHead className="min-w-[110px]">Rate</TableHead>
+                  <TableHead className="min-w-[90px]">Tax %</TableHead>
                   <TableHead className="w-[130px] text-right">Amount</TableHead>
                   <TableHead className="min-w-[150px]">Stock Status</TableHead>
                   <TableHead className="w-[60px]" />
@@ -1781,7 +1804,7 @@ const cloneIntoComposer = async (row: any) => {
                 {lineItems.map((item, index) => {
                   const assessment = getLineAssessment(item);
                   return (
-                   <TableRow key={item.id || item.item_code}>
+                    <TableRow key={item.id || item.item_code}>
                       <TableCell className="font-mono text-xs text-muted-foreground">{index + 1}</TableCell>
                       <TableCell>
                         <Select value={item.itemType} onValueChange={(value) => updateLineItem(item.id, "itemType", value)}>
@@ -1796,57 +1819,57 @@ const cloneIntoComposer = async (row: any) => {
                         </Select>
                       </TableCell>
                       <TableCell>
-                      <Select
-  value={item.itemCode || ""}
- onValueChange={async (value) => {
-  const selected = safeInventoryItems.find(
-    (inv: any) => inv.itemCode === value
-  );
+                        <Select
+                          value={item.itemCode || ""}
+                          onValueChange={async (value) => {
+                            const selected = safeInventoryItems.find(
+                              (inv: any) => inv.itemCode === value
+                            );
 
-  updateLineItem(item.id, "itemCode", value);
-  updateLineItem(item.id, "item_code", value); 
-  updateLineItem(item.id, "itemName", selected?.itemName || "");
-  updateLineItem(item.id, "uom", selected?.uom || "pcs");
-  updateLineItem(item.id, "rate", selected?.unit_cost || 0);
+                            updateLineItem(item.id, "itemCode", value);
+                            updateLineItem(item.id, "item_code", value);
+                            updateLineItem(item.id, "itemName", selected?.itemName || "");
+                            updateLineItem(item.id, "uom", selected?.uom || "pcs");
+                            updateLineItem(item.id, "rate", selected?.unit_cost || 0);
 
-    updateLineItem(item.id, "available", selected?.available_quantity || 0);
+                            updateLineItem(item.id, "available", selected?.available_quantity || 0);
 
 
-  // ✅ mark loading
-  updateLineItem(item.id, "bomLoading", true);
+                            // ✅ mark loading
+                            updateLineItem(item.id, "bomLoading", true);
 
-  // ✅ fetch BOM properly
-  const { components, noBOM } = await fetchBOMComponents(
-    value,
-    item.quantityOrdered || 1
-  );
+                            // ✅ fetch BOM properly
+                            const { components, noBOM } = await fetchBOMComponents(
+                              value,
+                              item.quantityOrdered || 1
+                            );
 
-  const enrichedComponents = components.map((c: any) => ({
-  ...c,
-  uom: selected?.uom || "",
-}));
+                            const enrichedComponents = components.map((c: any) => ({
+                              ...c,
+                              uom: selected?.uom || "",
+                            }));
 
-  updateLineItem(item.id, "bomComponents", components);
-  updateLineItem(item.id, "noBOM", noBOM);
-  updateLineItem(item.id, "bomLoading", false);
-}}
->
-  <SelectTrigger className="bg-background">
-    <SelectValue placeholder="Select Item Code" />
-  </SelectTrigger>
+                            updateLineItem(item.id, "bomComponents", components);
+                            updateLineItem(item.id, "noBOM", noBOM);
+                            updateLineItem(item.id, "bomLoading", false);
+                          }}
+                        >
+                          <SelectTrigger className="bg-background">
+                            <SelectValue placeholder="Select Item Code" />
+                          </SelectTrigger>
 
-  <SelectContent>
-    {safeInventoryItems.map((inventory: any) => (
-      <SelectItem
-        key={inventory.id}
-        value={inventory.itemCode}
-      >
-        {inventory.itemCode} 
-      </SelectItem>
-    ))}
-  </SelectContent>
-</Select>
-                        
+                          <SelectContent>
+                            {safeInventoryItems.map((inventory: any) => (
+                              <SelectItem
+                                key={inventory.id}
+                                value={inventory.itemCode}
+                              >
+                                {inventory.itemCode}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+
                       </TableCell>
                       <TableCell>
                         <Input value={item.itemName} onChange={(event) => updateLineItem(item.id, "itemName", event.target.value)} />
@@ -1939,41 +1962,41 @@ const cloneIntoComposer = async (row: any) => {
                               <TableHead className="text-right">Required</TableHead>
                             </TableRow>
                           </TableHeader>
-                        <TableBody>
-  {(item.bomComponents || []).map((component) => {
-    const available = Number(component.availableQty || 0);
-    const required = Number(component.requiredQty || 0);
+                          <TableBody>
+                            {(item.bomComponents || []).map((component) => {
+                              const available = Number(component.availableQty || 0);
+                              const required = Number(component.requiredQty || 0);
 
-    return (
-      <TableRow key={`${item.id}-${component.component}`}>
-        <TableCell className="font-mono text-xs">
-          {component.component}
-        </TableCell>
+                              return (
+                                <TableRow key={`${item.id}-${component.component}`}>
+                                  <TableCell className="font-mono text-xs">
+                                    {component.component}
+                                  </TableCell>
 
-        <TableCell>{component.description}</TableCell>
+                                  <TableCell>{component.description}</TableCell>
 
-        <TableCell>{component.type}</TableCell>
+                                  <TableCell>{component.type}</TableCell>
 
-        {/* AVAILABLE */}
-        <TableCell className="text-right">
-          {available}
-        </TableCell>
+                                  {/* AVAILABLE */}
+                                  <TableCell className="text-right">
+                                    {available}
+                                  </TableCell>
 
-        {/* REQUIRED + STATUS */}
-        <TableCell className="text-right">
-          <div className="inline-flex items-center gap-2">
-            <span>{required}</span>
-            {component.availableQty < component.requiredQty && (
-                                      <Badge variant="outline" className="border-warning/20 bg-warning/10 text-warning">
-                                        Low
-                                      </Badge>
-                                    )}
-          </div>
-        </TableCell>
-      </TableRow>
-    );
-  })}
-</TableBody>
+                                  {/* REQUIRED + STATUS */}
+                                  <TableCell className="text-right">
+                                    <div className="inline-flex items-center gap-2">
+                                      <span>{required}</span>
+                                      {component.availableQty < component.requiredQty && (
+                                        <Badge variant="outline" className="border-warning/20 bg-warning/10 text-warning">
+                                          Low
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
                         </Table>
                       </div>
                     )}
@@ -2052,11 +2075,11 @@ const cloneIntoComposer = async (row: any) => {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-sm font-medium text-foreground">{item.itemName || item.itemCode || "New line item"}</div>
-                     <div className="mt-1 text-xs text-muted-foreground">
-  Ordered {assessment.quantity} • 
-  Available <span className="font-medium text-foreground">{assessment.available}</span> • 
-  Gap <span className={assessment.gap > 0 ? "text-destructive" : ""}>{assessment.gap}</span>
-</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Ordered {assessment.quantity} •
+                        Available <span className="font-medium text-foreground">{assessment.available}</span> •
+                        Gap <span className={assessment.gap > 0 ? "text-destructive" : ""}>{assessment.gap}</span>
+                      </div>
                     </div>
                     {renderValidationBadge(assessment.state, assessment.label)}
                   </div>
@@ -2243,13 +2266,13 @@ const cloneIntoComposer = async (row: any) => {
                 </TableRow>
               ) : (
                 filteredOrders.map((order) => {
-                 const orderTotal =
-  Array.isArray(order.items)
-    ? order.items.reduce(
-        (sum, item) => sum + (Number(item.total_amount) || 0),
-        0
-      )
-    : 0;
+                  const orderTotal =
+                    Array.isArray(order.items)
+                      ? order.items.reduce(
+                        (sum, item) => sum + (Number(item.total_amount) || 0),
+                        0
+                      )
+                      : 0;
                   const selected = selectedOrderIds.has(order.id);
                   return (
                     <TableRow key={order.id} data-state={selected ? "selected" : undefined}>
@@ -2266,27 +2289,27 @@ const cloneIntoComposer = async (row: any) => {
                           }
                         />
                       </TableCell>
-                     <TableCell className="font-mono text-xs text-primary">
-  {getOrderField(order, "order_no") || getOrderField(order, "id")}
-</TableCell>
+                      <TableCell className="font-mono text-xs text-primary">
+                        {getOrderField(order, "order_no") || getOrderField(order, "id")}
+                      </TableCell>
                       <TableCell>
                         <div className="font-medium">{order.customer}</div>
                         <div className="text-xs text-muted-foreground">{order.orderDate}</div>
                       </TableCell>
                       <TableCell>{order.order_type}</TableCell>
                       <TableCell className="text-right">
-  {(order.items ?? []).length}
-</TableCell>
+                        {(order.items ?? []).length}
+                      </TableCell>
                       <TableCell className="font-medium text-foreground">{money(orderTotal)}</TableCell>
-<TableCell>
-  {renderValidationBadge(
-    getOrderField(order, "status") === "Cancelled" ? "missing" 
-      : getOrderField(order, "status") === "Processing" ? "produce" 
-      : getOrderField(order, "status") === "Confirmed" ? "available" 
-      : "partial",
-    getOrderField(order, "status", "Unknown")
-  )}
-</TableCell>                     <TableCell>{order.priority}</TableCell>
+                      <TableCell>
+                        {renderValidationBadge(
+                          getOrderField(order, "status") === "Cancelled" ? "missing"
+                            : getOrderField(order, "status") === "Processing" ? "produce"
+                              : getOrderField(order, "status") === "Confirmed" ? "available"
+                                : "partial",
+                          getOrderField(order, "status", "Unknown")
+                        )}
+                      </TableCell>                     <TableCell>{order.priority}</TableCell>
                       <TableCell>{order.expected_delivery_date || "—"}</TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-2">
@@ -2296,9 +2319,9 @@ const cloneIntoComposer = async (row: any) => {
                           <Button variant="ghost" size="icon" onClick={() => startClone(order)}>
                             <Copy className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => { setRefundOrder(order); setRefundDialogOpen(true); }}>
+               {/*           <Button variant="ghost" size="icon" onClick={() => { setRefundOrder(order); setRefundDialogOpen(true); }}>
                             <RotateCcw className="h-4 w-4" />
-                          </Button>
+                          </Button>  */}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -2340,15 +2363,15 @@ const cloneIntoComposer = async (row: any) => {
                   <div className="min-w-0 flex-1">
                     <div className="font-mono text-xs text-primary">{order.order_no}</div>
                     <div className="mt-1 font-medium text-foreground">{order.customer}</div>
-<div className="mt-1 text-xs text-muted-foreground">
-  {order.order_type} • {order.items.length} lines •{" "}
-  {money(
-    order.items.reduce(
-      (sum, item) => sum + Number(item.total_amount || 0),
-      0
-    )
-  )}
-</div>                  </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {order.order_type} • {order.items.length} lines •{" "}
+                      {money(
+                        order.items.reduce(
+                          (sum, item) => sum + Number(item.total_amount || 0),
+                          0
+                        )
+                      )}
+                    </div>                  </div>
                 </button>
               );
             })
@@ -2395,32 +2418,32 @@ const cloneIntoComposer = async (row: any) => {
                       <TableHead className="text-right">Amount</TableHead>
                     </TableRow>
                   </TableHeader>
-                 <TableBody>
-  {selectedCloneOrder?.items?.map((item: any) => (
-    <TableRow key={item.id || item.item_code}>
-      <TableCell>
-        <div className="font-mono text-xs text-primary">
-          {item.item_code}
-        </div>
-        <div className="text-sm text-foreground">
-          {item.item_name}
-        </div>
-      </TableCell>
+                  <TableBody>
+                    {selectedCloneOrder?.items?.map((item: any) => (
+                      <TableRow key={item.id || item.item_code}>
+                        <TableCell>
+                          <div className="font-mono text-xs text-primary">
+                            {item.item_code}
+                          </div>
+                          <div className="text-sm text-foreground">
+                            {item.item_name}
+                          </div>
+                        </TableCell>
 
-      <TableCell className="text-right">
-        {item.quantity ?? 0}
-      </TableCell>
+                        <TableCell className="text-right">
+                          {item.quantity ?? 0}
+                        </TableCell>
 
-      <TableCell className="text-right">
-        {money(Number(item.rate) || 0)}
-      </TableCell>
+                        <TableCell className="text-right">
+                          {money(Number(item.rate) || 0)}
+                        </TableCell>
 
-      <TableCell className="text-right">
-        {money(Number(item.total_amount) || 0)}
-      </TableCell>
-    </TableRow>
-  ))}
-</TableBody>
+                        <TableCell className="text-right">
+                          {money(Number(item.total_amount) || 0)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
                 </Table>
               </div>
             </div>
@@ -2449,62 +2472,62 @@ const cloneIntoComposer = async (row: any) => {
               <DialogTitle>Regular Order Template</DialogTitle>
             </DialogHeader>
             <div className="grid gap-4 py-2 md:grid-cols-2">
-             <div className="space-y-2">
-  <Label>Customer *</Label>
+              <div className="space-y-2">
+                <Label>Customer *</Label>
 
- <select
-  value={regularForm.customer}
-  onChange={(event) =>
-    setRegularForm((prev) => ({
-      ...prev,
-      customer: event.target.value,
-    }))
-  }
-  className="w-full border rounded-md p-2"
->
-  <option value="">Select Customer</option>
+                <select
+                  value={regularForm.customer}
+                  onChange={(event) =>
+                    setRegularForm((prev) => ({
+                      ...prev,
+                      customer: event.target.value,
+                    }))
+                  }
+                  className="w-full border rounded-md p-2"
+                >
+                  <option value="">Select Customer</option>
 
-  {customers?.length > 0 &&
-    customers.map((customer) => (
-      <option key={customer.id} value={customer.name || customer.customer_name}>
-        {customer.name || customer.customer_name}
-      </option>
-    ))}
-</select>
-</div>
-             <div className="space-y-2">
-  <Label>Product *</Label>
+                  {customers?.length > 0 &&
+                    customers.map((customer) => (
+                      <option key={customer.id} value={customer.name || customer.customer_name}>
+                        {customer.name || customer.customer_name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label>Product *</Label>
 
-  <select
-  value={regularForm.itemCode}
-  onChange={(event) => {
-    const code = event.target.value;
+                <select
+                  value={regularForm.itemCode}
+                  onChange={(event) => {
+                    const code = event.target.value;
 
-    const selectedItem = inventoryItems.find(
-      (item) => item.item_code === code
-    );
+                    const selectedItem = inventoryItems.find(
+                      (item) => item.item_code === code
+                    );
 
-    setRegularForm((prev) => ({
-      ...prev,
-      itemCode: code,
-      itemName: selectedItem?.item_name || "",
-      price: Number(selectedItem?.rate || 0),
-    }));
-  }}
-  className="w-full border rounded-md p-2"
->
-  <option value="">Select Product</option>
+                    setRegularForm((prev) => ({
+                      ...prev,
+                      itemCode: code,
+                      itemName: selectedItem?.item_name || "",
+                      price: Number(selectedItem?.rate || 0),
+                    }));
+                  }}
+                  className="w-full border rounded-md p-2"
+                >
+                  <option value="">Select Product</option>
 
-  {inventoryItems?.map((inventory) => (
-    <option
-      key={inventory.id || inventory.item_code}
-      value={inventory.item_code}
-    >
-      {inventory.itemCode} 
-    </option>
-  ))}
-</select>
-</div>
+                  {inventoryItems?.map((inventory) => (
+                    <option
+                      key={inventory.id || inventory.item_code}
+                      value={inventory.item_code}
+                    >
+                      {inventory.itemCode}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="space-y-2">
                 <Label>Qty per Order</Label>
                 <Input type="number" min={1} value={regularForm.quantity} onChange={(event) => setRegularForm((prev) => ({ ...prev, quantity: Number(event.target.value) }))} />
@@ -2527,16 +2550,16 @@ const cloneIntoComposer = async (row: any) => {
               </div>
               <div className="space-y-2">
                 <Label>Unit Price</Label>
-<Input
-  type="number"
-  value={regularForm.price}
-  onChange={(event) =>
-    setRegularForm((prev) => ({
-      ...prev,
-      price: Number(event.target.value),
-    }))
-  }
-/>              </div>
+                <Input
+                  type="number"
+                  value={regularForm.price}
+                  onChange={(event) =>
+                    setRegularForm((prev) => ({
+                      ...prev,
+                      price: Number(event.target.value),
+                    }))
+                  }
+                />              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setRegularDialogOpen(false)}>Cancel</Button>
@@ -2583,12 +2606,12 @@ const cloneIntoComposer = async (row: any) => {
                       <div className="flex justify-end gap-2">
                         <Button variant="outline" size="sm" onClick={() => fireRegularOrder(template)}>Create Order</Button>
                         <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => deleteRegularTemplate(template.id)}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteRegularTemplate(template.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -2649,7 +2672,7 @@ const cloneIntoComposer = async (row: any) => {
                 </TableRow>
               ) : (
                 validationRows.map(({ order, item, assessment }) => (
-                 <TableRow key={`${order.id || "o"}-${item.id || item.item_code}`}>
+                  <TableRow key={`${order.id || "o"}-${item.id || item.item_code}`}>
                     <TableCell className="font-mono text-xs text-primary">{order.order_no}</TableCell>
                     <TableCell>{order.customer}</TableCell>
                     <TableCell>{item.item_name || item.item_code}</TableCell>
@@ -2714,7 +2737,7 @@ const cloneIntoComposer = async (row: any) => {
                 </TableRow>
               ) : (
                 purchaseNeeds.map(({ order, item, assessment }, index) => (
-  <TableRow key={`purchase-${order.id}-${item.itemCode}-${index}`}>
+                  <TableRow key={`purchase-${order.id}-${item.itemCode}-${index}`}>
                     <TableCell className="font-mono text-xs text-primary">{item.item_code}</TableCell>
                     <TableCell>{item.item_name}</TableCell>
                     <TableCell className="font-mono text-xs">{order.order_no}</TableCell>
@@ -2771,7 +2794,7 @@ const cloneIntoComposer = async (row: any) => {
                 </TableRow>
               ) : (
                 excessRows.map((row, index) => (
-  <TableRow key={`${row.code}-${index}`}>
+                  <TableRow key={`${row.code}-${index}`}>
                     <TableCell className="font-mono text-xs text-primary">{row.code}</TableCell>
                     <TableCell>{row.name}</TableCell>
                     <TableCell className="text-right">{row.available}</TableCell>
@@ -2817,13 +2840,13 @@ const cloneIntoComposer = async (row: any) => {
                     <TableCell className="font-mono text-xs text-primary">{order.order_no}</TableCell>
                     <TableCell>{order.customer}</TableCell>
                     <TableCell>
-  {money(
-    (order.items || []).reduce(
-      (sum, item) => sum + (Number(item.total_amount) || 0),
-      0
-    )
-  )}
-</TableCell>
+                      {money(
+                        (order.items || []).reduce(
+                          (sum, item) => sum + (Number(item.total_amount) || 0),
+                          0
+                        )
+                      )}
+                    </TableCell>
                     <TableCell>{order.status}</TableCell>
                   </TableRow>
                 ))}
@@ -2897,81 +2920,81 @@ const cloneIntoComposer = async (row: any) => {
                 <TabsList>
                   <TabsTrigger value="orders">Orders</TabsTrigger>
                   <TabsTrigger value="packages">Packages</TabsTrigger>
-                  <TabsTrigger value="refunds">Refunds</TabsTrigger>
+                  {/*   <TabsTrigger value="refunds">Refunds</TabsTrigger> */}
                 </TabsList>
               </Tabs>
             </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
-  {mainTab === "packages" ? (
-    <OrderPackagesTab orders={orders} />
-  ) : mainTab === "refunds" ? (
-    <RefundsTab
-      refunds={refunds}
-      onUpdateRefund={(refundId, updates) =>
-        setRefunds((prev) =>
-          prev.map((refund) =>
-            refund.id === refundId
-              ? { ...refund, ...updates }
-              : refund
-          )
-        )
-      }
-      onRestoreInventory={async (refund) => {
-        try {
-          for (const item of refund.items) {
-            if (
-              !item.restoreInventory ||
-              item.quantityRefunded <= 0
-            )
-              continue;
+            {mainTab === "packages" ? (
+              <OrderPackagesTab orders={orders} />
+            ) : mainTab === "refunds" ? (
+              <RefundsTab
+                refunds={refunds}
+                onUpdateRefund={(refundId, updates) =>
+                  setRefunds((prev) =>
+                    prev.map((refund) =>
+                      refund.id === refundId
+                        ? { ...refund, ...updates }
+                        : refund
+                    )
+                  )
+                }
+                onRestoreInventory={async (refund) => {
+                  try {
+                    for (const item of refund.items) {
+                      if (
+                        !item.restoreInventory ||
+                        item.quantityRefunded <= 0
+                      )
+                        continue;
 
-            // 1. Fetch stock
-            const stockRes = await axios.get(
-              `/api/inventory-stock/${item.itemCode}`
-            );
+                      // 1. Fetch stock
+                      const stockRes = await axios.get(
+                        `/api/inventory-stock/${item.itemCode}`
+                      );
 
-            const currentStock = stockRes.data;
+                      const currentStock = stockRes.data;
 
-            const currentQty = Number(
-              currentStock?.quantity_on_hand || 0
-            );
-            const currentAllocated = Number(
-              currentStock?.allocated_quantity || 0
-            );
+                      const currentQty = Number(
+                        currentStock?.quantity_on_hand || 0
+                      );
+                      const currentAllocated = Number(
+                        currentStock?.allocated_quantity || 0
+                      );
 
-            const qty = Number(item.quantityRefunded);
+                      const qty = Number(item.quantityRefunded);
 
-            // 2. Update stock
-            await axios.put("/api/inventory-stock/update", {
-              itemCode: item.itemCode,
-              quantity_on_hand: currentQty + qty,
-              allocated_quantity: Math.max(
-                0,
-                currentAllocated - qty
-              ),
-            });
+                      // 2. Update stock
+                      await axios.put("/api/inventory-stock/update", {
+                        itemCode: item.itemCode,
+                        quantity_on_hand: currentQty + qty,
+                        allocated_quantity: Math.max(
+                          0,
+                          currentAllocated - qty
+                        ),
+                      });
 
-            // 3. Insert stock transaction
-            await axios.post("/api/stock-transactions", {
-              item_code: item.itemCode,
-              transaction_type: "Refund Return",
-              quantity: qty,
-              reference_type: "Refund",
-              reference_number: refund.refundNumber,
-              notes: `Refund from order ${refund.orderId}`,
-            });
-          }
-        } catch (error) {
-          console.error("Error restoring inventory:", error);
-        }
-      }}
-    />
-  ) : (
-    renderWorkspace()
-  )}
-</div>
+                      // 3. Insert stock transaction
+                      await axios.post("/api/stock-transactions", {
+                        item_code: item.itemCode,
+                        transaction_type: "Refund Return",
+                        quantity: qty,
+                        reference_type: "Refund",
+                        reference_number: refund.refundNumber,
+                        notes: `Refund from order ${refund.orderId}`,
+                      });
+                    }
+                  } catch (error) {
+                    console.error("Error restoring inventory:", error);
+                  }
+                }}
+              />
+            ) : (
+              renderWorkspace()
+            )}
+          </div>
         </div>
       </div>
 
@@ -3018,7 +3041,7 @@ const cloneIntoComposer = async (row: any) => {
                     {(viewOrder.items || []).map((item) => {
                       const assessment = getLineAssessment(item);
                       return (
-                       <TableRow key={item.id || item.item_code}>
+                        <TableRow key={item.id || item.item_code}>
                           <TableCell>
                             <div className="font-mono text-xs text-primary">{item.item_code}</div>
                             <div>{item.item_name}</div>
@@ -3038,9 +3061,9 @@ const cloneIntoComposer = async (row: any) => {
                 <Button variant="outline" onClick={() => cloneIntoComposer(viewOrder)}>
                   <Copy className="mr-2 h-4 w-4" />Clone
                 </Button>
-                <Button variant="outline" onClick={() => { setRefundOrder(viewOrder); setRefundDialogOpen(true); }}>
+          {/*      <Button variant="outline" onClick={() => { setRefundOrder(viewOrder); setRefundDialogOpen(true); }}>
                   <RotateCcw className="mr-2 h-4 w-4" />Refund
-                </Button>
+                </Button>  */}
                 <Button variant="outline" onClick={() => handleOrderStatusChange(viewOrder.id, "Confirmed")}>
                   <Check className="mr-2 h-4 w-4" />Confirm
                 </Button>
