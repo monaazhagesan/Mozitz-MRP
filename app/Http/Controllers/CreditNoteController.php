@@ -5,16 +5,26 @@ namespace App\Http\Controllers;
 use App\Models\CreditNote;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
+
 
 class CreditNoteController extends Controller
 {
+
+    public function __construct()
+    {
+        $this->middleware('web');
+    }
+
     // Get all credit notes with items
     public function index(Request $request)
 {
     try {
         $customerId = $request->query('customer_id');
 
-        $query = CreditNote::with('items');
+         $query = CreditNote::with('items')
+            ->where('user_id', Auth::id());
+
 
         if ($customerId) {
             $query->where('customer_id', $customerId);
@@ -33,9 +43,12 @@ class CreditNoteController extends Controller
 
     // Get single credit note
     public function show($id)
-    {
-        return CreditNote::with('items')->findOrFail($id);
-    }
+{
+    return CreditNote::with('items')
+        ->where('user_id', Auth::id())
+        ->where('id', $id)
+        ->firstOrFail();
+}
 
     // Store new credit note
     public function store(Request $request)
@@ -59,13 +72,18 @@ class CreditNoteController extends Controller
             'updated_at' => 'nullable|date',
         ]);
 
+         $data['user_id'] = Auth::id();
+
         return CreditNote::create($data);
     }
 
     // Delete credit note
     public function destroy($id)
     {
-        $creditNote = CreditNote::findOrFail($id);
+       $creditNote = CreditNote::where('user_id', Auth::id())
+        ->where('id', $id)
+        ->firstOrFail();
+
         $creditNote->delete();
 
         return response()->json(['message' => 'Credit note deleted successfully']);
@@ -73,7 +91,9 @@ class CreditNoteController extends Controller
 
     public function update(Request $request, $id)
 {
-    $creditNote = CreditNote::findOrFail($id);
+      $creditNote = CreditNote::where('user_id', Auth::id())
+        ->where('id', $id)
+        ->firstOrFail();
 
     $data = $request->validate([
         'credit_note_number' => 'required|string',

@@ -539,48 +539,39 @@ const [newBuyEnabled, setNewBuyEnabled] = useState(true);
 
   const handleAddLocation = async () => {
   const name = newLocationName.trim();
+
   if (!name) return;
 
   try {
-    const response = await fetch('/api/locations', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify({
-        location_name: name,
-        legal_name: newLegalName.trim(),
-        address: newAddress.trim(),
-        sell_enabled: true,
-        make_enabled: true,
-        buy_enabled: true,
-      }),
+    const res = await axios.post("/api/locations", {
+      location_name: name,
+      legal_name: newLegalName.trim(),
+      address: newAddress.trim(),
+      sell_enabled: true,
+      make_enabled: true,
+      buy_enabled: true,
     });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || 'Failed to add location');
-    }
+    const data = res.data;
 
-    const data = await response.json();
-
-    // safer state update
     setLocations(prev => [...prev, data]);
 
     setNewLocationName("");
+    setNewLegalName("");
+    setNewAddress("");
 
     toast({
       title: "Location Added",
       description: `${data.location_name} has been added`,
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error adding location:", error);
 
     toast({
       title: "Error",
-      description: error.message || "Failed to add location",
+      description:
+        error.response?.data?.message || "Failed to add location",
       variant: "destructive",
     });
   }

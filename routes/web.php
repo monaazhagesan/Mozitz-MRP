@@ -51,6 +51,15 @@ Route::get('{any}', function () {
     return view('app');
 })->where('any', '.*');
 
+Route::middleware('web')->group(function () {
+Route::post('/register', [AuthController::class, 'register']);
+Route::post('/login', [AuthController::class, 'login']);
+Route::post('/logout', [AuthController::class, 'logout']);
+Route::get('/user', [AuthController::class, 'user']);
+Route::get('/check-session', [AuthController::class, 'checkSession']);
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword']); 
+});
+
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout']);

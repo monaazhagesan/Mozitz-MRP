@@ -16,10 +16,11 @@ interface Session {
 interface AuthContextType {
   user: User | null;
   session: Session | null;
-  signUp: (email: string, password: string) => Promise<any>;
+  signUp: (email: string, password: string, first_name?: string, last_name?: string, company?: string) => Promise<any>;
   signIn: (email: string, password: string) => Promise<any>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<any>;
+  signInWithGoogle: () => Promise<any>;
   loading: boolean;
 }
 
@@ -56,34 +57,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 }, []);
 
 
-const signUp = async ( email: string, password: string) => {
+const signUp = async (
+  email: string,
+  password: string,
+  first_name?: string,
+  last_name?: string,
+  company?: string
+) => {
   try {
     await axios.get('/sanctum/csrf-cookie');
-    const res = await axios.post('/api/register', { email, password });
-    setUser(null);
-      setSession(res.data.session ?? null);
-    
+
+    const res = await axios.post('/api/register', {
+      email,
+      password,
+      first_name,
+      last_name,
+      company,
+    });
+
+    setUser(res.data.user);
+    setSession(res.data.session ?? null);
+
     return { error: null };
   } catch (error: any) {
     if (error.response) {
-      // Laravel validation error (422) or other backend error
       return {
         error: error.response.data?.message || 'Registration failed',
         errors: error.response.data?.errors || null,
         status: error.response.status,
       };
     } else if (error.request) {
-      // Server not responding
       return {
         error: 'Server not responding. Please try again.',
         status: 500,
       };
     } else {
-      // Unknown error
       return {
         error: error.message || 'Something went wrong',
       };
     }
+  }
+};
+
+const signInWithGoogle = async () => {
+  try {
+    const res = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        redirect_uri: window.location.origin,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      return { error: data?.message || 'Google sign-in failed' };
+    }
+
+    // If backend returns OAuth URL
+    if (data.url) {
+      window.location.href = data.url;
+      return { error: null };
+    }
+
+    return { error: 'No redirect URL received' };
+  } catch (err) {
+    return { error: err };
   }
 };
 
@@ -157,7 +199,7 @@ const resetPassword = async (email: string) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user,session, signUp, signIn, signOut, resetPassword, loading }}>
+    <AuthContext.Provider value={{ user,session, signUp, signIn, signOut, resetPassword, signInWithGoogle, loading }}>
       {children}
     </AuthContext.Provider>
   );

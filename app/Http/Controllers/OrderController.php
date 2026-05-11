@@ -9,9 +9,17 @@ use App\Models\InventoryStock;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
+
 
 class OrderController extends Controller
 {
+
+  public function __construct()
+    {
+        $this->middleware('web');
+    }
+
     public function store(Request $request)
     {
         $request->validate([
@@ -51,6 +59,7 @@ if (isset($item['available_stock'])) {
 }
 
                 Order::create([
+                    'user_id' => Auth::id(), 
                     'order_no' => $request->order_no,
                     'customer_id' => $request->customer_id,
                     'customer' => $request->customer,
@@ -125,7 +134,8 @@ if (isset($item['available_stock'])) {
     try {
         $customerId = $request->query('customer_id');
 
-        $query = Order::orderBy('order_date', 'desc');
+         $query = Order::where('user_id', Auth::id())
+            ->orderBy('order_date', 'desc');
 
         if ($customerId) {
             $query->where('customer_id', $customerId);
@@ -173,7 +183,10 @@ if (isset($item['available_stock'])) {
             'status' => 'required|string',
         ]);
 
-        $order = Order::findOrFail($id);
+        $order = Order::where('id', $id)
+        ->where('user_id', Auth::id())
+        ->firstOrFail();
+
         $order->status = $request->status;
         $order->save();
 

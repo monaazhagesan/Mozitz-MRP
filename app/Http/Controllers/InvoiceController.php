@@ -7,15 +7,23 @@ use App\Models\InvoiceItem;
 use App\Models\Payment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 
 class InvoiceController extends Controller
 {
+
+     public function __construct()
+    {
+        $this->middleware('web');
+    }
     // 🔹 Get All Invoices
    public function index(Request $request)
 {
     $customerId = $request->query('customer_id');
 
-    $query = Invoice::with(['items', 'payments']);
+      $query = Invoice::with(['items', 'payments'])
+        ->where('user_id', Auth::id()); // 👈 important
+
 
     if ($customerId) {
         $query->where('customer_id', $customerId);
@@ -26,7 +34,8 @@ class InvoiceController extends Controller
 
     public function update(Request $request, $id)
     {
-        $invoice = Invoice::findOrFail($id);
+        $invoice = Invoice::where('user_id', Auth::id())
+    ->findOrFail($id);
 
         DB::beginTransaction();
 
@@ -132,7 +141,8 @@ class InvoiceController extends Controller
 
         try {
 
-            $invoice = Invoice::create($request->only([
+            $invoice = Invoice::create(array_merge(
+            $request->only([
                 'invoice_number',
 
                 'invoice_date',
@@ -206,7 +216,11 @@ class InvoiceController extends Controller
                 'other_charges',
                  'type',
                  'status',
-            ]));
+            ]),
+            [
+                'user_id' => Auth::id(), // ✅ THIS IS NOW SAVED
+            ]
+        ));
             // Save Items
             foreach ($request->items as $item) {
                 $invoice->items()->create($item);
@@ -224,15 +238,18 @@ class InvoiceController extends Controller
     }
 
     // 🔹 Show Single Invoice
-    public function show($id)
-    {
-        return Invoice::with(['items', 'payments'])->findOrFail($id);
-    }
+   public function show($id)
+{
+    return Invoice::with(['items', 'payments'])
+        ->where('user_id', Auth::id())
+        ->findOrFail($id);
+}
 
     // 🔹 Record Payment
     public function recordPayment(Request $request, $id)
     {
-        $invoice = Invoice::findOrFail($id);
+       $invoice = Invoice::where('user_id', Auth::id())
+    ->findOrFail($id);
 
         DB::beginTransaction();
 

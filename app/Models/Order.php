@@ -11,6 +11,7 @@ class Order extends Model
 
     // ✅ Add all columns from the table here
     protected $fillable = [
+        'user_id',
         'order_no',
         'customer',
         'customer_id',
@@ -88,4 +89,9 @@ class Order extends Model
         $order->total_amount = $order->total_amount ?? 0;
     });
 }
+
+ public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
 }

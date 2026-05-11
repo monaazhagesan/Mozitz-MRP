@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class RegularOrderTemplate extends Model
 {
     protected $fillable = [
+        'user_id',
         'template_number',
         'customer',
         'item_code',
@@ -18,4 +19,9 @@ class RegularOrderTemplate extends Model
         'status',
         'price',
     ];
+
+     public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
 }

@@ -14,6 +14,7 @@ class CreditNote extends Model
 
     protected $fillable = [
         'id',
+        'user_id',
         'credit_note_number',
         'customer_id',
         'customer_name',
@@ -45,4 +46,9 @@ class CreditNote extends Model
         }
     });
 }
+
+public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
 }

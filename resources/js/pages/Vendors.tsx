@@ -494,10 +494,8 @@ const handleUpdateVendor = async () => {
 
   // ✅ All validations passed, send API request
   try {
-    const response = await fetch(`/api/vendors/${selectedVendor.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+   await axios.put(`/api/vendors/${selectedVendor.id}`, {
+
         company: vendorData.name,
         vendor_name: vendorData.vendor_name,
         contact_person: vendorData.contact,
@@ -521,12 +519,9 @@ const handleUpdateVendor = async () => {
         notes: vendorData.notes || null,
         tags: vendorData.tags || null,
         updated_at: new Date().toISOString(),
-      }),
+     
     });
 
-    const data = await response.json();
-
-    if (!response.ok) throw new Error(data.message || "Failed to update vendor");
 
     toast({
       title: "Success",
@@ -550,28 +545,23 @@ const handleUpdateVendor = async () => {
   if (!selectedVendor) return;
 
   try {
-    const response = await fetch(`/api/vendors/${selectedVendor.id}`, {
-      method: "DELETE",
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.message || "Failed to delete vendor");
-    }
+    const response = await axios.delete(
+      `/api/vendors/${selectedVendor.id}`
+    );
 
     toast({
       title: "Success",
-      description: "Vendor deleted successfully",
+      description: response.data?.message || "Vendor deleted successfully",
     });
 
     await fetchVendors();
     setIsDeleteDialogOpen(false);
     setSelectedVendor(null);
+
   } catch (error: any) {
     toast({
       title: "Error deleting vendor",
-      description: error.message,
+      description: error.response?.data?.message || error.message,
       variant: "destructive",
     });
   }
@@ -582,7 +572,7 @@ const filteredVendors = vendorsData.filter((vendor) => {
 
   return (
     vendor.vendor_name?.toLowerCase().includes(search) ||
-    vendor.contact_person?.toLowerCase().includes(search) ||
+    vendor.contact_person?.toLowerCase().includes(search) ||  
     vendor.company?.toLowerCase().includes(search) ||
     vendor.email?.toLowerCase().includes(search) ||
     vendor.phone?.toLowerCase().includes(search) ||

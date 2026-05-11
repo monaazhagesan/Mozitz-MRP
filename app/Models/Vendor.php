@@ -10,6 +10,7 @@ class Vendor extends Model
     use HasFactory;
 
     protected $fillable = [
+        'user_id',
         'vendor_id',
         'company',
         'vendor_name',
@@ -41,4 +42,9 @@ class Vendor extends Model
         'agreement',
         'kyc_documents',
     ];
+
+     public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
 }

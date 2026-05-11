@@ -10,6 +10,7 @@ class Invoice extends Model
     use HasUuids;
 
     protected $fillable = [
+        'user_id',
         'invoice_number',
         'invoice_date',
         'due_date',
@@ -159,4 +160,9 @@ class Invoice extends Model
 {
     return $this->belongsTo(Invoice::class, 'invoice_id', 'id');
 }
+
+public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    } 
 }

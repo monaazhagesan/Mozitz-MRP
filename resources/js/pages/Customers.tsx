@@ -394,7 +394,7 @@ if (newCustomer.company_name?.trim()) {
 
 
   try {
-    await axios.post("/customers", {
+    await axios.post("/api/customers", {
       ...newCustomer,
       customer_code: generateCustomerCode(),
     });
@@ -621,7 +621,7 @@ if (newCustomer.company_name?.trim()) {
   if (!confirm("Are you sure you want to delete this customer?")) return;
 
   try {
-    await axios.delete(`/customers/${id}`);
+    await axios.delete(`/api/customers/${id}`);
 
     toast({
       title: "Success",

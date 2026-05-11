@@ -10,30 +10,38 @@ use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Validator;
 use App\Mail\UserResetPasswordMail;
 use Illuminate\Support\Facades\Mail;
+use Laravel\Sanctum\HasApiTokens;
 
 
 class AuthController extends Controller
 {
     // Register
     public function register(Request $request)
-    {
-        $request->validate([
-            'email' => 'required|email|unique:users',
-            'password' => 'required|min:6'
-        ]);
+{
+    $request->validate([
+        'email' => 'required|email|unique:users',
+        'password' => 'required|min:6',
+        'first_name' => 'nullable|string|max:255',
+        'last_name' => 'nullable|string|max:255',
+        'company' => 'nullable|string|max:255',
+    ]);
 
-        $user = User::create([
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-        ]);
+    $user = User::create([
+        'email' => $request->email,
+        'password' => Hash::make($request->password),
 
-        Auth::login($user);
+        // ✅ NEW FIELDS
+        'first_name' => $request->first_name,
+        'last_name' => $request->last_name,
+        'company' => $request->company,
+    ]);
 
-        return response()->json([
-            'user' => $user
-        ]);
-    }
+    Auth::login($user);
 
+    return response()->json([
+        'user' => $user
+    ]);
+}
     // Login
     public function login(Request $request)
     {

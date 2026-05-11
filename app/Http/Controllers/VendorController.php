@@ -6,14 +6,23 @@ use App\Http\Controllers\Controller;
 use App\Models\Vendor;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class VendorController extends Controller
 {
-    public function index()
+
+   public function __construct()
     {
-        $vendors = Vendor::all();
-        return response()->json($vendors);
+        $this->middleware('web');
     }
+
+   public function index()
+{
+    return response()->json(
+        Vendor::where('user_id', Auth::id())->get()
+    );
+}
 
   public function store(Request $request)
 {
@@ -51,6 +60,8 @@ class VendorController extends Controller
         'kyc_documents' => 'nullable|array',
     ]);
 
+    $data['user_id'] = Auth::id();
+    
     // Handle file uploads
     if ($request->hasFile('gst_certificate')) {
         $data['gst_certificate'] = $request->file('gst_certificate')->store('vendors/gst');
@@ -93,15 +104,20 @@ if ($request->hasFile('kyc_documents')) {
     ], 201);
 }
 
-    public function show($id)
-    {
-        $vendor = Vendor::findOrFail($id);
-        return response()->json($vendor);
-    }
+   public function show($id)
+{
+    $vendor = Vendor::where('id', $id)
+        ->where('user_id', Auth::id())
+        ->firstOrFail();
+
+    return response()->json($vendor);
+}
 
 public function update(Request $request, $id)
 {
-    $vendor = Vendor::findOrFail($id);
+     $vendor = Vendor::where('id', $id)
+        ->where('user_id', Auth::id())
+        ->firstOrFail();
 
     // Validate text fields
     $data = $request->validate([
@@ -188,7 +204,10 @@ public function update(Request $request, $id)
 
 public function destroy($id)
 {
-    $vendor = Vendor::find($id);
+    $vendor = Vendor::where('id', $id)
+        ->where('user_id', Auth::id())
+        ->firstOrFail();
+
 
     if (!$vendor) {
         return response()->json([

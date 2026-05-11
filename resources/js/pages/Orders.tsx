@@ -1097,31 +1097,27 @@ const Orders = () => {
   }, []);
 
   const deleteRegularTemplate = async (id: string) => {
-    try {
-      const res = await fetch(`/api/regular-template/${id}`, {
-        method: "DELETE",
-      });
+  try {
+    await axios.delete(`/api/regular-template/${id}`);
 
-      if (!res.ok) {
-        throw new Error("Failed to delete template");
-      }
+    setRegularOrders((prev) =>
+      prev.filter((item) => item.id !== id)
+    );
 
-      setRegularOrders((prev) =>
-        prev.filter((item) => item.id !== id)
-      );
+    toast({
+      title: "Template deleted",
+      description: "Regular order template removed successfully.",
+    });
 
-      toast({
-        title: "Template deleted",
-        description: "Regular order template removed successfully.",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  };
+  } catch (error: any) {
+    toast({
+      title: "Error",
+      description:
+        error.response?.data?.message || error.message || "Failed to delete template",
+      variant: "destructive",
+    });
+  }
+};
 
 
 
@@ -1429,84 +1425,77 @@ const Orders = () => {
     });
   };
 
-  const createRegularTemplate = async () => {
-    const inventory = getInventoryRecord(regularForm.itemCode);
+ const createRegularTemplate = async () => {
+  const inventory = getInventoryRecord(regularForm.itemCode);
 
-    if (!regularForm.customer || !regularForm.itemCode) {
-      toast({
-        title: "Missing fields",
-        description: "Customer and product are required.",
-        variant: "destructive",
-      });
-      return;
-    }
+  if (!regularForm.customer || !regularForm.itemCode) {
+    toast({
+      title: "Missing fields",
+      description: "Customer and product are required.",
+      variant: "destructive",
+    });
+    return;
+  }
 
-    const payload = {
-      template_number: generateRegularNumber(),
-      customer: regularForm.customer,
-      item_code: inventory?.item_code || regularForm.itemCode,
-      item_name: inventory?.item_name || regularForm.itemCode,
-      quantity: Number(regularForm.quantity),
-      frequency: regularForm.frequency,
-      next_order_date: regularForm.nextOrderDate,
-      price: Number(regularForm.price || inventory?.unit_cost || 0),
-    };
-
-    try {
-      const res = await fetch("/api/regular-template", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        throw new Error("Failed to create template");
-      }
-
-      const data = await res.json();
-
-      // update UI state
-      setRegularOrders((prev) => [
-        {
-          id: data.data.id,
-          templateNumber: data.data.template_number,
-          customer: data.data.customer,
-          itemCode: data.data.item_code,
-          itemName: data.data.item_name,
-          quantity: data.data.quantity,
-          frequency: data.data.frequency,
-          nextOrderDate: data.data.next_order_date,
-          lastOrdered: "—",
-          status: data.data.status,
-          price: data.data.price,
-        },
-        ...prev,
-      ]);
-
-      setRegularDialogOpen(false);
-      setRegularForm({
-        customer: "",
-        itemCode: "",
-        quantity: 1,
-        frequency: "Weekly",
-        nextOrderDate: todayISO(),
-        price: 0,
-      });
-
-      toast({
-        title: "Template created",
-        description: "Regular order template saved successfully.",
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
+  const payload = {
+    template_number: generateRegularNumber(),
+    customer: regularForm.customer,
+    item_code: inventory?.item_code || regularForm.itemCode,
+    item_name: inventory?.item_name || regularForm.itemCode,
+    quantity: Number(regularForm.quantity),
+    frequency: regularForm.frequency,
+    next_order_date: regularForm.nextOrderDate,
+    price: Number(regularForm.price || inventory?.unit_cost || 0),
   };
+
+  try {
+    const res = await axios.post("/api/regular-template", payload);
+
+    const data = res.data;
+
+    setRegularOrders((prev) => [
+      {
+        id: data.data.id,
+        templateNumber: data.data.template_number,
+        customer: data.data.customer,
+        itemCode: data.data.item_code,
+        itemName: data.data.item_name,
+        quantity: data.data.quantity,
+        frequency: data.data.frequency,
+        nextOrderDate: data.data.next_order_date,
+        lastOrdered: "—",
+        status: data.data.status,
+        price: data.data.price,
+      },
+      ...prev,
+    ]);
+
+    setRegularDialogOpen(false);
+
+    setRegularForm({
+      customer: "",
+      itemCode: "",
+      quantity: 1,
+      frequency: "Weekly",
+      nextOrderDate: todayISO(),
+      price: 0,
+    });
+
+    toast({
+      title: "Template created",
+      description: "Regular order template saved successfully.",
+    });
+
+  } catch (error: any) {
+    toast({
+      title: "Error",
+      description:
+        error.response?.data?.message || error.message || "Failed to create template",
+      variant: "destructive",
+    });
+  }
+};
+
 
   const fireRegularOrder = (template: RegularOrderTemplate) => {
     const inventory = getInventoryRecord(template.itemCode);

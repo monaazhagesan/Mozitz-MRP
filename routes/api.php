@@ -71,7 +71,8 @@ Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 });
 
 
-Route::get('/customers', [CustomerController::class, 'index']);
+Route::middleware('web')->group(function () {
+    Route::get('/customers', [CustomerController::class, 'index']);
 Route::get('/customers/{id}', [CustomerController::class, 'show']);
 Route::post('/customers', [CustomerController::class, 'store']);
 Route::put('/customers/{id}', [CustomerController::class, 'update']);
@@ -290,3 +291,5 @@ Route::post('/job-moves/update', [JobController::class, 'updateMoves']);
 Route::post('/move-transactions', [MoveTransactionController::class, 'store']);
 Route::get('/move-transactions/job/{jobId}', [MoveTransactionController::class, 'getByJob']);
 Route::get('/move-transactions/summary/{jobId}', [MoveTransactionController::class, 'summary']);
+
+    });

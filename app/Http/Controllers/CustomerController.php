@@ -4,21 +4,33 @@ namespace App\Http\Controllers;
 
 use App\Models\Customer;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class CustomerController extends Controller
 {
     // List all customers
-    public function index()
+
+    public function __construct()
     {
-        return response()->json(Customer::all());
+        $this->middleware('web');
     }
+
+    public function index()
+{
+    return response()->json(
+        Customer::where('user_id', Auth::id())->get()
+    );
+}
 
     // Show a single customer
     public function show($id)
-    {
-        $customer = Customer::findOrFail($id);
-        return response()->json($customer);
-    }
+{
+    $customer = Customer::where('id', $id)
+        ->where('user_id', Auth::id())
+        ->firstOrFail();
+
+    return response()->json($customer);
+}
 
     // Create a new customer
     public function store(Request $request)
@@ -52,6 +64,8 @@ class CustomerController extends Controller
             'website' => 'nullable|string',
         ]);
 
+         $data['user_id'] = Auth::id(); // ✅ correct place
+
         $customer = Customer::create($data);
 
         return response()->json($customer, 201);
@@ -60,7 +74,9 @@ class CustomerController extends Controller
     // Update an existing customer
     public function update(Request $request, $id)
     {
-        $customer = Customer::findOrFail($id);
+         $customer = Customer::where('id', $id)
+        ->where('user_id', Auth::id())
+        ->firstOrFail();
 
         $data = $request->validate([
             'customer_name' => 'required|string',
@@ -99,7 +115,10 @@ class CustomerController extends Controller
     // Delete a customer
     public function destroy($id)
     {
-        $customer = Customer::findOrFail($id);
+        $customer = Customer::where('id', $id)
+        ->where('user_id', Auth::id())
+        ->firstOrFail();
+        
         $customer->delete();
 
         return response()->json(['message' => 'Customer deleted successfully']);

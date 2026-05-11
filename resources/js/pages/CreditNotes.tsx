@@ -47,14 +47,23 @@ const CreditNotes = () => {
     loadCreditNotes();
   }, []);
 
- const loadCreditNotes = async () => {
+const loadCreditNotes = async () => {
   setLoading(true);
   try {
-    // Fetch credit notes from your Laravel API
-    const response = await axios.get("/api/credit-notes"); // adjust URL if needed
-    setCreditNotes(response.data); // assuming your API returns JSON array
-  } catch (error: any) {
+    const response = await axios.get("/api/credit-notes");
+
+    const data = response.data;
+
+    const notesArray =
+      Array.isArray(data) ? data :
+      Array.isArray(data?.data) ? data.data :
+      Array.isArray(data?.creditNotes) ? data.creditNotes :
+      [];
+
+    setCreditNotes(notesArray);
+  } catch (error) {
     console.error("Error loading credit notes:", error);
+    setCreditNotes([]); // important fallback
   } finally {
     setLoading(false);
   }

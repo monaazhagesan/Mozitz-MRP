@@ -5,24 +5,34 @@ namespace App\Http\Controllers;
 use App\Models\LedgerEntry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
+
 
 class LedgerEntryController extends Controller
 {
-    public function index()
+
+    public function __construct()
     {
-        return LedgerEntry::all();
+        $this->middleware('web');
     }
 
-    public function show($id)
-    {
-        return LedgerEntry::findOrFail($id);
-    }
+    public function index()
+{
+    return LedgerEntry::where('user_id', Auth::id())->get();
+}
+
+   public function show($id)
+{
+    return LedgerEntry::where('user_id', Auth::id())
+        ->where('id', $id)
+        ->firstOrFail();
+}
 
     public function store(Request $request)
     {
         $data = $request->validate([
             'id' => 'nullable|string',
-            'user_id' => 'nullable|string',
+            
             'category' => 'nullable|string',
             'company_name' => 'nullable|string',
             'document_type' => 'nullable|string',
@@ -37,16 +47,21 @@ class LedgerEntryController extends Controller
         $data['id'] = (string) Str::uuid();
     }
 
+     $data['user_id'] = Auth::id();
+
         return LedgerEntry::create($data);
     }
 
       public function destroy($id)
-    {
-        $entry = LedgerEntry::findOrFail($id);
-        $entry->delete();
+{
+    $entry = LedgerEntry::where('user_id', Auth::id())
+        ->where('id', $id)
+        ->firstOrFail();
 
-        return response()->json([
-            'message' => 'Ledger entry deleted successfully'
-        ], 200);
-    }
+    $entry->delete();
+
+    return response()->json([
+        'message' => 'Ledger entry deleted successfully'
+    ], 200);
+}
 }

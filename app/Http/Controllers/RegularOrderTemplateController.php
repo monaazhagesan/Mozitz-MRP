@@ -4,9 +4,15 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\RegularOrderTemplate;
+use Illuminate\Support\Facades\Auth;
 
 class RegularOrderTemplateController extends Controller
 {
+     public function __construct()
+    {
+        $this->middleware('web');
+    }
+
     public function store(Request $request)
     {
         $request->validate([
@@ -20,7 +26,16 @@ class RegularOrderTemplateController extends Controller
             'price' => 'nullable|numeric',
         ]);
 
+         $user = Auth::user(); // ✅ safer
+
+    if (!$user) {
+        return response()->json([
+            'message' => 'Unauthenticated user'
+        ], 401);
+    }
+
         $template = RegularOrderTemplate::create([
+                'user_id' => Auth::id(),
             'template_number' => $request->template_number,
             'customer' => $request->customer,
             'item_code' => $request->item_code,

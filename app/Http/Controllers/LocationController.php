@@ -9,6 +9,10 @@ use Illuminate\Support\Str;
 
 class LocationController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('web');
+    }
     public function index()
 {
     $locations = Location::orderBy('created_at', 'desc')->get();
