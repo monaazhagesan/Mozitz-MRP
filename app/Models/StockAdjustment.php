@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\User;
+
 
 class StockAdjustment extends Model
 {
@@ -15,6 +17,7 @@ class StockAdjustment extends Model
 
     protected $fillable = [
         'id',
+        'user_id',
         'adjustment_number',
         'adjustment_date',
         'reason',
@@ -31,5 +34,10 @@ class StockAdjustment extends Model
     public function items()
     {
         return $this->hasMany(StockAdjustmentItem::class, 'adjustment_id');
+    }
+
+     public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

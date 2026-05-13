@@ -11,18 +11,31 @@ use App\Models\BomComponent;
 use App\Models\BomOperation;
 use App\Models\BomDeletionLog;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Auth;
+
 
 class BomHeaderController extends Controller
 {
+
+    public function __construct()
+    {
+        $this->middleware('web');
+    }
+
    public function index()
 {
-    return BomHeader::where('status', 'Active')->get();
+    return BomHeader::where('user_id', auth()->id())
+            ->where('status', 'Active')
+            ->get();
 }
 
     public function show($id)
     {
        try {
-        return BomHeader::with(['components', 'operations'])->findOrFail($id);
+           return BomHeader::with(['components', 'operations'])
+                ->where('user_id', auth()->id())
+                ->findOrFail($id);
+
     } catch (\Exception $e) {
         Log::error("BOM show error: " . $e->getMessage());
         return response()->json(['error' => $e->getMessage()], 500);
@@ -52,24 +65,34 @@ class BomHeaderController extends Controller
         ]);
 
          $data['id'] = Str::uuid()->toString();
+
+           $data['user_id'] = auth()->id();
+
         return BomHeader::create($data);
     }
 
     public function destroy($id)
 {
     // Find the BOM header to get the item_code
-    $bom = \App\Models\BomHeader::findOrFail($id);
+    $bom = BomHeader::where('user_id', auth()->id())
+            ->findOrFail($id);
+
     $itemCode = $bom->item_code;
 
     // Get all BOM headers with the same item_code
-    $boms = \App\Models\BomHeader::where('item_code', $itemCode)->get();
+     $boms = BomHeader::where('user_id', auth()->id())
+            ->where('item_code', $itemCode)
+            ->get();
 
     $totalComponentsDeleted = 0;
     $totalBomsDeleted = $boms->count();
 
     foreach ($boms as $bom) {
         // Delete all related components for each BOM
-        $deletedComponents = \App\Models\BomComponent::where('bom_id', $bom->id)->delete();
+         $deletedComponents = BomComponent::where('user_id', auth()->id())
+                ->where('bom_id', $bom->id)
+                ->delete();
+
         $totalComponentsDeleted += $deletedComponents;
 
         // Delete the BOM itself
@@ -102,7 +125,8 @@ public function update(Request $request, $id)
     ]);
 
     // Find the BOM by ID
-    $bom = BomHeader::findOrFail($id);
+     $bom = BomHeader::where('user_id', auth()->id())
+            ->findOrFail($id);
 
     // Log the previous state for revision before updating
     BomDeletionLog::create([
@@ -136,8 +160,9 @@ public function update(Request $request, $id)
 
 public function getByItemCode(Request $request)
 {
-    return BomHeader::where('item_code', $request->item_code)
-        ->orderByDesc('revision_number')
-        ->get();
+    return BomHeader::where('user_id', auth()->id())
+            ->where('item_code', $request->item_code)
+            ->orderByDesc('revision_number')
+            ->get();
 }
 }

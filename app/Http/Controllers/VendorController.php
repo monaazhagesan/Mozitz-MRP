@@ -256,6 +256,7 @@ public function destroy($id)
 
     while (($row = fgetcsv($handle)) !== false) {
         Vendor::create([
+            'user_id' => Auth::id(),
             'vendor_id' => $row[0],
             'company' => $row[1],
             'contact_person' => $row[2],

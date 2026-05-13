@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\User;
+
 
 class GRN extends Model
 {
@@ -13,6 +15,7 @@ class GRN extends Model
 
     protected $fillable = [
         'id',
+        'user_id',
         'grn_number',
         'po_number',
         'vendor',
@@ -44,4 +47,9 @@ protected static function boot()
         if (empty($model->updated_at)) $model->updated_at = now();
     });
 }
+
+ public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
 }

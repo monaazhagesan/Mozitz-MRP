@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\User;
 
 class SupplierPayable extends Model
 {
@@ -12,6 +13,7 @@ class SupplierPayable extends Model
 
     protected $fillable = [
         'id',
+        'user_id',
         'vendor',
         'reference_type',
         'reference_number',
@@ -62,6 +64,11 @@ class SupplierPayable extends Model
                 $model->id = (string) \Illuminate\Support\Str::uuid();
             }
         });
+    }
+
+     public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 }
 

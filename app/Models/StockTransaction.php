@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use App\Models\User;
 
 
 class StockTransaction extends Model
@@ -14,6 +15,7 @@ class StockTransaction extends Model
 
     protected $fillable = [
         'id',
+        'user_id',
         'item_code',
         'transaction_type',
         'reference_type',
@@ -45,5 +47,11 @@ class StockTransaction extends Model
             }
         });
     }
+
+      public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
+    
 }
 

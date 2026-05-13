@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\User;
 
 class BomComponent extends Model
 {
@@ -14,6 +15,7 @@ class BomComponent extends Model
 
     protected $fillable = [
         'id',
+         'user_id',
         'bom_id',
         'item_seq',
         'operation_seq',
@@ -31,4 +33,9 @@ class BomComponent extends Model
         'total_cost',
         'created_at'
     ];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
 }

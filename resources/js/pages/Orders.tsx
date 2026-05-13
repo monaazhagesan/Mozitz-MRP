@@ -972,9 +972,10 @@ const Orders = () => {
     email: formData.email,
 
     billing_address: formData.billingAddress,
-    shipping_address: formData.shippingAddress,
+     shipping_address: formData.shippingAddress || null,
 
-    reference_no: formData.referenceNo,
+
+     reference_no: formData.referenceNo || null,
     priority: formData.priority,
     remarks: formData.remarks,
 
@@ -1756,7 +1757,7 @@ const Orders = () => {
             </div>
             <div className="space-y-2 md:col-span-2">
               <Label>Delivery Address / Notes</Label>
-              <Textarea value={formData.remarks || formData.shippingAddress} onChange={(event) => setFormData((prev) => ({ ...prev, remarks: event.target.value }))} rows={3} />
+              <Textarea value={formData.remarks || formData.shippingAddress} onChange={(event) => setFormData((prev) => ({ ...prev, shippingAddress: event.target.value }))} rows={3} />
             </div>
           </div>
         </section>

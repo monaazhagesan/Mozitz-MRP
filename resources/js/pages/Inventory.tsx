@@ -758,16 +758,12 @@ const loadInventory = async () => {
 useEffect(() => {
   const loadItems = async () => {
     try {
-      // 1️⃣ Run migration first
-   //   await migrateUsabilityData();
-
       // 2️⃣ Fetch inventory items
       const itemsRes = await axios.get("/api/inventory-stock", {
         params: { sort: "created_at_desc" },
       });
 
       const data = Array.isArray(itemsRes.data) ? itemsRes.data : [];
-
 
       // 3️⃣ Fetch allocated jobs
       const jobAllocRes = await axios.get("/api/job-allocations", {
@@ -783,7 +779,7 @@ useEffect(() => {
         },
       });
 
-     const openPOs = Array.isArray(poRes.data) ? poRes.data : [];
+      const openPOs = Array.isArray(poRes.data) ? poRes.data : [];
 
       let expectedByItem: { [key: string]: number } = {};
 
@@ -795,8 +791,8 @@ useEffect(() => {
         });
 
         const poItems = Array.isArray(poItemsRes.data)
-  ? poItemsRes.data
-  : (poItemsRes.data?.data ?? []);
+          ? poItemsRes.data
+          : poItemsRes.data?.data ?? [];
 
         poItems.forEach((poItem: any) => {
           const pendingQty = Math.max(
@@ -811,7 +807,7 @@ useEffect(() => {
         });
       }
 
-      // 5️⃣ Add Jobs (localStorage - Finished Goods Production)
+      // 5️⃣ Jobs from localStorage
       const savedJobs = localStorage.getItem("jobs");
       let jobs: any[] = [];
 
@@ -833,7 +829,7 @@ useEffect(() => {
         }
       });
 
-      // 6️⃣ Load Orders (Commitments)
+      // 6️⃣ Orders (commitments)
       const savedOrders = localStorage.getItem("orders");
       let orders: any[] = [];
 
@@ -848,7 +844,6 @@ useEffect(() => {
 
       const commitmentsByItem: { [key: string]: number } = {};
 
-      // Order commitments
       orders.forEach((order: any) => {
         if (
           order.status === "Processing" ||
@@ -864,14 +859,14 @@ useEffect(() => {
         }
       });
 
-      // Job commitments from backend
       jobAllocations.forEach((ja: any) => {
         commitmentsByItem[ja.item_code] =
           (commitmentsByItem[ja.item_code] || 0) +
           (ja.allocated_quantity || 0);
       });
 
-      // 7️⃣ Build final items list
+      // 7️⃣ ITEMS MAP (FIXED)
+      /*
       const loadedItems: Item[] = data.map((item: any) => {
         const qtyOnHand = item.quantity_on_hand || 0;
         const expected = expectedByItem[item.item_code] || 0;
@@ -879,7 +874,6 @@ useEffect(() => {
         const available = qtyOnHand - committed;
         const reorderPt = Number(item.reorder_point) || 0;
 
-        // Low stock alert
         if (available < reorderPt && reorderPt > 0) {
           toast({
             title: "Low Stock Alert",
@@ -887,6 +881,7 @@ useEffect(() => {
             variant: "destructive",
           });
         }
+
         const availableQuantity = qtyOnHand + expected - committed;
 
         return {
@@ -894,6 +889,7 @@ useEffect(() => {
           code: item.item_code,
           type: item.item_type || "",
           name: item.item_name,
+          defaultSupplier: item.default_supplier || "",
           description: item.description || "",
           sku: item.sku,
           purchasePrice: item.unit_cost?.toString() || "0",
@@ -924,7 +920,6 @@ useEffect(() => {
       setItems(loadedItems);
       setCurrentPage(1);
 
-      // 8️⃣ Auto Reorder Trigger
       const autoReorderItems = loadedItems.filter((item) => {
         const available = item.availableQuantity || 0;
         const reorder = parseFloat(item.reorderPoint || "0");
@@ -934,6 +929,7 @@ useEffect(() => {
       if (autoReorderItems.length > 0) {
         triggerAutoRFQGeneration();
       }
+      */
 
     } catch (error: any) {
       console.error("Error loading items:", error);
@@ -943,7 +939,6 @@ useEffect(() => {
   loadItems();
   loadCategories();
 
-  // Reload when orders change in other tabs
   const handleStorageChange = (e: StorageEvent) => {
     if (e.key === "orders") {
       loadItems();
@@ -962,7 +957,6 @@ useEffect(() => {
     window.removeEventListener("focus", handleFocus);
   };
 }, []);
-
 
 
 const handleDeleteItem = async (id: string) => {

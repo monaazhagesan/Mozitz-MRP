@@ -10,9 +10,17 @@ use App\Models\JobQuantity;
 use App\Models\JobMove;
 use App\Models\JobLot;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
+
 
 class JobController extends Controller
 {
+
+     public function __construct()
+    {
+        $this->middleware('web');
+    }
+
     /**
      * CREATE FULL JOB (HEADER + ALL CHILD TABLES)
      */
@@ -24,6 +32,7 @@ class JobController extends Controller
 
             // 1. CREATE JOB HEADER
             $job = Job::create([
+                'user_id' => auth()->id(),
                 'job_number' => $request->job_number,
                 'assembly' => $request->assembly,
                 'product_name' => $request->product_name,
@@ -159,7 +168,8 @@ class JobController extends Controller
             'operations',
             'moves',
             'lots'
-        ])->findOrFail($id);
+       ])->where('user_id', auth()->id())
+  ->findOrFail($id);
 
         return response()->json($job);
     }
@@ -169,13 +179,16 @@ class JobController extends Controller
      */
     public function index()
 {
-    return Job::with([
+   return Job::where('user_id', auth()->id())
+    ->with([
         'components',
         'quantities',
         'operations',
         'moves',
         'lots'
-    ])->latest()->paginate(20);
+    ])
+    ->latest()
+    ->paginate(20);
 }
 
 /**
@@ -187,7 +200,8 @@ public function destroy($id)
 
     try {
 
-        $job = Job::findOrFail($id);
+        $job = Job::where('user_id', auth()->id())
+    ->findOrFail($id);
 
         // Delete child records first
         $job->components()->delete();
@@ -224,7 +238,8 @@ public function update(Request $request, $id)
 
     try {
 
-        $job = Job::findOrFail($id);
+        $job = Job::where('user_id', auth()->id())
+    ->findOrFail($id);
 
         // update job header fields
         $job->update([
@@ -310,9 +325,11 @@ public function updateMoves(Request $request)
 
         // 2️⃣ Update job status (IMPORTANT FIX)
         if ($request->has('job_status')) {
-            Job::where('id', $jobId)->update([
-                'status' => $request->job_status
-            ]);
+            Job::where('user_id', auth()->id())
+    ->where('id', $jobId)
+    ->update([
+        'status' => $request->job_status
+    ]);
         }
 
         DB::commit();
@@ -336,12 +353,15 @@ public function updateMoveTransaction(Request $request)
 {
     $jobId = $request->job_id;
 
-    $moves = $request->moves; 
-    // expects array of rows
+    // ✅ Verify ownership
+    $job = Job::where('user_id', auth()->id())
+        ->findOrFail($jobId);
+
+    $moves = $request->moves;
 
     foreach ($moves as $mv) {
 
-        $row = JobMove::where('job_id', $jobId)
+        $row = JobMove::where('job_id', $job->id)
             ->where('seq', $mv['seq'])
             ->first();
 
@@ -369,13 +389,18 @@ public function bulkUpdate(Request $request)
     try {
 
         $jobId = $request->job_id;
+
+        // ✅ Verify ownership
+        $job = Job::where('user_id', auth()->id())
+            ->findOrFail($jobId);
+
         $moves = $request->moves;
 
         foreach ($moves as $move) {
 
             JobMove::updateOrCreate(
                 [
-                    'job_id' => $jobId,
+                    'job_id' => $job->id,
                     'seq' => $move['seq'],
                 ],
                 [

@@ -7,12 +7,21 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
 
 class StocktakeController extends Controller
 {
+
+  public function __construct()
+    {
+        $this->middleware('web');
+    }
+
     public function index()
     {
-        return Stocktake::orderBy('created_at', 'desc')->get();
+       return Stocktake::where('user_id', auth()->id())
+    ->orderBy('created_at', 'desc')
+    ->get();
     }
 
     // 🔥 SAFE STOCKTAKE NUMBER GENERATOR
@@ -74,6 +83,7 @@ class StocktakeController extends Controller
         })->toArray();
 
         $stocktake = Stocktake::create([
+            'user_id' => auth()->id(), 
             'id' => (string) Str::uuid(),
             'stocktake_no' => $this->generateStocktakeNo(),
             'name' => $data['name'],
@@ -97,12 +107,15 @@ class StocktakeController extends Controller
 
     public function show($id)
     {
-        return Stocktake::findOrFail($id);
+       return Stocktake::where('user_id', auth()->id())
+    ->findOrFail($id);
+
     }
 
     public function destroy($id)
     {
-        $stocktake = Stocktake::find($id);
+       $stocktake = Stocktake::where('user_id', auth()->id())
+    ->find($id);
 
         if (!$stocktake) {
             return response()->json([
@@ -119,7 +132,8 @@ class StocktakeController extends Controller
 
     public function update(Request $request, $id)
 {
-    $stocktake = Stocktake::findOrFail($id);
+   $stocktake = Stocktake::where('user_id', auth()->id())
+    ->findOrFail($id);
 
     $data = $request->validate([
         'status' => 'nullable|string',

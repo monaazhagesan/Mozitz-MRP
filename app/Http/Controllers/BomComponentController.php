@@ -7,21 +7,27 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
 
 class BomComponentController extends Controller
 {
-    public function index(Request $request)
-{
-    // If bom_id is provided → filter
-    if ($request->has('bom_id')) {
-        return response()->json(
-            BomComponent::where('bom_id', $request->bom_id)->get()
-        );
+
+    public function __construct()
+    {
+        $this->middleware('web');
     }
 
-    // Otherwise return all
-    return response()->json(BomComponent::all());
-}
+     public function index(Request $request)
+    {
+        $query = BomComponent::where('user_id', auth()->id());
+
+        // filter by bom_id
+        if ($request->has('bom_id')) {
+            $query->where('bom_id', $request->bom_id);
+        }
+
+        return response()->json($query->get());
+    }
 
    public function Detail(Request $request)
 {
@@ -32,23 +38,27 @@ class BomComponentController extends Controller
     }
 
     // 1. Find BOM header
-    $bomHeader = \DB::table('bom_headers')
-        ->where('item_code', $itemCode)
-        ->first();
+       $bomHeader = \DB::table('bom_headers')
+            ->where('item_code', $itemCode)
+            ->where('user_id', auth()->id())
+            ->first();
 
     if (!$bomHeader) {
         return response()->json([]);
     }
 
     // 2. Fetch components using BOM UUID
-    $components = BomComponent::where('bom_id', $bomHeader->id)->get();
+    $components = BomComponent::where('bom_id', $bomHeader->id)
+            ->where('user_id', auth()->id())
+            ->get();
 
     return response()->json($components);
 }
 
     public function show($id)
     {
-        return BomComponent::findOrFail($id);
+         return BomComponent::where('user_id', auth()->id())
+            ->findOrFail($id);
     }
 
    public function store(Request $request)
@@ -82,6 +92,9 @@ class BomComponentController extends Controller
         // 🔥 SAFE DEFAULTS (THIS FIXES YOUR ERRORS)
         $valid['id'] = Str::uuid()->toString();
 
+         $valid['user_id'] = auth()->id();
+
+
         $valid['basis'] = $valid['basis'] ?? 'Standard';
         $valid['status'] = $valid['status'] ?? 'Active';
         $valid['planning_percent'] = $valid['planning_percent'] ?? 100;
@@ -113,7 +126,9 @@ class BomComponentController extends Controller
         'bom_id' => 'required|string',
     ]);
 
-    $deletedCount = \App\Models\BomComponent::where('bom_id', $request->bom_id)->delete();
+      $deletedCount = BomComponent::where('bom_id', $request->bom_id)
+            ->where('user_id', auth()->id())
+            ->delete();
 
     return response()->json([
         'message' => "$deletedCount component(s) deleted successfully."
@@ -124,7 +139,8 @@ class BomComponentController extends Controller
 public function update(Request $request, $id)
 {
     try {
-        $component = BomComponent::findOrFail($id);
+        $component = BomComponent::where('user_id', auth()->id())
+                ->findOrFail($id);
 
         $validator = Validator::make($request->all(), [
             'item_seq' => 'nullable|integer',
@@ -172,7 +188,9 @@ public function update(Request $request, $id)
 
 public function destroy($id)
 {
-    $component = BomComponent::findOrFail($id);
+     $component = BomComponent::where('user_id', auth()->id())
+            ->findOrFail($id);
+            
     $component->delete();
 
     return response()->json([

@@ -6,9 +6,17 @@ use App\Http\Controllers\Controller;
 use App\Models\PoReturn;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
 
 class PoReturnController extends Controller
 {
+
+  
+    public function __construct()
+    {
+        $this->middleware('web');
+    }
+
     // Create new PO Return
     public function store(Request $request)
     {
@@ -24,6 +32,7 @@ class PoReturnController extends Controller
 
         $poReturn = PoReturn::create([
             'id' => Str::uuid(),
+             'user_id'       => Auth::id(),
             'return_number' => $request->return_number,
             'grn_number' => $request->grn_number,
             'po_number' => $request->po_number,
@@ -43,14 +52,22 @@ class PoReturnController extends Controller
     // Optional: list all PO Returns
     public function index()
     {
-        $returns = PoReturn::with('items')->get();
+        $returns = PoReturn::with('items')
+            ->where('user_id', Auth::id())
+            ->latest()
+            ->get();
+
         return response()->json($returns);
     }
+
 
     // Optional: get a single PO Return
     public function show($id)
     {
-        $poReturn = PoReturn::with('items')->findOrFail($id);
+        $poReturn = PoReturn::with('items')
+            ->where('user_id', Auth::id())
+            ->findOrFail($id);
+
         return response()->json($poReturn);
     }
 }

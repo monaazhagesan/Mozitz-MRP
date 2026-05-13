@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\User;
+
 
 class BomHeader extends Model
 {
@@ -13,6 +15,7 @@ class BomHeader extends Model
 
     protected $fillable = [
         'id',
+        'user_id',
         'item_type',
         'item_code',
         'item_name',
@@ -58,5 +61,10 @@ class BomHeader extends Model
     public function operations()
     {
         return $this->hasMany(BomOperation::class, 'bom_id', 'id');
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

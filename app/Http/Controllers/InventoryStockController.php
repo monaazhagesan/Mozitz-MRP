@@ -7,14 +7,20 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Auth;
 
 
 class InventoryStockController extends Controller
 {
-    // Get all inventory items
+    
+
+    public function __construct()
+    {
+        $this->middleware('web');
+    }
    public function index(Request $request)
 {
-    $query = InventoryStock::query();
+    $query = InventoryStock::where('user_id', auth()->id()); 
 
     // ✅ FIX: proper grouped search
     if ($request->has('search')) {
@@ -96,7 +102,9 @@ class InventoryStockController extends Controller
     // Get single inventory item
     public function show($id)
     {
-        $item = InventoryStock::findOrFail($id);
+        $item = InventoryStock::where('user_id', auth()->id())
+        ->findOrFail($id);
+
         return response()->json($item, 200);
     }
 
@@ -121,6 +129,8 @@ class InventoryStockController extends Controller
         $data['committed_quantity'] = (float) ($data['committed_quantity'] ?? 0);
         $data['available_quantity'] = $data['quantity_on_hand'] - $data['allocated_quantity'];
         $data['open_po'] = (float) ($data['open_po'] ?? 0);
+
+        $data['user_id'] = auth()->id();
 
         // ✅ AUTO ITEM CODE
         if (empty($data['item_code'])) {
@@ -189,7 +199,8 @@ if (!empty($data['location_id'])) {
     // Update inventory item
      public function update(Request $request, $id)
 {
-    $item = InventoryStock::findOrFail($id);
+    $item = InventoryStock::where('user_id', auth()->id())
+    ->findOrFail($id);
 
     try {
 
@@ -274,7 +285,9 @@ if (!empty($data['location_id'])) {
     // Delete inventory item
     public function destroy($id)
     {
-        $item = InventoryStock::findOrFail($id);
+       $item = InventoryStock::where('user_id', auth()->id())
+        ->findOrFail($id);
+
         $item->delete();
 
         return response()->json([
@@ -335,7 +348,9 @@ public function allocate(Request $request)
         'quantity' => 'required|numeric|min:0.01',
     ]);
 
-    $item = InventoryStock::where('item_code', $request->itemCode)->firstOrFail();
+    $item = InventoryStock::where('user_id', auth()->id())
+    ->where('item_code', $request->itemCode)
+    ->firstOrFail();
 
     $allocated = (float) ($item->allocated_quantity ?? 0);
     $quantity = (float) $request->quantity;
@@ -366,7 +381,9 @@ public function checkStock(Request $request)
         'item_code' => 'required|string'
     ]);
 
-    $stock = InventoryStock::where('item_code', $request->item_code)->first();
+    $stock = InventoryStock::where('user_id', auth()->id())
+    ->where('item_code', $request->item_code)
+    ->first();
 
     if (!$stock) {
         return response()->json([

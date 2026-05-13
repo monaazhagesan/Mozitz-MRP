@@ -37,7 +37,7 @@ class CustomerController extends Controller
     {
         $data = $request->validate([
             'customer_name' => 'required|string',
-            'customer_code' => 'nullable|string|unique:customers,customer_code',
+            'customer_code' => 'nullable|string|unique:customers,customer_code,NULL,id,user_id,' . Auth::id(),
             'customer_type' => 'nullable|string',
             'contact_person' => 'nullable|string',
             'primary_contact' => 'nullable|string',
@@ -80,7 +80,7 @@ class CustomerController extends Controller
 
         $data = $request->validate([
             'customer_name' => 'required|string',
-            'customer_code' => 'nullable|string|unique:customers,customer_code,' . $customer->id,
+            'customer_code' => 'nullable|string|unique:customers,customer_code,' . $customer->id . ',id,user_id,' . Auth::id(),
             'customer_type' => 'nullable|string',
             'contact_person' => 'nullable|string',
             'primary_contact' => 'nullable|string',

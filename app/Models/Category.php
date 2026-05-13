@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use App\Models\User;
+
 
 class Category extends Model
 {
@@ -14,6 +16,7 @@ class Category extends Model
 
     protected $fillable = [
         'id',
+        'user_id',
         'name',
         'created_at'
     ];
@@ -29,5 +32,10 @@ class Category extends Model
                 $category->created_at = now();
             }
         });
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

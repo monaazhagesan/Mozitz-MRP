@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Location;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
 
 
 class LocationController extends Controller
@@ -15,7 +16,9 @@ class LocationController extends Controller
     }
     public function index()
 {
-    $locations = Location::orderBy('created_at', 'desc')->get();
+    $locations = Location::where('user_id', auth()->id())
+            ->orderBy('created_at', 'desc')
+            ->get();
 
     return response()->json([
         'success' => true,
@@ -25,7 +28,8 @@ class LocationController extends Controller
 
     public function show($id)
     {
-        return Location::findOrFail($id);
+        return Location::where('user_id', auth()->id())
+            ->findOrFail($id);
     }
 
     public function store(Request $request)
@@ -41,6 +45,8 @@ class LocationController extends Controller
         ]);
 
          $data['id'] = (string) Str::uuid();
+
+         $data['user_id'] = auth()->id();
 
         return Location::create($data);
     }

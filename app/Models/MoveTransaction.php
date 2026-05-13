@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Models\User;
 
 class MoveTransaction extends Model
 {
@@ -12,6 +13,7 @@ class MoveTransaction extends Model
     protected $table = 'move_transactions';
 
     protected $fillable = [
+         'user_id',
         'job_id',
         'seq',
         'operation_name',
@@ -32,5 +34,10 @@ class MoveTransaction extends Model
     public function job()
     {
         return $this->belongsTo(Job::class);
+    }
+
+     public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

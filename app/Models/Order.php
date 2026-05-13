@@ -65,9 +65,10 @@ class Order extends Model
             $year = date('Y');
 
             // Get last order of same year
-            $lastOrder = self::whereYear('created_at', $year)
-                ->orderBy('id', 'desc')
-                ->first();
+           $lastOrder = self::whereYear('created_at', $year)
+    ->where('user_id', $order->user_id)
+    ->orderBy('id', 'desc')
+    ->first();
 
             $nextNumber = 1;
 

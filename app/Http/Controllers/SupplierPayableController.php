@@ -5,13 +5,22 @@ namespace App\Http\Controllers;
 use App\Models\SupplierPayable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
 
 class SupplierPayableController extends Controller
 {
+
+  public function __construct()
+    {
+        $this->middleware('web');
+    }
+
    public function index()
 {
     return response()->json(
-        SupplierPayable::orderBy('transaction_date','desc')->get()
+        SupplierPayable::where('user_id', auth()->id())
+            ->orderBy('transaction_date', 'desc')
+            ->get()
     );
 }
 
@@ -24,6 +33,7 @@ class SupplierPayableController extends Controller
             $cols = explode(';', trim($row));
 
             SupplierPayable::create([
+                'user_id'          => auth()->id(), 
                 'id'                => $cols[0] ?? Str::uuid(),
                 'vendor'            => $cols[1] ?? null,
                 'reference_type'    => $cols[2] ?? null,
@@ -80,6 +90,8 @@ class SupplierPayableController extends Controller
             'approved_at' => 'nullable|date',
             'payment_status' => 'nullable|string|max:50',
         ]);
+
+         $data['user_id'] = auth()->id();
 
         $payable = SupplierPayable::create($data);
 

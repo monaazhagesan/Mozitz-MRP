@@ -3,12 +3,14 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\User;
 
 class InventoryStock extends Model
 {
     protected $table = 'inventory_stock';
 
     protected $fillable = [
+         'user_id',
         'location_id',
         'item_code',
         'item_name',
@@ -47,5 +49,9 @@ class InventoryStock extends Model
 {
     return $this->belongsTo(Location::class, 'location_id');
 }
-   
+    
+ public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
 }

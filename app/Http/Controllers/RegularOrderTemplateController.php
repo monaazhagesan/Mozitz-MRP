@@ -8,15 +8,16 @@ use Illuminate\Support\Facades\Auth;
 
 class RegularOrderTemplateController extends Controller
 {
-     public function __construct()
+    public function __construct()
     {
+        // 🔥 IMPORTANT FIX: must be authenticated user
         $this->middleware('web');
     }
 
     public function store(Request $request)
     {
         $request->validate([
-            'template_number' => 'required|unique:regular_order_templates',
+            'template_number' => 'required|unique:regular_order_templates,template_number',
             'customer' => 'required',
             'item_code' => 'required',
             'item_name' => 'required',
@@ -26,16 +27,8 @@ class RegularOrderTemplateController extends Controller
             'price' => 'nullable|numeric',
         ]);
 
-         $user = Auth::user(); // ✅ safer
-
-    if (!$user) {
-        return response()->json([
-            'message' => 'Unauthenticated user'
-        ], 401);
-    }
-
         $template = RegularOrderTemplate::create([
-                'user_id' => Auth::id(),
+            'user_id' => Auth::id(), // ✅ now will NOT be null
             'template_number' => $request->template_number,
             'customer' => $request->customer,
             'item_code' => $request->item_code,
@@ -53,13 +46,15 @@ class RegularOrderTemplateController extends Controller
         ], 201);
     }
 
-     public function destroy($id)
+    public function destroy($id)
     {
-        $template = RegularOrderTemplate::find($id);
+        $template = RegularOrderTemplate::where('id', $id)
+            ->where('user_id', Auth::id())
+            ->first();
 
         if (!$template) {
             return response()->json([
-                'message' => 'Template not found'
+                'message' => 'Template not found or not authorized'
             ], 404);
         }
 

@@ -84,7 +84,7 @@ const loadCustomerData = async (customerId: string) => {
   try {
     const [invoices, credits, orders] = await Promise.all([
       safeFetch(`/api/invoices?customer_id=${customerId}`),
-      safeFetch(`/api/credit_notes?customer_id=${customerId}`),
+      safeFetch(`/api/credit-notes?customer_id=${customerId}`),
       safeFetch(`/api/orders?customer_id=${customerId}`),
     ]);
 

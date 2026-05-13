@@ -252,30 +252,6 @@ const fetchData = async () => {
 
   unit_cost: Number(r.unit_cost ?? r.unitCost ?? 0), // ✅ ADD
 }));
-    console.log("🔄 MAPPED DATA:", mapped);
-
-    // PO DATA
-    const poRes = await axios.get("/api/purchase-order-lines");
-    const poData = poRes.data ?? [];
-
-    const openMap = new Map<string, number>();
-
-    poData.forEach((r: any) => {
-      if (r.status === "Cancel") return;
-
-      const pending =
-        Number(r.quantity ?? 0) -
-        Number(r.received_quantity ?? 0);
-
-      if (pending > 0) {
-        openMap.set(
-          r.item_code,
-          (openMap.get(r.item_code) ?? 0) + pending
-        );
-      }
-    });
-
-
     console.log("✅ FINAL DATA:", mapped);
 
     setItems(mapped);

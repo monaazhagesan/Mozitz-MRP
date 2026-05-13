@@ -6,12 +6,17 @@ use Illuminate\Http\Request;
 use App\Models\MoveTransaction;
 use App\Models\Job;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
+
 
 class MoveTransactionController extends Controller
 {
-    /**
-     * Store a new move transaction
-     */
+    public function __construct()
+    {
+        $this->middleware('web');
+    }
+
+
     public function store(Request $request)
     {
         $request->validate([
@@ -24,9 +29,11 @@ class MoveTransactionController extends Controller
         try {
             DB::beginTransaction();
 
-            $job = Job::findOrFail($request->job_id);
+            $job = Job::where('user_id', auth()->id())
+                ->findOrFail($request->job_id);
 
             $transaction = MoveTransaction::create([
+                'user_id' => auth()->id(),
                 'job_id' => $request->job_id,
                 'seq' => $request->seq,
                 'operation_name' => $request->operation_name,
@@ -59,9 +66,14 @@ class MoveTransactionController extends Controller
     /**
      * Get all transactions for a job
      */
-    public function getByJob($jobId)
+     public function getByJob($jobId)
     {
-        $transactions = MoveTransaction::where('job_id', $jobId)
+        // ✅ Verify ownership
+        $job = Job::where('user_id', auth()->id())
+            ->findOrFail($jobId);
+
+        $transactions = MoveTransaction::where('user_id', auth()->id())
+            ->where('job_id', $job->id)
             ->orderBy('transaction_time', 'desc')
             ->get();
 
@@ -73,13 +85,18 @@ class MoveTransactionController extends Controller
     /**
      * Summary (optional for dashboard)
      */
-    public function summary($jobId)
+   public function summary($jobId)
     {
+        // ✅ Verify ownership
+        $job = Job::where('user_id', auth()->id())
+            ->findOrFail($jobId);
+
         $summary = MoveTransaction::select(
                 'transaction_type',
                 DB::raw('SUM(quantity) as total')
             )
-            ->where('job_id', $jobId)
+            ->where('user_id', auth()->id())
+            ->where('job_id', $job->id)
             ->groupBy('transaction_type')
             ->get();
 

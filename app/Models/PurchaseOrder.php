@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use App\Models\User;
+
 
 class PurchaseOrder extends Model
 {
@@ -17,6 +19,7 @@ class PurchaseOrder extends Model
 
     protected $fillable = [
         'id',
+        'user_id',
         'po_number',
         'vendor',
         'site',
@@ -62,5 +65,10 @@ class PurchaseOrder extends Model
     public function taxes()
     {
         return $this->hasMany(PurchaseOrderTax::class, 'po_id');
+    }
+
+     public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

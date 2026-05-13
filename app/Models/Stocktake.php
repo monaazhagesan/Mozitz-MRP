@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use App\Models\User;
+
 
 class Stocktake extends Model
 {
@@ -13,6 +15,7 @@ class Stocktake extends Model
 
     protected $fillable = [
         'id',
+         'user_id',
         'location_id',
         'stocktake_no',
         'name',
@@ -44,5 +47,10 @@ class Stocktake extends Model
     public function location()
     {
         return $this->belongsTo(Location::class, 'location_id');
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

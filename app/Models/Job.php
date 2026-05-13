@@ -3,10 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\User;
 
 class Job extends Model
 {
     protected $fillable = [
+        'user_id',
         'job_number',
         'assembly',
         'product_name',
@@ -56,4 +58,9 @@ class Job extends Model
     {
         return $this->hasMany(MoveTransaction::class);
     }
-}
+
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id'); 
+    }
+} 

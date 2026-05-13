@@ -8,9 +8,15 @@ use App\Models\StockAdjustment;
 use App\Models\StockAdjustmentItem;
 use App\Models\InventoryStock;
 use App\Models\StockTransaction;
+use Illuminate\Support\Facades\Auth;
 
 class StockAdjustmentController extends Controller
 {
+     public function __construct()
+    {
+        $this->middleware('web');
+    }
+    
     public function store(Request $request)
     {
         $request->validate([
@@ -26,6 +32,7 @@ class StockAdjustmentController extends Controller
         try {
             // ✅ 1. Create master adjustment
             $adjustment = StockAdjustment::create([
+                 'user_id' => auth()->id(), 
                 'id' => $request->id,
                 'adjustment_number' => $request->adjustment_number,
                 'adjustment_date' => $request->adjustment_date,
@@ -107,7 +114,8 @@ class StockAdjustmentController extends Controller
 {
     try {
 
-        $query = StockAdjustment::with('items');
+        $query = StockAdjustment::with('items')
+    ->where('user_id', auth()->id());
 
         // ✅ FILTER: status
         if ($request->filled('status')) {
@@ -149,7 +157,9 @@ class StockAdjustmentController extends Controller
 
 public function destroy($id)
 {
-    StockAdjustment::where('id', $id)->delete();
+     StockAdjustment::where('user_id', auth()->id())
+        ->where('id', $id)
+        ->delete();
 
     return response()->json([
         'message' => 'Adjustment deleted successfully'

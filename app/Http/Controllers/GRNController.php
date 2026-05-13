@@ -4,18 +4,29 @@ namespace App\Http\Controllers;
 
 use App\Models\GRN;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class GRNController extends Controller
 {
+
+     public function __construct()
+    {
+        $this->middleware('web');
+    }
+
    public function index()
 {
-    // eager load items
-    return GRN::with('items')->orderBy('created_at', 'desc')->get();
+    return GRN::with('items')
+        ->where('user_id', Auth::id())
+        ->orderBy('created_at', 'desc')
+        ->get();
 }
 
-   public function show($id)
+  public function show($id)
 {
-    return GRN::with('items')->findOrFail($id);
+    return GRN::with('items')
+        ->where('user_id', Auth::id())
+        ->findOrFail($id);
 }
 
 
@@ -33,12 +44,15 @@ class GRNController extends Controller
             'updated_at' => 'nullable|date',
         ]);
 
+         $data['user_id'] = Auth::id();
+
         return GRN::create($data);
     }
 
     public function update(Request $request, $id)
     {
-        $grn = GRN::findOrFail($id);
+        $grn = GRN::where('user_id', Auth::id())
+            ->findOrFail($id);
 
         $grn->update($request->all());
 
@@ -46,17 +60,25 @@ class GRNController extends Controller
     }
 
     public function destroy($id)
-    {
-        GRN::findOrFail($id)->delete();
+{
+    $grn = GRN::where('user_id', Auth::id())
+            ->findOrFail($id);
 
-        return response()->json(['message' => 'GRN deleted successfully']);
-    }
+    $grn->delete();
 
+    return response()->json([
+        'message' => 'GRN deleted successfully'
+    ]);
+}
       public function check(Request $request)
-    {
-        $grn_number = $request->query('grn_number');
-        $existing = Grn::where('grn_number', $grn_number)->first();
-        return response()->json($existing);
-    }
+{
+    $grn_number = $request->query('grn_number');
+
+    $existing = GRN::where('user_id', Auth::id())
+        ->where('grn_number', $grn_number)
+        ->first();
+
+    return response()->json($existing);
+}
 
 }

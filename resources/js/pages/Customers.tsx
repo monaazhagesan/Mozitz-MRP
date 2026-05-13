@@ -139,7 +139,7 @@ const Customers = () => {
       fetch("/api/credit-notes"),
     ]);
 
-    // Check if responses are OK
+    // Check response status
     if (!invoicesRes.ok) throw new Error("Failed to fetch invoices");
     if (!creditNotesRes.ok) throw new Error("Failed to fetch credit notes");
 
@@ -147,26 +147,47 @@ const Customers = () => {
     const invoicesData = await invoicesRes.json();
     const creditNotesData = await creditNotesRes.json();
 
-    // Ensure arrays
-    const invoices = Array.isArray(invoicesData) ? invoicesData : [];
-    const creditNotes = Array.isArray(creditNotesData) ? creditNotesData : [];
 
-    // Calculate totals safely
+    // Normalize invoices
+    const invoices = Array.isArray(invoicesData)
+      ? invoicesData
+      : Array.isArray(invoicesData?.data)
+      ? invoicesData.data
+      : [];
+
+    // Normalize credit notes safely
+    let creditNotes = [];
+
+    if (Array.isArray(creditNotesData)) {
+      creditNotes = creditNotesData;
+    } else if (Array.isArray(creditNotesData?.data)) {
+      creditNotes = creditNotesData.data;
+    } else if (Array.isArray(creditNotesData?.creditNotes)) {
+      creditNotes = creditNotesData.creditNotes;
+    }
+
+    // Calculate total sales
     const totalSales = invoices.reduce(
       (sum, i) => sum + Number(i.total_amount || 0),
       0
     );
+
+    // Calculate total paid
     const totalPaid = invoices.reduce(
       (sum, i) => sum + Number(i.amount_paid || 0),
       0
     );
+
+    // Calculate credit balance safely
     const creditBalance = creditNotes
-      .filter((cn) => cn.status.toLowerCase() !== "cancelled")
+      .filter((cn) => (cn.status || "").toLowerCase() !== "cancelled")
       .reduce(
         (sum, cn) =>
-          sum + (Number(cn.total_amount || 0) - Number(cn.applied_amount || 0)),
+          sum +
+          (Number(cn.total_amount || 0) - Number(cn.applied_amount || 0)),
         0
       );
+
 
     // Update state
     setFinancialData({
@@ -174,14 +195,9 @@ const Customers = () => {
       pendingPayments: totalSales - totalPaid,
       creditBalance,
     });
-
-    console.log("Financial Data:", {
-      totalSales,
-      pendingPayments: totalSales - totalPaid,
-      creditBalance,
-    });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Failed to load financial data:", error);
+
     setFinancialData({
       totalSales: 0,
       pendingPayments: 0,

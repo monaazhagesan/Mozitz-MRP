@@ -6,14 +6,21 @@ use App\Models\StockTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
 
 class StockTransactionController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware('web');
+    }
+
     public function index(Request $request)
 {
     $itemCode = $request->query('item_code');
 
-    $query = StockTransaction::orderBy('transaction_date', 'desc');
+     $query = StockTransaction::where('user_id', auth()->id())
+            ->orderBy('transaction_date', 'desc');
 
     if ($itemCode) {
         $query->where('item_code', $itemCode);
@@ -31,6 +38,7 @@ class StockTransactionController extends Controller
             $cols = explode(';', trim($row));
 
             StockTransaction::create([
+                'user_id'          => auth()->id(),
                 'id'               => $cols[0] ?? Str::uuid(),
                 'item_code'        => $cols[1] ?? null,
                 'transaction_type' => $cols[2] ?? null,
@@ -59,6 +67,8 @@ class StockTransactionController extends Controller
             'additional_info' => 'nullable|string',
         ]);
 
+        $validated['user_id'] = auth()->id();
+
         $transaction = StockTransaction::create($validated);
 
         return response()->json([
@@ -70,7 +80,9 @@ class StockTransactionController extends Controller
     // Optional: show single transaction
     public function show($id)
     {
-        $transaction = StockTransaction::findOrFail($id);
+        $transaction = StockTransaction::where('user_id', auth()->id())
+            ->findOrFail($id);
+
         return response()->json($transaction);
     }
 
@@ -81,7 +93,8 @@ class StockTransactionController extends Controller
     ]);
 
     // ✅ find by PRIMARY KEY (UUID)
-    $transaction = StockTransaction::find($id);
+      $transaction = StockTransaction::where('user_id', auth()->id())
+            ->find($id);
 
     if (!$transaction) {
         Log::warning('Transaction not found', [

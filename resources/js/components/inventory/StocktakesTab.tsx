@@ -188,120 +188,106 @@ const StocktakesTab = () => {
   }).length;
 
 
-  const handleCreateStocktake = async () => {
-    if (!newStocktakeName.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Please enter a stocktake name",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const selectedLoc = locations.find(
-      (l) => l.location_name === newStocktakeLocation
-    );
-
-    const filteredInventory = inventoryItems.filter((item) => {
-      if (!selectedLocationId) return true;
-
-      return item.location_id === selectedLocationId;
+const handleCreateStocktake = async () => {
+  if (!newStocktakeName.trim()) {
+    toast({
+      title: "Validation Error",
+      description: "Please enter a stocktake name",
+      variant: "destructive",
     });
+    return;
+  }
 
-    const items = filteredInventory.map((item) => {
-      console.log("raw item3453454:", item);
+  const selectedLoc = locations.find(
+    (l) => l.location_name === newStocktakeLocation
+  );
 
-      const mapped = {
-        id: item.id,
+  const filteredInventory = inventoryItems.filter((item) => {
+    if (!selectedLocationId) return true;
+    return item.location_id === selectedLocationId;
+  });
 
-        itemCode: item.item_code ?? item.itemCode ?? "",
-        itemName: item.item_name ?? item.itemName ?? "",
+  const items = filteredInventory.map((item) => ({
+    id: item.id,
+    itemCode: item.item_code ?? item.itemCode ?? "",
+    itemName: item.item_name ?? item.itemName ?? "",
+    systemQty: Number(item.quantityOnHand ?? 0),
+    countedQty: null,
+    variance: 0,
+    varianceValue: 0,
+    unitCost: Number(item.unit_cost ?? 0),
+    uom: item.uom ?? "EA",
+    counted: false,
+    barcode: item.barcode ?? "",
+  }));
 
-        systemQty: Number(item.quantityOnHand ?? 0),
-        countedQty: null,
+  const payload = {
+    id: crypto.randomUUID(),
+    stocktake_no: generateStocktakeNo(),
+    name: newStocktakeName,
+    status: "Draft",
+    createdAt: new Date().toISOString(),
+    location: newStocktakeLocation,
+    location_id: selectedLoc?.id,
+    countedItems: 0,
+    totalItems: items.length,
+    varianceValue: 0,
+    notes: newStocktakeNotes,
+    items,
+  };
 
-        variance: 0,
-        varianceValue: 0,
-
-        unitCost: Number(item.unit_cost ?? 0),
-        uom: item.uom ?? "EA",
-
-        counted: false,
-        barcode: item.barcode ?? "",
-      };
-
-      console.log("mapped item:", mapped);
-
-      return mapped;
-    });
-
-    const newStocktake: Stocktake = {
-      id: crypto.randomUUID(),
-      stocktakeNo: generateStocktakeNo(),
-      name: newStocktakeName,
-      status: "Draft",
-      createdAt: new Date().toISOString(),
-      location: newStocktakeLocation,
-      location_id: selectedLoc?.id,
-      countedItems: 0,
-      totalItems: items.length,
-      varianceValue: 0,
-      notes: newStocktakeNotes,
-      items,
-    };
-
-    try {
-      const response = await fetch("/api/stocktakes", {
-        method: "POST",
+  try {
+    // ✅ AXIOS CALL (replaces fetch)
+    const { data: savedRaw } = await axios.post(
+      "/api/stocktakes",
+      payload,
+      {
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        body: JSON.stringify(newStocktake),
-      });
+      }
+    );
 
-      if (!response.ok) throw new Error("Failed to create stocktake");
+    const saved = {
+      id: savedRaw.id,
+      stocktakeNo: savedRaw.stocktake_no,
+      name: savedRaw.name,
+      status: savedRaw.status,
+      createdAt: savedRaw.created_at,
+      location: savedRaw.location,
+      location_id: savedRaw.location_id,
+      countedItems: savedRaw.counted_items,
+      totalItems: savedRaw.total_items,
+      variance: savedRaw.variance ?? 0,
+      varianceValue: savedRaw.variance_value,
+      notes: savedRaw.notes,
+      items: savedRaw.items ?? [],
+    };
 
-      const savedRaw = await response.json();
+    setStocktakes((prev) => [...prev, saved]);
 
-      const saved = {
-        id: savedRaw.id,
-        stocktakeNo: savedRaw.stocktake_no,
-        name: savedRaw.name,
-        status: savedRaw.status,
-        createdAt: savedRaw.created_at,
-        location: savedRaw.location,
-        location_id: savedRaw.location_id,
-        countedItems: savedRaw.counted_items,
-        totalItems: savedRaw.total_items,
-        variance: savedRaw.variance ?? 0,
-        varianceValue: savedRaw.variance_value,
-        notes: savedRaw.notes,
-        items: savedRaw.items ?? [],
-      };
+    toast({
+      title: "Stocktake Created",
+      description: `${saved.stocktakeNo} created with ${saved.totalItems} items`,
+    });
 
-      setStocktakes((prev) => [...prev, saved]);
+    setNewStocktakeName("");
+    setNewStocktakeLocation("All Locations");
+    setNewStocktakeNotes("");
+    setIsCreateDialogOpen(false);
 
-      toast({
-        title: "Stocktake Created",
-        description: `${saved.stocktakeNo} created with ${saved.totalItems} items`,
-      });
+  } catch (error: any) {
+    console.error("Error creating stocktake:", error);
 
-      setNewStocktakeName("");
-      setNewStocktakeLocation("All Locations");
-      setNewStocktakeNotes("");
-      setIsCreateDialogOpen(false);
-    } catch (error: any) {
-      console.error("Error creating stocktake:", error);
-
-      toast({
-        title: "Error",
-        description: error.message || "Failed to create stocktake",
-        variant: "destructive",
-      });
-    }
-  };
-
+    toast({
+      title: "Error",
+      description:
+        error?.response?.data?.message || error.message || "Failed to create stocktake",
+      variant: "destructive",
+    });
+  }
+};
   const handleStartCount = (stocktake: Stocktake) => {
     console.log("====================================");
     console.log("👉 RAW STOCKTAKE:", stocktake);

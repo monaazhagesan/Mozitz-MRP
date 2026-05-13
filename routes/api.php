@@ -33,8 +33,7 @@ use App\Http\Controllers\PurchaseOrderController;
 use App\Http\Controllers\PurchaseOrderLineController;
 use App\Http\Controllers\PurchaseOrderShipmentController;
 use App\Http\Controllers\PurchaseOrderTaxController;
-use App\Http\Controllers\GrnController;
-use App\Http\Controllers\GrnItemController;
+use App\Http\Controllers\GRNItemController;
 use App\Http\Controllers\StockTransactionController;
 use App\Http\Controllers\SupplierPayableController;
 use App\Http\Controllers\PoReturnItemController;
@@ -45,6 +44,8 @@ use App\Http\Controllers\StocktakeController;
 use App\Http\Controllers\MaterialIssueController;
 use App\Http\Controllers\StockAdjustmentController;
 use App\Http\Controllers\MoveTransactionController;
+use App\Http\Controllers\GRNController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -222,9 +223,9 @@ Route::delete('/purchase-order-taxes/{id}', [PurchaseOrderTaxController::class,'
 
 Route::delete('/purchase-order-lines/by-po/{po_id}', [PurchaseOrderLineController::class, 'deleteByPO']);
 
-Route::get('/grn/check', [GrnController::class, 'check']);
-Route::post('/grn', [GrnController::class, 'store']);
-Route::post('/grn-items', [GrnItemController::class, 'store']);
+Route::get('/grn/check', [GRNController::class, 'check']);
+Route::post('/grn', [GRNController::class, 'store']);
+Route::post('/grn-items', [GRNItemController::class, 'store']);
 Route::get('/grn', [GRNController::class, 'index']);
 
 

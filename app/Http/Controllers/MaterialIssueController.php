@@ -7,17 +7,27 @@ use App\Models\MaterialIssue;
 use App\Models\MaterialIssueItem;
 use App\Models\InventoryStock;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 
 class MaterialIssueController extends Controller
 {
+      public function __construct()
+    {
+        $this->middleware('web');
+    }
     public function index()
     {
-        return MaterialIssue::with('items')->latest()->get();
+        return MaterialIssue::with('items')
+            ->where('user_id', auth()->id())
+            ->latest()
+            ->get();
     }
 
     public function show($id)
     {
-        return MaterialIssue::with('items')->findOrFail($id);
+         return MaterialIssue::with('items')
+            ->where('user_id', auth()->id())
+            ->findOrFail($id);
     }
 
    public function store(Request $request)
@@ -35,6 +45,7 @@ class MaterialIssueController extends Controller
 
         // 1. Create Issue Header
         $issue = MaterialIssue::create([
+              'user_id' => auth()->id(),
             'issue_no' => $request->issue_no,
             'issue_date' => $request->issue_date,
             'issue_type' => $request->issue_type,
@@ -101,7 +112,9 @@ class MaterialIssueController extends Controller
 }
     public function destroy($id)
     {
-        $issue = MaterialIssue::findOrFail($id);
+         $issue = MaterialIssue::where('user_id', auth()->id())
+            ->findOrFail($id);
+            
         $issue->delete();
 
         return response()->json(['message' => 'Deleted successfully']);
