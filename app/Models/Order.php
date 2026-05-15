@@ -95,4 +95,14 @@ class Order extends Model
     {
         return $this->belongsTo(User::class, 'user_id');
     }
+
+    public function items()
+{
+    return $this->hasMany(OrderItem::class);
+}
+
+public function packages()
+{
+    return $this->hasMany(OrderPackage::class, 'order_id');
+}
 }

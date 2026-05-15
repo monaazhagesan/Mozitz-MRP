@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use App\Models\User;
 
 class CompanyDetail extends Model
 {
@@ -15,6 +16,7 @@ class CompanyDetail extends Model
     protected $keyType = 'uuid';
 
     protected $fillable = [
+         'user_id',
         'name',
         'email',
         'phone',
@@ -37,5 +39,10 @@ class CompanyDetail extends Model
                 $model->id = (string) Str::uuid();
             }
         });
+    }
+
+     public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
     }
 }

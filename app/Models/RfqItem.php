@@ -30,4 +30,9 @@ class RfqItem extends Model
             $model->id = (string) \Illuminate\Support\Str::uuid();
         });
     }
+
+     public function rfq()
+    {
+        return $this->belongsTo(Rfq::class, 'rfq_id');
+    }
 }

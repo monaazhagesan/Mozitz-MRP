@@ -25,4 +25,9 @@ class RfqVendor extends Model
         'sent_at' => 'datetime',
         'responded_at' => 'datetime',
     ];
+
+     public function rfq()
+    {
+        return $this->belongsTo(Rfq::class, 'rfq_id');
+    }
 }

@@ -9,6 +9,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2 } from "lucide-react";
 import axios from "axios";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+
 
 const rfqSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -33,6 +41,7 @@ export default function RFQForm({ initialItem, onSuccess }: RFQFormProps) {
   const [vendors, setVendors] = useState([{ vendor_name: "", vendor_email: "", vendor_contact: "" }]);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [vendorList, setVendorList] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
   const [items, setItems] = useState(
     initialItem
       ? [{
@@ -49,7 +58,7 @@ export default function RFQForm({ initialItem, onSuccess }: RFQFormProps) {
   const form = useForm<RFQFormValues>({
     resolver: zodResolver(rfqSchema),
     defaultValues: {
-      title: initialItem ? `RFQ for ${initialItem.item_name}` : "",
+      title: "",
       payment_terms: "",
       delivery_location: "",
       notes: "",
@@ -107,11 +116,77 @@ export default function RFQForm({ initialItem, onSuccess }: RFQFormProps) {
   }, []);
 
   const onSubmit = async (values: RFQFormValues) => {
+
+
+    // RFQ Title Validation
+    if (!values.title || values.title.trim() === "") {
+      toast({
+        title: "Validation Error",
+        description: "Please enter RFQ Title",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!values.delivery_location || values.delivery_location.trim() === "") {
+  toast({
+    title: "Validation Error",
+    description: "Please enter Delivery Location",
+    variant: "destructive",
+  });
+  return;
+}
+
+   // Item Validation
+const validItems = items.filter(item => {
+  const qty = Number(item.quantity);
+
+  return (
+    item.item_code &&
+    item.item_name &&
+    item.quantity !== "" &&
+    !isNaN(qty) &&
+    qty > 0
+  );
+});
+
+if (validItems.length === 0) {
+  toast({
+    title: "Validation Error",
+    description: "Please select item with valid quantity (> 0)",
+    variant: "destructive",
+  });
+  return;
+}
+
+    // Vendor Validation
+    const validVendors = vendors.filter(
+      vendor => vendor.vendor_name
+    );
+
+    if (validVendors.length === 0) {
+      toast({
+        title: "Validation Error",
+        description: "Please select vendor",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLoading(true);
+
+    let loadingToast;
+
     try {
+      loadingToast = toast({
+        title: "Processing...",
+        description: "Creating RFQ, please wait...",
+      });
+
       const payload = {
         rfq_number: generateRFQNumber(),
         title: values.title,
-        status: "Draft",
+        status: "Sent",
         payment_terms: values.payment_terms || null,
         delivery_location: values.delivery_location || null,
         notes: values.notes || null,
@@ -134,19 +209,7 @@ export default function RFQForm({ initialItem, onSuccess }: RFQFormProps) {
           })),
       };
 
-      const response = await fetch("/api/rfqs", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to create RFQ");
-      }
+      const response = await axios.post("/api/rfqs", payload);
 
       toast({
         title: "Success",
@@ -165,6 +228,8 @@ export default function RFQForm({ initialItem, onSuccess }: RFQFormProps) {
         description: error.message,
         variant: "destructive",
       });
+    } finally {
+      setLoading(false); // 👈 always stop loading
     }
   };
 
@@ -214,35 +279,42 @@ export default function RFQForm({ initialItem, onSuccess }: RFQFormProps) {
           )}
         />
 
-        <div className="grid grid-cols-2 gap-4">
-          <FormField
-            control={form.control}
-            name="payment_terms"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Payment Terms</FormLabel>
-                <FormControl>
-                  <Input {...field} placeholder="e.g., Net 30" />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="delivery_location"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Delivery Location</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="col-span-1">
+            <FormField
+              control={form.control}
+              name="payment_terms"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Payment Terms</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder="e.g., Net 30" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
 
+          <div className="col-span-2">
+            <FormField
+              control={form.control}
+              name="delivery_location"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Delivery Location</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      placeholder="Enter delivery address/location"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        </div>
         <FormField
           control={form.control}
           name="notes"
@@ -250,186 +322,276 @@ export default function RFQForm({ initialItem, onSuccess }: RFQFormProps) {
             <FormItem>
               <FormLabel>Notes</FormLabel>
               <FormControl>
-                <Textarea {...field} />
+                <Textarea
+                  {...field}
+                  rows={5}
+                  className="min-h-[120px] resize-y"
+                  placeholder="Additional instructions, requirements, or notes..."
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
 
-        <div className="space-y-2">
+        <div className="space-y-3">
+          {/* Header */}
           <div className="flex items-center justify-between">
-            <FormLabel>RFQ Items</FormLabel>
+            <div>
+              <FormLabel className="text-base font-semibold">
+                RFQ Items
+              </FormLabel>
+
+              <p className="text-sm text-muted-foreground">
+                Add items required for quotation
+              </p>
+            </div>
+
             <Button type="button" size="sm" onClick={addItem}>
               <Plus className="h-4 w-4 mr-1" />
-              Add Item
+              Add Row
             </Button>
           </div>
-          {items.map((item, index) => (
-            <div key={index} className="grid grid-cols-12 gap-2 items-end">
-              <div className="col-span-2">
-                <select
-                  value={item.item_code || ""}
-                  onChange={(e) => {
-                    const value = e.target.value;
 
-                    const selected = inventoryItems.find(
-                      (i: any) => String(i.itemCode) === String(value)
-                    );
+          {/* Table Container */}
+          <div className="border rounded-xl overflow-hidden">
 
-                    console.log("Selected item:", selected);
-
-                    setItems(prev => {
-                      const updated = [...prev];
-
-                      updated[index] = {
-                        ...updated[index],
-                        item_code: selected?.itemCode || value,
-                        item_name: selected?.itemName || "",
-                        description: selected?.description || ""
-                      };
-
-                      return updated;
-                    });
-                  }}
-                  className="w-full border p-2 rounded"
-                >
-                  <option value="">Select Item</option>
-
-                  {inventoryItems.map((i: any, idx: number) => (
-                    <option key={idx} value={String(i.itemCode)}>
-                      {i.itemCode}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-span-3">
-                <Input
-                  placeholder="Item Name"
-                  value={item.item_name || ""}
-                  onChange={(e) => updateItem(index, "item_name", e.target.value)}
-                />
-              </div>
-              <div className="col-span-2">
-                <Input
-                  placeholder="Description"
-                  value={item.description}
-                  onChange={(e) => updateItem(index, "description", e.target.value)}
-                />
-              </div>
-              <div className="col-span-2">
-                <Input
-                  type="number"
-                  placeholder="Quantity"
-                  value={item.quantity}
-                  onChange={(e) => updateItem(index, "quantity", e.target.value)}
-                />
-              </div>
-              <div className="col-span-2">
-                <Input
-                  type="date"
-                  placeholder="Required Date"
-                  value={item.required_date}
-                  onChange={(e) => updateItem(index, "required_date", e.target.value)}
-                />
-              </div>
-              <div className="col-span-1">
-                {items.length > 1 && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => removeItem(index)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
+            {/* Table Header */}
+            <div className="grid grid-cols-12 gap-3 bg-muted/50 px-3 py-3 text-sm font-medium">
+              <div className="col-span-2">Item Code</div>
+              <div className="col-span-3">Item Name</div>
+              <div className="col-span-2">Description</div>
+              <div className="col-span-2">Quantity</div>
+              <div className="col-span-2">Required Date</div>
+              <div className="col-span-1 text-center">Action</div>
             </div>
-          ))}
-        </div>
 
-        <div className="space-y-2">
+            {/* Rows */}
+            <div className="divide-y">
+              {items.map((item, index) => (
+                <div
+                  key={index}
+                  className="grid grid-cols-12 gap-3 p-3 items-center"
+                >
+                  {/* Item Code */}
+                  <div className="col-span-2">
+                    <select
+                      value={item.item_code || ""}
+                      onChange={(e) => {
+                        const value = e.target.value;
+
+                        const selected = inventoryItems.find(
+                          (i: any) =>
+                            String(i.itemCode) === String(value)
+                        );
+
+                        setItems(prev => {
+                          const updated = [...prev];
+
+                          updated[index] = {
+                            ...updated[index],
+                            item_code: selected?.itemCode || value,
+                            item_name: selected?.itemName || "",
+                            description: selected?.description || ""
+                          };
+
+                          return updated;
+                        });
+                      }}
+                      className="w-full h-10 border rounded-md px-2 bg-background"
+                    >
+                      <option value="">Select</option>
+
+                      {inventoryItems.map((i: any, idx: number) => (
+                        <option
+                          key={idx}
+                          value={String(i.itemCode)}
+                        >
+                          {i.itemCode}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Item Name */}
+                  <div className="col-span-3">
+                    <Input
+                      placeholder="Item Name"
+                      value={item.item_name || ""}
+                      onChange={(e) =>
+                        updateItem(index, "item_name", e.target.value)
+                      }
+                    />
+                  </div>
+
+                  {/* Description */}
+                  <div className="col-span-2">
+                    <Input
+                      placeholder="Description"
+                      value={item.description}
+                      onChange={(e) =>
+                        updateItem(index, "description", e.target.value)
+                      }
+                    />
+                  </div>
+
+                  {/* Quantity */}
+                  <div className="col-span-2">
+                    <Input
+                      type="number"
+                      placeholder="Qty"
+                      value={item.quantity}
+                      onChange={(e) =>
+                        updateItem(index, "quantity", e.target.value)
+                      }
+                    />
+                  </div>
+
+                  {/* Required Date */}
+                  <div className="col-span-2">
+                    <Input
+                      type="date"
+                      value={item.required_date}
+                      onChange={(e) =>
+                        updateItem(index, "required_date", e.target.value)
+                      }
+                    />
+                  </div>
+
+                  {/* Delete */}
+                  <div className="col-span-1 flex justify-center">
+                    {items.length > 1 && (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => removeItem(index)}
+                        className="text-red-500 hover:text-red-600"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="space-y-3">
+          {/* Header */}
           <div className="flex items-center justify-between">
-            <FormLabel>Vendors *</FormLabel>
+            <div>
+              <FormLabel className="text-base font-semibold">
+                Vendors
+              </FormLabel>
+
+              <p className="text-sm text-muted-foreground">
+                Add vendors for quotation request
+              </p>
+            </div>
+
             <Button type="button" size="sm" onClick={addVendor}>
               <Plus className="h-4 w-4 mr-1" />
-              Add Vendor
+              Add Row
             </Button>
           </div>
-          {vendors.map((vendor, index) => (
-            <div key={index} className="grid grid-cols-12 gap-2 items-end">
-              <div className="col-span-4">
-                <select
-                  value={vendor.vendor_name || ""}
-                  onChange={(e) => {
-                    const value = e.target.value;
 
-                    const selected = vendorList.find(
-                      v => v.vendor_name === value
-                    );
+          {/* Table Container */}
+          <div className="border rounded-xl overflow-hidden">
 
-                    console.log("Selected vendor:", selected);
-
-                    setVendors(prev => {
-                      const updated = [...prev];
-
-                      updated[index] = {
-                        ...updated[index],
-                        vendor_name: selected?.vendor_name || value,
-                        vendor_email: selected?.email || "",   // ✅ FIXED
-                        vendor_contact: selected?.phone || ""   // ✅ FIXED
-                      };
-
-                      return updated;
-                    });
-                  }}
-                  className="w-full border p-2 rounded"
-                >
-                  <option value="">Select Vendor</option>
-
-                  {vendorList.map((v, i) => (
-                    <option key={i} value={v.vendor_name}>
-                      {v.vendor_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-span-4">
-                <Input
-                  placeholder="Email"
-                  type="email"
-                  value={vendor.vendor_email || ""}
-                  onChange={(e) =>
-                    updateVendor(index, "vendor_email", e.target.value)
-                  }
-                />
-              </div>
-              <div className="col-span-3">
-                <Input
-                  placeholder="Contact Number"
-                  value={vendor.vendor_contact || ""}
-                  onChange={(e) =>
-                    updateVendor(index, "vendor_contact", e.target.value)
-                  }
-                />
-              </div>
-              <div className="col-span-1">
-                {vendors.length > 1 && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => removeVendor(index)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
+            {/* Header */}
+            <div className="grid grid-cols-12 gap-3 bg-muted/50 px-3 py-3 text-sm font-medium">
+              <div className="col-span-4">Vendor Name</div>
+              <div className="col-span-4">Email</div>
+              <div className="col-span-3">Contact Number</div>
+              <div className="col-span-1 text-center">Action</div>
             </div>
-          ))}
-        </div>
 
+            {/* Rows */}
+            <div className="divide-y">
+              {vendors.map((vendor, index) => (
+                <div
+                  key={index}
+                  className="grid grid-cols-12 gap-3 p-3 items-center"
+                >
+                  {/* Vendor Select */}
+                  <div className="col-span-4">
+                    <select
+                      value={vendor.vendor_name || ""}
+                      onChange={(e) => {
+                        const value = e.target.value;
+
+                        const selected = vendorList.find(
+                          v => v.vendor_name === value
+                        );
+
+                        setVendors(prev => {
+                          const updated = [...prev];
+
+                          updated[index] = {
+                            ...updated[index],
+                            vendor_name: selected?.vendor_name || value,
+                            vendor_email: selected?.email || "",
+                            vendor_contact: selected?.phone || ""
+                          };
+
+                          return updated;
+                        });
+                      }}
+                      className="w-full h-10 border rounded-md px-2 bg-background"
+                    >
+                      <option value="">Select Vendor</option>
+
+                      {vendorList.map((v, i) => (
+                        <option key={i} value={v.vendor_name}>
+                          {v.vendor_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Email */}
+                  <div className="col-span-4">
+                    <Input
+                      placeholder="Email"
+                      type="email"
+                      value={vendor.vendor_email || ""}
+                      onChange={(e) =>
+                        updateVendor(index, "vendor_email", e.target.value)
+                      }
+                    />
+                  </div>
+
+                  {/* Contact */}
+                  <div className="col-span-3">
+                    <Input
+                      placeholder="Contact Number"
+                      value={vendor.vendor_contact || ""}
+                      onChange={(e) =>
+                        updateVendor(index, "vendor_contact", e.target.value)
+                      }
+                    />
+                  </div>
+
+                  {/* Delete */}
+                  <div className="col-span-1 flex justify-center">
+                    {vendors.length > 1 && (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => removeVendor(index)}
+                        className="text-red-500 hover:text-red-600"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
         <div className="flex justify-end gap-2">
           <Button type="submit">Create RFQ</Button>
         </div>

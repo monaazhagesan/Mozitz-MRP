@@ -11,10 +11,13 @@ class OrderItem extends Model
 
     protected $fillable = [
         'order_id',
+        'item_type',
         'item_code',
         'item_name',
         'uom',
-        'quantity_ordered',
+        'quantity',
+        'available_stock',
+         'item_location',
         'rate',
         'tax',
         'total_amount',

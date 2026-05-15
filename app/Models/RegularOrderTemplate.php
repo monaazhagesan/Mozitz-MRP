@@ -9,6 +9,7 @@ class RegularOrderTemplate extends Model
 {
     protected $fillable = [
         'user_id',
+        'customer_id',
         'template_number',
         'customer',
         'item_code',
@@ -24,5 +25,10 @@ class RegularOrderTemplate extends Model
      public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function customer()
+    {
+        return $this->belongsTo(Customer::class, 'customer_id');
     }
 }

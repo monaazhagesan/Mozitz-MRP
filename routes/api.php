@@ -92,6 +92,10 @@ Route::post('/rfqs', [RfqController::class, 'store']);
 //Route::resource('/rfq_items', RfqItemController::class);
 Route::get('/rfq-vendors', [RfqVendorController::class, 'index']);
 Route::post('/rfq-vendors/import', [RfqVendorController::class, 'import']);
+Route::post('/rfq/send/{id}', [RfqController::class, 'send']);
+Route::get('/rfq/view/{id}', [RfqController::class, 'markViewed']);
+Route::post('/rfq/quote/{id}', [RfqController::class, 'markQuoted']);
+Route::post('/rfq/close/{id}', [RfqController::class, 'close']);
 
 
 Route::get('/inventory-stock', [InventoryStockController::class, 'index']);
@@ -253,6 +257,9 @@ Route::get('/po-returns/{id}', [PoReturnController::class, 'show']);
 
 Route::post('/regular-template', [RegularOrderTemplateController::class, 'store']);
 Route::delete('/regular-template/{id}', [RegularOrderTemplateController::class, 'destroy']);
+Route::get('/regular-template', [RegularOrderTemplateController::class, 'index']);
+Route::put('/regular-template/{id}', [RegularOrderTemplateController::class, 'update']);
+
 
 Route::get('/recurring-invoices', [RecurringInvoiceController::class, 'index']);
 Route::post('/recurring-invoices', [RecurringInvoiceController::class, 'store']);

@@ -522,12 +522,26 @@ useEffect(() => {
             <div style="font-size: 12px; color: #666;">SHIPPING LABEL</div>
           </div>
           <div class="section from-to">
-            <div class="address-block">
-              <div class="label-title">Ship To</div>
-              <div class="label-value">${pkg.customer_name}</div>
-              <div style="font-size: 12px; color: #666; margin-top: 5px;">Customer Address Line 1<br/>City, State ZIP</div>
-            </div>
-          </div>
+  <div class="address-block">
+    <div class="label-title">Ship To</div>
+
+    <div class="label-value">
+      ${pkg.order?.customer || pkg.customer_name}
+    </div>
+
+    <div style="font-size: 12px; color: #666; margin-top: 5px;">
+
+      ${pkg.order?.contact_person ?? ""}<br/>
+
+      ${pkg.order?.contact_number ?? ""}<br/>
+
+      ${pkg.order?.email ?? ""}<br/>
+
+      ${pkg.order?.shipping_address ?? "No Address Available"}
+
+    </div>
+  </div>
+</div>
           <div class="section tracking">
             <div class="label-title">Tracking Number</div>
             <div class="tracking-number">${pkg.tracking_number || 'N/A'}</div>

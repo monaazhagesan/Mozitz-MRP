@@ -45,115 +45,108 @@ const CustomerDetailDialog = ({ customer, open, onOpenChange }: CustomerDetailDi
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-  if (!open || !customer?.id) return;
+    if (!open || !customer?.id) return;
 
-  loadCustomerData(customer.id);
-}, [open, customer?.id]);
+    loadCustomerData(customer.id);
+  }, [open, customer?.id]);
 
-const loadCustomerData = async (customerId: string) => {
-  if (!customerId) return;
+  const loadCustomerData = async (customerId: string) => {
+    if (!customerId) return;
 
-  setLoading(true);
+    setLoading(true);
 
-  const safeFetch = async (url: string) => {
-    try {
-      const res = await fetch(url);
-      const text = await res.text();
+    const safeFetch = async (url: string) => {
+      try {
+        const res = await fetch(url);
+        const text = await res.text();
 
-      if (!res.ok || text.trim().startsWith("<!DOCTYPE")) {
-        console.error("API Error:", text);
+        if (!res.ok || text.trim().startsWith("<!DOCTYPE")) {
+          console.error("API Error:", text);
+          return [];
+        }
+
+        const json = JSON.parse(text);
+
+        return (
+          json?.data ??
+          json?.invoices ??
+          json?.orders ??
+          json?.credit_notes ??
+          json ??
+          []
+        );
+      } catch (err) {
+        console.error("Fetch error:", err);
         return [];
       }
+    };
 
-      const json = JSON.parse(text);
+    try {
+      const [invoices, credits, orders] = await Promise.all([
+        safeFetch(`/api/invoices?customer_id=${customerId}`),
+        safeFetch(`/api/credit-notes?customer_id=${customerId}`),
+        safeFetch(`/api/orders?customer_id=${customerId}`),
+      ]);
 
-      return (
-        json?.data ??
-        json?.invoices ??
-        json?.orders ??
-        json?.credit_notes ??
-        json ??
-        []
-      );
-    } catch (err) {
-      console.error("Fetch error:", err);
-      return [];
+      console.log("RAW ORDERS FROM API:", orders);
+
+      setInvoices(Array.isArray(invoices) ? invoices : []);
+      setCreditNotes(Array.isArray(credits) ? credits : []);
+
+      // Group orders properly
+      const groupedOrders = (Array.isArray(orders) ? orders : [])
+        .map((o: any) => ({
+          id: o.order_no,
+          order_no: o.order_no,
+          orderDate: o.order_date,
+          status: o.status,
+          paymentType: o.payment_type,
+          items: o.items || [],
+        }))
+        .sort(
+          (a: any, b: any) =>
+            new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime()
+        ); // latest first
+      setOrders(groupedOrders);
+    } catch (error) {
+      console.error("Error loading customer data:", error);
+      setInvoices([]);
+      setCreditNotes([]);
+      setOrders([]);
+    } finally {
+      setLoading(false);
     }
   };
 
-  try {
-    const [invoices, credits, orders] = await Promise.all([
-      safeFetch(`/api/invoices?customer_id=${customerId}`),
-      safeFetch(`/api/credit-notes?customer_id=${customerId}`),
-      safeFetch(`/api/orders?customer_id=${customerId}`),
-    ]);
-
-    setInvoices(Array.isArray(invoices) ? invoices : []);
-    setCreditNotes(Array.isArray(credits) ? credits : []);
-
-    // Group orders properly
-    const groupedOrders = Object.values(
-      (Array.isArray(orders) ? orders : []).reduce(
-        (acc: Record<string, any>, row: any) => {
-          const key = row.order_no;
-
-          if (!acc[key]) {
-            acc[key] = {
-              id: row.order_no,
-              orderDate: row.order_date,
-              status: row.status,
-              paymentType: row.payment_type,
-              items: [],
-            };
-          }
-
-          acc[key].items.push({
-            totalAmount: Number(row.total_amount) || 0,
-          });
-
-          return acc;
-        },
-        {}
-      )
-    );
-
-    setOrders(groupedOrders);
-  } catch (error) {
-    console.error("Error loading customer data:", error);
-    setInvoices([]);
-    setCreditNotes([]);
-    setOrders([]);
-  } finally {
-    setLoading(false);
-  }
-};
-
   if (!customer) return null;
 
- const totalSales = invoices.reduce(
-  (sum, inv) => sum + (Number(inv.total_amount) || 0),
-  0
-);
+  const totalSales = invoices.reduce(
+    (sum, inv) => sum + (Number(inv.total_amount) || 0),
+    0
+  );
 
-const totalPaid = invoices.reduce(
-  (sum, inv) => sum + (Number(inv.amount_paid) || 0),
-  0
-);
+  const totalPaid = invoices.reduce(
+    (sum, inv) => sum + (Number(inv.amount_paid) || 0),
+    0
+  );
 
-const pendingPayments =
-  (Number(totalSales) || 0) - (Number(totalPaid) || 0);
+  const pendingPayments =
+    (Number(totalSales) || 0) - (Number(totalPaid) || 0);
 
-const inProgressOrders = orders.filter(
-  (o) => o.status !== "Done" && o.status !== "Cancelled"
-);
+  const inProgressOrders = orders.filter(
+    (o) => o.status !== "Done" && o.status !== "Cancelled"
+  );
 
-const totalCreditNotes = creditNotes.reduce(
-  (sum, cn) => sum + (Number(cn.total_amount) || 0),
-  0
-);
+  const totalCreditNotes = creditNotes.reduce(
+    (sum, cn) => sum + (Number(cn.total_amount) || 0),
+    0
+  );
 
-  const orderTotal = (order: OrderData) =>
-    order.items?.reduce((s, i) => s + (i.totalAmount || 0), 0) || 0;
+  const orderTotal = (order: any) =>
+    (order.items || []).reduce(
+      (sum: number, item: any) => sum + Number(item.total_amount || 0),
+      0
+    );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -299,7 +292,7 @@ const totalCreditNotes = creditNotes.reduce(
                         <Badge
                           variant={
                             order.status === "Done" ? "default" :
-                            order.status === "Cancelled" ? "destructive" : "secondary"
+                              order.status === "Cancelled" ? "destructive" : "secondary"
                           }
                         >
                           {order.status}

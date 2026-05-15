@@ -52,4 +52,9 @@ class Customer extends Model
     {
         return $this->hasMany(CreditNote::class, 'customer_id');
     }
+
+    public function regularOrderTemplates()
+{
+    return $this->hasMany(RegularOrderTemplate::class, 'customer_id');
+}
 }

@@ -215,6 +215,7 @@ type ValidationState = "available" | "partial" | "purchase" | "produce" | "missi
 type SortField = "date" | "amount" | "customer" | "status";
 
 const ORDER_VIEWS: Array<{ id: OrderWorkspaceView; label: string; icon: any; countKey?: string }> = [
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "new", label: "New Order", icon: Plus },
   { id: "orders", label: "All Orders", icon: ShoppingCart, countKey: "orders" },
   { id: "clone", label: "Clone Last Order", icon: Copy },
@@ -222,7 +223,7 @@ const ORDER_VIEWS: Array<{ id: OrderWorkspaceView; label: string; icon: any; cou
   { id: "validation", label: "Stock Validation", icon: CheckCircle2 },
   { id: "purchase", label: "Purchase Needs", icon: Truck, countKey: "purchase" },
   { id: "excess", label: "Excess Production", icon: Factory },
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  
 ];
 
 const todayISO = () => new Date().toISOString().split("T")[0];
@@ -314,7 +315,7 @@ const Orders = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
-  const [sortField, setSortField] = useState<SortField>("date");
+  const [sortField, setSortField] = useState<SortField>("order_no");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [validationRun, setValidationRun] = useState(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
@@ -362,8 +363,20 @@ const Orders = () => {
   }, [refunds]);
 
   useEffect(() => {
-    localStorage.setItem("regularOrderTemplates", JSON.stringify(regularOrders));
-  }, [regularOrders]);
+  fetchRegularOrders();
+}, []);
+
+const fetchRegularOrders = async () => {
+  try {
+    const res = await axios.get("/api/regular-template");
+
+    console.log(res.data); // 👈 check data first
+
+    setRegularOrders(res.data); // IMPORTANT
+  } catch (error) {
+    console.error("Failed to fetch templates", error);
+  }
+};
 
 
   const generateSONumber = async () => {
@@ -911,125 +924,125 @@ const Orders = () => {
   };
 
   const createOrderFromComposer = async (status: string) => {
-  if (!validateComposer()) return;
+    if (!validateComposer()) return;
 
-  // Phone validation
-  const phoneRegex = /^[0-9]{10}$/;
-  if (!phoneRegex.test(formData.contactNumber)) {
-    toast({
-      title: "Invalid phone number",
-      description: "Phone number must be exactly 10 digits.",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  // Email validation
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (formData.email && !emailRegex.test(formData.email)) {
-    toast({
-      title: "Invalid email",
-      description: "Please enter a valid email address.",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  const items = lineItems
-    .filter((item) => item.itemCode && item.quantityOrdered > 0)
-    .map((item) => ({
-      item_code: item.itemCode,
-      item_name: item.itemName,
-      item_type: item.itemType,
-      available_stock: item.availableStock,
-      uom: item.uom,
-      quantity: Number(item.quantityOrdered),
-      rate: Number(item.rate || 0),
-      tax: Number(item.tax || 0),
-      total_amount: Number(item.totalAmount || 0),
-    }));
-
-  // ✅ ONLY IMPORTANT FIX (prevents 422)
-  if (!formData.customerId || items.length === 0) {
-    toast({
-      title: "Missing data",
-      description: "Customer and items are required.",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  const newOrder = {
-    id: formData.orderNo || generateSONumber(),
-
-    customer_id: Number(formData.customerId), // ✅ FIXED
-    order_date: formData.orderDate,
-    order_type: formData.orderType,
-    customer: formData.customerName,
-
-    contact_person: formData.contactPerson,
-    contact_number: formData.contactNumber,
-    email: formData.email,
-
-    billing_address: formData.billingAddress,
-     shipping_address: formData.shippingAddress || null,
-
-
-     reference_no: formData.referenceNo || null,
-    priority: formData.priority,
-    remarks: formData.remarks,
-
-    items,
-
-    dispatch_mode: formData.dispatchMode,
-    transporter_name: formData.transporterName,
-    vehicle_no: formData.vehicleNo,
-
-    expected_dispatch_date: formData.expectedDispatchDate,
-    expected_delivery_date: formData.expectedDeliveryDate,
-
-    delivery_status: formData.deliveryStatus,
-    warehouse_location: formData.warehouseLocation,
-    location: formData.location,
-
-    payment_type: formData.paymentType,
-    payment_terms: formData.paymentTerms,
-
-    advance_amount: Number(formData.advanceAmount || 0),
-    balance_amount: totalSummary.total - Number(formData.advanceAmount || 0),
-
-    invoice_required: formData.invoiceRequired,
-    status,
-  };
-
-  try {
-    const res = await axios.post("/api/orders", newOrder);
-
-    setOrders((prev) => [...prev, res.data]);
-
-    if (status !== "Draft") {
-      await allocateInventoryForOrder(items);
+    // Phone validation
+    const phoneRegex = /^[0-9]{10}$/;
+    if (!phoneRegex.test(formData.contactNumber)) {
+      toast({
+        title: "Invalid phone number",
+        description: "Phone number must be exactly 10 digits.",
+        variant: "destructive",
+      });
+      return;
     }
 
-    toast({
-      title: "Order created",
-      description: `${newOrder.id} saved successfully.`,
-    });
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (formData.email && !emailRegex.test(formData.email)) {
+      toast({
+        title: "Invalid email",
+        description: "Please enter a valid email address.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    resetComposer();
-    await fetchOrders();
-    setWorkspaceView("orders");
-  } catch (error: any) {
-    console.error(error?.response?.data || error);
+    const items = lineItems
+      .filter((item) => item.itemCode && item.quantityOrdered > 0)
+      .map((item) => ({
+        item_code: item.itemCode,
+        item_name: item.itemName,
+        item_type: item.itemType,
+        available_stock: Number(item.availableStock || 0),
+        uom: item.uom,
+        quantity: Number(item.quantityOrdered),
+        rate: Number(item.rate || 0),
+        tax: Number(item.tax || 0),
+        total_amount: Number(item.totalAmount || 0),
+      }));
 
-    toast({
-      title: "Error",
-      description:
-        error?.response?.data?.message || "Failed to create order",
-      variant: "destructive",
-    });
-  }
-};
+    // ✅ ONLY IMPORTANT FIX (prevents 422)
+    if (!formData.customerId || items.length === 0) {
+      toast({
+        title: "Missing data",
+        description: "Customer and items are required.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const newOrder = {
+      id: formData.orderNo || generateSONumber(),
+
+      customer_id: Number(formData.customerId), // ✅ FIXED
+      order_date: formData.orderDate,
+      order_type: formData.orderType,
+      customer: formData.customerName,
+
+      contact_person: formData.contactPerson,
+      contact_number: formData.contactNumber,
+      email: formData.email,
+
+      billing_address: formData.billingAddress,
+      shipping_address: formData.shippingAddress || null,
+
+
+      reference_no: formData.referenceNo || null,
+      priority: formData.priority,
+      remarks: formData.remarks,
+
+      items,
+
+      dispatch_mode: formData.dispatchMode,
+      transporter_name: formData.transporterName,
+      vehicle_no: formData.vehicleNo,
+
+      expected_dispatch_date: formData.expectedDispatchDate,
+      expected_delivery_date: formData.expectedDeliveryDate,
+
+      delivery_status: formData.deliveryStatus,
+      warehouse_location: formData.warehouseLocation,
+      location: formData.location,
+
+      payment_type: formData.paymentType,
+      payment_terms: formData.paymentTerms,
+
+      advance_amount: Number(formData.advanceAmount || 0),
+      balance_amount: totalSummary.total - Number(formData.advanceAmount || 0),
+
+      invoice_required: formData.invoiceRequired,
+      status,
+    };
+
+    try {
+      const res = await axios.post("/api/orders", newOrder);
+
+      setOrders((prev) => [...prev, res.data]);
+
+      if (status !== "Draft") {
+        await allocateInventoryForOrder(items);
+      }
+
+      toast({
+        title: "Order created",
+        description: `${newOrder.id} saved successfully.`,
+      });
+
+      resetComposer();
+      await fetchOrders();
+      setWorkspaceView("orders");
+    } catch (error: any) {
+      console.error(error?.response?.data || error);
+
+      toast({
+        title: "Error",
+        description:
+          error?.response?.data?.message || "Failed to create order",
+        variant: "destructive",
+      });
+    }
+  };
 
 
   const fetchOrders = async () => {
@@ -1098,27 +1111,27 @@ const Orders = () => {
   }, []);
 
   const deleteRegularTemplate = async (id: string) => {
-  try {
-    await axios.delete(`/api/regular-template/${id}`);
+    try {
+      await axios.delete(`/api/regular-template/${id}`);
 
-    setRegularOrders((prev) =>
-      prev.filter((item) => item.id !== id)
-    );
+      setRegularOrders((prev) =>
+        prev.filter((item) => item.id !== id)
+      );
 
-    toast({
-      title: "Template deleted",
-      description: "Regular order template removed successfully.",
-    });
+      toast({
+        title: "Template deleted",
+        description: "Regular order template removed successfully.",
+      });
 
-  } catch (error: any) {
-    toast({
-      title: "Error",
-      description:
-        error.response?.data?.message || error.message || "Failed to delete template",
-      variant: "destructive",
-    });
-  }
-};
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description:
+          error.response?.data?.message || error.message || "Failed to delete template",
+        variant: "destructive",
+      });
+    }
+  };
 
 
 
@@ -1126,6 +1139,8 @@ const Orders = () => {
     setValidationRun(true);
     toast({ title: "Validation complete", description: "Stock and MRP recommendations are up to date." });
   };
+
+
 
   const filteredOrders = useMemo(() => {
     if (!Array.isArray(orders)) return [];
@@ -1135,18 +1150,59 @@ const Orders = () => {
     return orders.filter((order) => {
       const matchesSearch =
         (order?.customer || "").toLowerCase().includes(search) ||
-        (order?.id || "").toString().toLowerCase().includes(search);
+        (order?.order_no || "").toString().toLowerCase().includes(search);
 
       const matchesStatus =
         statusFilter === "all" || order?.status === statusFilter;
 
       const matchesType =
-        typeFilter === "all" || order?.orderType === typeFilter;
+        typeFilter === "all" || order?.order_type === typeFilter;
 
       return matchesSearch && matchesStatus && matchesType;
     });
   }, [orders, searchTerm, statusFilter, typeFilter]);
 
+
+  const sortedOrders = useMemo(() => {
+    const data = [...filteredOrders];
+
+    data.sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+
+      switch (sortField) {
+        case "date":
+          aValue = new Date(a.orderDate).getTime();
+          bValue = new Date(b.orderDate).getTime();
+          break;
+
+        case "order_no":
+          // SO-2026-00004 → extract number
+          aValue = Number(String(a.order_no || a.id).split("-").pop());
+          bValue = Number(String(b.order_no || b.id).split("-").pop());
+          break;
+
+        case "customer":
+          aValue = a.customer?.toLowerCase();
+          bValue = b.customer?.toLowerCase();
+          break;
+
+        case "amount":
+          aValue = (a.items || []).reduce((s, i) => s + Number(i.total_amount || 0), 0);
+          bValue = (b.items || []).reduce((s, i) => s + Number(i.total_amount || 0), 0);
+          break;
+
+        default:
+          return 0;
+      }
+
+      if (aValue < bValue) return sortDirection === "asc" ? -1 : 1;
+      if (aValue > bValue) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return data;
+  }, [filteredOrders, sortField, sortDirection]);
 
   const selectedCloneOrder = useMemo(
     () => orders.find((order) => order.id === selectedCloneId) || orders[orders.length - 1] || null,
@@ -1241,8 +1297,11 @@ const Orders = () => {
       setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
       return;
     }
+
     setSortField(field);
-    setSortDirection("asc");
+
+    // default behavior per column
+    setSortDirection(field === "order_no" ? "desc" : "asc");
   };
 
   const sortIcon = (field: SortField) => {
@@ -1252,7 +1311,7 @@ const Orders = () => {
 
   const exportOrders = () => {
     const rows = filteredOrders.map((order) => ({
-      "Order ID": order?.id || "",
+      "Order ID": order?.order_no || "",
       Customer: order?.customer || "",
       "Order Date": order?.order_date || order?.orderDate || "",
 
@@ -1284,8 +1343,267 @@ const Orders = () => {
     toast({ title: "Exported", description: "Orders exported successfully." });
   };
 
-  const printOrders = () => window.print();
 
+  const exportPurchaseNeeds = () => {
+  const rows = purchaseNeeds.map(({ order, item, assessment }) => ({
+    item_code: item.item_code,
+    item_name: item.item_name,
+    order_no: order.order_no,
+    required: assessment.quantity,
+    available: assessment.available,
+    to_purchase: assessment.gap,
+    estimated_cost:
+      assessment.gap *
+      Number(assessment.inventory?.unit_cost || item.rate || 0),
+    urgency: order.priority,
+    
+  }));
+
+  const headers = Object.keys(rows[0] || {});
+
+  const csv = [
+    headers.join(","),
+    ...rows.map((r) =>
+      headers.map((h) => JSON.stringify(r[h] ?? "")).join(",")
+    ),
+  ].join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", "purchase-needs.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+ const printOrder = (order: any) => {
+  const printWindow = window.open("", "_blank", "width=1000,height=700");
+  if (!printWindow) return;
+
+  const itemsHtml = (order.items || [])
+    .map((item: any) => {
+      const assessment = getLineAssessment?.(item);
+
+      return `
+        <tr>
+          <td>
+            <div class="item-code">${item.item_code || "-"}</div>
+            <div class="item-name">${item.item_name || ""}</div>
+          </td>
+          <td class="right">${item.quantity || 0}</td>
+          <td class="right">₹${Number(item.rate || 0).toFixed(2)}</td>
+          <td class="right">₹${Number(item.total_amount || 0).toFixed(2)}</td>
+          <td class="center">${assessment?.label || "Stock OK"}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>${order.order_no}</title>
+        <style>
+          @page {
+            margin: 16mm;
+          }
+
+          body {
+            font-family: Arial, sans-serif;
+            color: #111;
+            margin: 0;
+            padding: 0;
+            background: #fff;
+          }
+
+          .container {
+            padding: 24px;
+          }
+
+          /* HEADER */
+          .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 12px;
+          }
+
+          .title {
+            font-size: 20px;
+            font-weight: 700;
+          }
+
+          .sub {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+          }
+
+          /* META GRID */
+          .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 16px;
+          }
+
+          .box {
+            border: 1px solid #eee;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 13px;
+          }
+
+          .label {
+            font-size: 11px;
+            color: #777;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+          }
+
+          .value {
+            font-weight: 600;
+          }
+
+          /* TABLE */
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 18px;
+          }
+
+          th {
+            background: #f6f6f6;
+            text-align: left;
+            font-size: 12px;
+            padding: 10px;
+            border: 1px solid #eee;
+          }
+
+          td {
+            padding: 10px;
+            border: 1px solid #eee;
+            font-size: 13px;
+            vertical-align: top;
+          }
+
+          .right {
+            text-align: right;
+          }
+
+          .center {
+            text-align: center;
+          }
+
+          .item-code {
+            font-weight: 700;
+            font-size: 12px;
+            color: #2563eb;
+          }
+
+          .item-name {
+            font-size: 12px;
+            color: #555;
+            margin-top: 2px;
+          }
+
+          /* FOOTER TOTAL */
+          .total {
+            margin-top: 14px;
+            text-align: right;
+            font-size: 16px;
+            font-weight: 700;
+          }
+
+          /* BADGE STYLE */
+          .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            font-size: 11px;
+            border-radius: 4px;
+            background: #f3f4f6;
+          }
+        </style>
+      </head>
+
+      <body>
+        <div class="container">
+
+          <!-- HEADER -->
+          <div class="header">
+            <div>
+              <div class="title">${order.order_no}</div>
+              <div class="sub">Order Booking Document</div>
+            </div>
+            <div class="sub">
+              Generated: ${new Date().toLocaleString()}
+            </div>
+          </div>
+
+          <!-- META -->
+          <div class="grid">
+            <div class="box">
+              <div class="label">Customer</div>
+              <div class="value">${order.customer || "-"}</div>
+              <div>${order.contact_person || ""}</div>
+              <div>${order.contact_number || ""}</div>
+            </div>
+
+            <div class="box">
+              <div class="label">Order Info</div>
+              <div><b>Type:</b> ${order.order_type || "Sales"}</div>
+              <div><b>Status:</b> ${order.status}</div>
+              <div><b>Priority:</b> ${order.priority}</div>
+            </div>
+
+            <div class="box">
+              <div class="label">Delivery</div>
+              <div><b>Dispatch:</b> ${order.expected_delivery_date || "-"}</div>
+              <div><b>Mode:</b> ${order.dispatch_mode || "-"}</div>
+            </div>
+
+            <div class="box">
+              <div class="label">Summary</div>
+              <div>Total Items: ${(order.items || []).length}</div>
+            </div>
+          </div>
+
+          <!-- ITEMS -->
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th class="right">Qty</th>
+                <th class="right">Rate</th>
+                <th class="right">Amount</th>
+                <th class="center">Stock</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsHtml}
+            </tbody>
+          </table>
+
+        </div>
+
+        <script>
+          window.onload = function () {
+            window.print();
+            window.onafterprint = function () {
+              window.close();
+            };
+          };
+        </script>
+      </body>
+    </html>
+  `);
+
+  printWindow.document.close();
+};
 
   const handleOrderStatusChange = async (
     orderId: string,
@@ -1351,207 +1669,275 @@ const Orders = () => {
   };
 
   const cloneIntoComposer = async (row: any) => {
-    const newSONumber = await generateSONumber();
+  const newSONumber = await generateSONumber();
 
-    // 🔥 ALWAYS PICK CORRECT SOURCE
-    const order =
-      row.items ? row : row.data ? row.data[0] : row;
+  // 🔥 normalize order source
+  const order = row?.items ? row : row?.data ? row.data[0] : row;
 
-    console.log("CLONING ORDER:", order); // DEBUG
+  console.log("CLONING ORDER:", order);
 
-    setFormData({
-      customerId: order.customer_id ?? "",   // 🔥 ADD THIS
-      customerName: order.customer ?? order.customer_name ?? "",
+  setFormData({
+    customerId: order.customer_id ?? "",
+    customerName: order.customer ?? order.customer_name ?? "",
 
-      customerCode: "",
-      contactPerson: order.contact_person ?? "",
-      contactNumber: order.contact_number ?? "",
-      email: order.email ?? "",
+    customerCode: "",
+    contactPerson: order.contact_person ?? "",
+    contactNumber: order.contact_number ?? "",
+    email: order.email ?? "",
 
-      billingAddress: order.billing_address ?? "",
-      shippingAddress: order.shipping_address ?? "",
+    billingAddress: order.billing_address ?? "",
+    shippingAddress: order.shipping_address ?? "",
 
-      orderNo: newSONumber || `SO-${Date.now()}`,
-      orderDate: todayISO(),
+    orderNo: newSONumber || `SO-${Date.now()}`,
+    orderDate: todayISO(),
 
-      expectedDeliveryDate:
-        order.expected_delivery_date || order.order_date,
+    expectedDeliveryDate:
+      order.expected_delivery_date || order.order_date,
 
-      orderType: order.order_type ?? "",
-      referenceNo: order.reference_no ?? "",
-      priority: order.priority ?? "",
-      remarks: order.remarks ?? "",
+    orderType: order.order_type ?? "",
+    referenceNo: order.reference_no ?? "",
+    priority: order.priority ?? "",
+    remarks: order.remarks ?? "",
 
-      dispatchMode: order.dispatch_mode ?? "",
-      transporterName: order.transporter_name ?? "",
-      vehicleNo: order.vehicle_no ?? "",
-      expectedDispatchDate: order.expected_dispatch_date ?? "",
+    dispatchMode: order.dispatch_mode ?? "",
+    transporterName: order.transporter_name ?? "",
+    vehicleNo: order.vehicle_no ?? "",
+    expectedDispatchDate: order.expected_dispatch_date ?? "",
 
-      deliveryStatus: "Awaiting",
-      warehouseLocation: order.warehouse_location ?? "",
-      location: order.location ?? "",
+    deliveryStatus: "Awaiting",
+    warehouseLocation: order.warehouse_location ?? "",
+    location: order.location ?? "",
 
-      paymentType: order.payment_type ?? "",
-      paymentTerms: order.payment_terms ?? "",
+    paymentType: order.payment_type ?? "",
+    paymentTerms: order.payment_terms ?? "",
 
-      advanceAmount: Number(order.advance_amount ?? 0),
-      balanceAmount: Number(order.balance_amount ?? 0),
-      invoiceRequired: order.invoice_required ?? 0,
-    });
+    advanceAmount: Number(order.advance_amount ?? 0),
+    balanceAmount: Number(order.balance_amount ?? 0),
+    invoiceRequired: order.invoice_required ?? 0,
+  });
 
-    setLineItems([
-      {
-        id: crypto.randomUUID(),
+  // 🔥 FIX: MULTIPLE ITEMS SUPPORT
+  const items = (order.items && order.items.length > 0)
+    ? order.items
+    : [
+        {
+          item_code: order.item_code,
+          item_name: order.item_name,
+          item_type: order.item_type,
+          uom: order.uom,
+          quantity: order.quantity,
+          rate: order.rate,
+          tax: order.tax,
+          total_amount: order.total_amount,
+          available_stock: Number(order.available_stock ?? 0),
+        },
+      ];
 
-        itemCode: order.item_code,
-        itemName: order.item_name,
-        itemType: order.item_type,
+  setLineItems(
+    items.map((item: any) => ({
+      id: crypto.randomUUID(),
 
-        quantityOrdered: Number(order.quantity ?? 0),
-        uom: order.uom ?? "",
-        rate: Number(order.rate ?? 0),
-        tax: Number(order.tax ?? 0),
-        totalAmount: Number(order.total_amount ?? 0),
+      itemCode: item.item_code,
+      itemName: item.item_name,
+      itemType: item.item_type,
 
-        bomComponents: order.items?.[0]?.bomComponents ?? [],
-        discount: Number(order.discount ?? 0),
-      },
-    ]);
+      quantityOrdered: Number(item.quantity ?? 0),
+      uom: item.uom ?? "",
+      rate: Number(item.rate ?? 0),
+      tax: Number(item.tax ?? 0),
+      totalAmount: Number(item.total_amount ?? 0),
+       availableStock: Number(item.available_stock ?? 0), // 
 
-    setWorkspaceView("new");
+      bomComponents: item.bomComponents ?? [],
+      discount: Number(item.discount ?? 0),
+    }))
+  );
 
-    toast({
-      title: "Order cloned",
-      description: `${order.order_no} copied into the composer.`,
-    });
+  setWorkspaceView("new");
+
+  toast({
+    title: "Order cloned",
+    description: `${order.order_no ?? "Order"} copied into the composer.`,
+  });
+};
+
+  const createRegularTemplate = async () => {
+    const inventory = getInventoryRecord(regularForm.itemCode);
+
+    if (!regularForm.customer || !regularForm.itemCode) {
+      toast({
+        title: "Missing fields",
+        description: "Customer and product are required.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const payload = {
+      template_number: generateRegularNumber(),
+      customer: regularForm.customer,
+      customer_id: regularForm.customer_id,
+      item_code: inventory?.item_code || regularForm.itemCode,
+      item_name: inventory?.item_name || regularForm.itemName,
+      quantity: Number(regularForm.quantity),
+      frequency: regularForm.frequency,
+      next_order_date: regularForm.nextOrderDate,
+      price: Number(regularForm.price || inventory?.unit_cost || 0),
+    };
+
+    try {
+      const res = await axios.post("/api/regular-template", payload);
+
+      const data = res.data;
+
+      setRegularOrders((prev) => [
+        {
+          id: data.data.id,
+          templateNumber: data.data.template_number,
+          customer: data.data.customer,
+          itemCode: data.data.item_code,
+          itemName: data.data.item_name,
+          quantity: data.data.quantity,
+          frequency: data.data.frequency,
+          nextOrderDate: data.data.next_order_date,
+          lastOrdered: "—",
+          status: data.data.status,
+          price: data.data.price,
+        },
+        ...prev,
+      ]);
+
+       await fetchRegularOrders();
+
+      setRegularDialogOpen(false);
+
+      setRegularForm({
+        customer: "",
+        itemCode: "",
+        quantity: 1,
+        frequency: "Weekly",
+        nextOrderDate: todayISO(),
+        price: 0,
+      });
+
+      toast({
+        title: "Template created",
+        description: "Regular order template saved successfully.",
+      });
+
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description:
+          error.response?.data?.message || error.message || "Failed to create template",
+        variant: "destructive",
+      });
+    }
   };
 
- const createRegularTemplate = async () => {
-  const inventory = getInventoryRecord(regularForm.itemCode);
 
-  if (!regularForm.customer || !regularForm.itemCode) {
-    toast({
-      title: "Missing fields",
-      description: "Customer and product are required.",
-      variant: "destructive",
-    });
-    return;
-  }
+ const fireRegularOrder = async (template: RegularOrderTemplate) => {
+  const inventory = getInventoryRecord(template.itemCode);
 
-  const payload = {
-    template_number: generateRegularNumber(),
-    customer: regularForm.customer,
-    item_code: inventory?.item_code || regularForm.itemCode,
-    item_name: inventory?.item_name || regularForm.itemCode,
-    quantity: Number(regularForm.quantity),
-    frequency: regularForm.frequency,
-    next_order_date: regularForm.nextOrderDate,
-    price: Number(regularForm.price || inventory?.unit_cost || 0),
+  const quantity = integer(template.quantity);
+  const rate = Number(template.price || inventory?.unit_cost || 0);
+  const gstMultiplier = 1.18;
+
+  const orderPayload = {
+    orderDate: todayISO(),
+    orderType: "Regular",
+
+    customer: template.customer,
+
+    // FIXED: safe customer_id
+    customer_id: template.customer_id || template.customerId,
+
+    contact_person: template.contact_person || "",
+contact_number: template.contact_number || "",
+email: template.email || "",
+
+dispatch_mode: "Courier",
+
+expected_dispatch_date: template.nextOrderDate,
+    billingAddress: "",
+    shippingAddress: "",
+    referenceNo: "",
+    priority: "Normal",
+
+    remarks: `Auto-generated from ${template.template_number ?? template.id}`,
+
+    items: [
+      {
+        item_code: template.itemCode,
+        item_name: template.itemName,
+
+        // FIXED: backend expects "quantity"
+        quantity: quantity,
+
+        rate,
+       available_stock: Number(getAvailableStock(template.itemCode) ?? 0),
+        stockValidated: getAvailableStock(template.itemCode) >= quantity,
+
+        total_amount: quantity * rate * gstMultiplier,
+      },
+    ],
+
+    dispatchMode: "Courier",
+    transporterName: "",
+    vehicleNo: "",
+    expectedDispatchDate: template.nextOrderDate,
+
+    deliveryStatus: "Awaiting",
+    warehouseLocation: "",
+    location: "",
+
+    paymentType: "Credit",
+    paymentTerms: "Net 30 days",
+    advanceAmount: 0,
+    balanceAmount: quantity * rate * gstMultiplier,
+
+    invoiceRequired: "1",
+    status: "Awaiting Confirmation",
   };
 
   try {
-    const res = await axios.post("/api/regular-template", payload);
+    // 1. CREATE ORDER
+    const { data: createdOrder } = await axios.post("/api/orders", orderPayload);
 
-    const data = res.data;
-
-    setRegularOrders((prev) => [
-      {
-        id: data.data.id,
-        templateNumber: data.data.template_number,
-        customer: data.data.customer,
-        itemCode: data.data.item_code,
-        itemName: data.data.item_name,
-        quantity: data.data.quantity,
-        frequency: data.data.frequency,
-        nextOrderDate: data.data.next_order_date,
-        lastOrdered: "—",
-        status: data.data.status,
-        price: data.data.price,
-      },
-      ...prev,
-    ]);
-
-    setRegularDialogOpen(false);
-
-    setRegularForm({
-      customer: "",
-      itemCode: "",
-      quantity: 1,
-      frequency: "Weekly",
-      nextOrderDate: todayISO(),
-      price: 0,
+    // 2. UPDATE TEMPLATE (FIXED FIELD NAMES)
+    await axios.put(`/api/regular-template/${template.id}`, {
+      last_ordered: todayISO(),
+      next_order_date: template.next_order_date || template.nextOrderDate,
     });
+
+    // 3. UPDATE UI STATE
+    setRegularOrders((prev) =>
+      prev.map((item) =>
+        item.id === template.id
+          ? {
+              ...item,
+              last_ordered: todayISO(),
+              next_order_date: template.next_order_date || template.nextOrderDate,
+            }
+          : item
+      )
+    );
 
     toast({
-      title: "Template created",
-      description: "Regular order template saved successfully.",
+      title: "Regular order created",
+      description: `${template.template_number ?? "Template"} generated a new order.`,
     });
-
   } catch (error: any) {
+    console.error("ORDER ERROR:", error?.response?.data);
+
     toast({
       title: "Error",
       description:
-        error.response?.data?.message || error.message || "Failed to create template",
-      variant: "destructive",
+        error?.response?.data?.message ||
+        "Failed to generate regular order",
     });
   }
 };
-
-
-  const fireRegularOrder = (template: RegularOrderTemplate) => {
-    const inventory = getInventoryRecord(template.itemCode);
-    const itemType = normalizeItemType(inventory?.item_type || "Material");
-    setOrders((prev) => [
-      ...prev,
-      {
-        id: generateSONumber(),
-        orderDate: todayISO(),
-        orderType: "Regular",
-        customer: template.customer,
-        contactPerson: "",
-        contactNumber: "",
-        email: "",
-        billingAddress: "",
-        shippingAddress: "",
-        referenceNo: "",
-        priority: "Normal",
-        remarks: `Auto-generated from ${template.templateNumber}`,
-        items: [
-          {
-            ...createEmptyLineItem(itemType),
-            itemCode: template.itemCode,
-            itemName: template.itemName,
-            quantityOrdered: integer(template.quantity),
-            rate: Number(template.price || inventory?.unit_cost || 0),
-            availableStock: getAvailableStock(template.itemCode),
-            stockValidated: getAvailableStock(template.itemCode) >= integer(template.quantity),
-            totalAmount: integer(template.quantity) * Number(template.price || inventory?.unit_cost || 0) * 1.18,
-          },
-        ],
-        dispatchMode: "Courier",
-        transporterName: "",
-        vehicleNo: "",
-        expectedDispatchDate: template.nextOrderDate,
-        deliveryStatus: "Awaiting",
-        warehouseLocation: "",
-        location: "",
-        paymentType: "Credit",
-        paymentTerms: "Net 30 days",
-        advanceAmount: 0,
-        balanceAmount: integer(template.quantity) * Number(template.price || inventory?.unit_cost || 0) * 1.18,
-        invoiceRequired: "1",
-        status: "Awaiting Confirmation",
-      },
-    ]);
-
-    setRegularOrders((prev) =>
-      prev.map((item) =>
-        item.id === template.id ? { ...item, lastOrdered: todayISO(), nextOrderDate: template.nextOrderDate } : item,
-      ),
-    );
-    toast({ title: "Regular order created", description: `${template.templateNumber} generated a new order.` });
-  };
-
   const openRFQ = (item: LineItem, shortage: number) => {
     setRfqItem({
       item_code: item.itemCode,
@@ -1756,7 +2142,7 @@ const Orders = () => {
               <Input value={formData.location} onChange={(event) => setFormData((prev) => ({ ...prev, location: event.target.value }))} />
             </div>
             <div className="space-y-2 md:col-span-2">
-              <Label>Delivery Address / Notes</Label>
+              <Label>Delivery Address</Label>
               <Textarea value={formData.remarks || formData.shippingAddress} onChange={(event) => setFormData((prev) => ({ ...prev, shippingAddress: event.target.value }))} rows={3} />
             </div>
           </div>
@@ -2198,7 +2584,7 @@ const Orders = () => {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Types</SelectItem>
-            {Array.from(new Set(orders.map((order) => order.orderType))).filter(Boolean).map((type) => (
+            {Array.from(new Set(orders.map((order) => order.order_type))).filter(Boolean).map((type) => (
               <SelectItem key={type} value={type}>{type}</SelectItem>
             ))}
           </SelectContent>
@@ -2207,10 +2593,7 @@ const Orders = () => {
           <FileSpreadsheet className="mr-2 h-4 w-4" />
           Export
         </Button>
-        <Button variant="outline" onClick={printOrders}>
-          <Printer className="mr-2 h-4 w-4" />
-          Print
-        </Button>
+
         <Button onClick={() => setWorkspaceView("new")}>
           <Plus className="mr-2 h-4 w-4" />
           New Order
@@ -2224,14 +2607,22 @@ const Orders = () => {
               <TableRow>
                 <TableHead className="w-[44px]">
                   <Checkbox
-                    checked={selectedOrderIds.size > 0 && selectedOrderIds.size === filteredOrders.length}
+                    checked={
+                      selectedOrderIds.size > 0 &&
+                      selectedOrderIds.size === sortedOrders.length
+                    }
                     onCheckedChange={(checked) =>
-                      setSelectedOrderIds(checked ? new Set(filteredOrders.map((order) => order.id)) : new Set())
+                      setSelectedOrderIds(checked ? new Set(sortedOrders.map((order) => order.id)) : new Set())
                     }
                   />
                 </TableHead>
                 <TableHead>
-                  <button className="inline-flex items-center gap-1" onClick={() => handleSort("date")}>Order # {sortIcon("date")}</button>
+                  <button
+                    className="inline-flex items-center gap-1"
+                    onClick={() => handleSort("order_no")}
+                  >
+                    Order # {sortIcon("order_no")}
+                  </button>
                 </TableHead>
                 <TableHead>
                   <button className="inline-flex items-center gap-1" onClick={() => handleSort("customer")}>Customer {sortIcon("customer")}</button>
@@ -2250,12 +2641,12 @@ const Orders = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredOrders.length === 0 ? (
+              {sortedOrders.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={10} className="py-12 text-center text-muted-foreground">No orders found.</TableCell>
                 </TableRow>
               ) : (
-                filteredOrders.map((order) => {
+                sortedOrders.map((order) => {
                   const orderTotal =
                     Array.isArray(order.items)
                       ? order.items.reduce(
@@ -2284,7 +2675,7 @@ const Orders = () => {
                       </TableCell>
                       <TableCell>
                         <div className="font-medium">{order.customer}</div>
-                        <div className="text-xs text-muted-foreground">{order.orderDate}</div>
+                        <div className="text-xs text-muted-foreground">{new Date(order.orderDate).toLocaleDateString()}</div>
                       </TableCell>
                       <TableCell>{order.order_type}</TableCell>
                       <TableCell className="text-right">
@@ -2306,10 +2697,17 @@ const Orders = () => {
                           <Button variant="ghost" size="icon" onClick={() => setViewOrder(order)}>
                             <Eye className="h-4 w-4" />
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => printOrder(order)}
+                          >
+                            <Printer className="h-4 w-4" />
+                          </Button>
                           <Button variant="ghost" size="icon" onClick={() => startClone(order)}>
                             <Copy className="h-4 w-4" />
                           </Button>
-               {/*           <Button variant="ghost" size="icon" onClick={() => { setRefundOrder(order); setRefundDialogOpen(true); }}>
+                          {/*           <Button variant="ghost" size="icon" onClick={() => { setRefundOrder(order); setRefundDialogOpen(true); }}>
                             <RotateCcw className="h-4 w-4" />
                           </Button>  */}
                         </div>
@@ -2325,18 +2723,33 @@ const Orders = () => {
     </div>
   );
 
-  const renderCloneView = () => (
+ const renderCloneView = () => {
+  const sortedOrders = [...orders].sort((a, b) => {
+    // Best case: if createdAt exists
+    if (a.createdAt && b.createdAt) {
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    }
+
+    // fallback: order_no sorting (SO-2026-00004 > SO-2026-00003)
+    return String(b.order_no || "").localeCompare(String(a.order_no || ""));
+  });
+
+  return (
     <div className="grid gap-6 xl:grid-cols-2">
       <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
         <div className="border-b bg-portal-fieldset px-5 py-4">
           <h3 className="text-sm font-semibold">Select Order to Clone</h3>
         </div>
+
         <div className="space-y-3 p-5">
-          {orders.length === 0 ? (
-            <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">No orders available to clone.</div>
+          {sortedOrders.length === 0 ? (
+            <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+              No orders available to clone.
+            </div>
           ) : (
-            [...orders].reverse().map((order) => {
+            sortedOrders.map((order) => {
               const active = selectedCloneOrder?.id === order.id;
+
               return (
                 <button
                   key={order.id}
@@ -2344,15 +2757,24 @@ const Orders = () => {
                   onClick={() => setSelectedCloneId(order.id)}
                   className={cn(
                     "flex w-full items-start gap-3 rounded-lg border p-4 text-left transition-colors",
-                    active ? "border-primary bg-primary/10" : "hover:border-border hover:bg-muted/30",
+                    active
+                      ? "border-primary bg-primary/10"
+                      : "hover:border-border hover:bg-muted/30",
                   )}
                 >
                   <div className="rounded-md bg-primary/10 p-2 text-primary">
                     <Copy className="h-4 w-4" />
                   </div>
+
                   <div className="min-w-0 flex-1">
-                    <div className="font-mono text-xs text-primary">{order.order_no}</div>
-                    <div className="mt-1 font-medium text-foreground">{order.customer}</div>
+                    <div className="font-mono text-xs text-primary">
+                      {order.order_no}
+                    </div>
+
+                    <div className="mt-1 font-medium text-foreground">
+                      {order.customer}
+                    </div>
+
                     <div className="mt-1 text-xs text-muted-foreground">
                       {order.order_type} • {order.items.length} lines •{" "}
                       {money(
@@ -2361,7 +2783,8 @@ const Orders = () => {
                           0
                         )
                       )}
-                    </div>                  </div>
+                    </div>
+                  </div>
                 </button>
               );
             })
@@ -2379,9 +2802,12 @@ const Orders = () => {
             </Button>
           )}
         </div>
+
         <div className="p-5">
           {!selectedCloneOrder ? (
-            <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">Select an order to preview and clone.</div>
+            <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+              Select an order to preview and clone.
+            </div>
           ) : (
             <div className="space-y-4">
               <div className="grid gap-3 md:grid-cols-3">
@@ -2389,15 +2815,18 @@ const Orders = () => {
                   <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Type</div>
                   <div className="mt-1 font-medium">{selectedCloneOrder.order_type}</div>
                 </div>
+
                 <div className="rounded-md border bg-background p-3">
                   <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Status</div>
                   <div className="mt-1 font-medium">{selectedCloneOrder.status}</div>
                 </div>
+
                 <div className="rounded-md border bg-background p-3">
                   <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Priority</div>
                   <div className="mt-1 font-medium">{selectedCloneOrder.priority}</div>
                 </div>
               </div>
+
               <div className="overflow-hidden rounded-md border">
                 <Table>
                   <TableHeader>
@@ -2408,6 +2837,7 @@ const Orders = () => {
                       <TableHead className="text-right">Amount</TableHead>
                     </TableRow>
                   </TableHeader>
+
                   <TableBody>
                     {selectedCloneOrder?.items?.map((item: any) => (
                       <TableRow key={item.id || item.item_code}>
@@ -2442,6 +2872,7 @@ const Orders = () => {
       </div>
     </div>
   );
+};
 
   const renderRegularOrders = () => (
     <div className="space-y-6">
@@ -2467,19 +2898,26 @@ const Orders = () => {
 
                 <select
                   value={regularForm.customer}
-                  onChange={(event) =>
-                    setRegularForm((prev) => ({
-                      ...prev,
-                      customer: event.target.value,
-                    }))
-                  }
+                 onChange={(event) => {
+  const selectedId = event.target.value;
+
+  const selectedCustomer = customers.find(
+    (c) => String(c.id) === String(selectedId)
+  );
+
+  setRegularForm((prev) => ({
+    ...prev,
+    customer_id: selectedCustomer?.id || "",
+    customer: selectedCustomer?.name || selectedCustomer?.customer_name || "",
+  }));
+}}
                   className="w-full border rounded-md p-2"
                 >
                   <option value="">Select Customer</option>
 
                   {customers?.length > 0 &&
                     customers.map((customer) => (
-                      <option key={customer.id} value={customer.name || customer.customer_name}>
+                      <option key={customer.id} value={customer.id}>
                         {customer.name || customer.customer_name}
                       </option>
                     ))}
@@ -2488,35 +2926,39 @@ const Orders = () => {
               <div className="space-y-2">
                 <Label>Product *</Label>
 
-                <select
-                  value={regularForm.itemCode}
-                  onChange={(event) => {
-                    const code = event.target.value;
+               <select
+  value={regularForm.itemCode}
+ onChange={(event) => {
+  const code = event.target.value;
 
-                    const selectedItem = inventoryItems.find(
-                      (item) => item.item_code === code
-                    );
+ const selectedItem = inventoryItems.find(
+  (item) => String(item.itemCode) === String(code)
+);
 
-                    setRegularForm((prev) => ({
-                      ...prev,
-                      itemCode: code,
-                      itemName: selectedItem?.item_name || "",
-                      price: Number(selectedItem?.rate || 0),
-                    }));
-                  }}
-                  className="w-full border rounded-md p-2"
-                >
-                  <option value="">Select Product</option>
+  console.log("👉 SELECTED CODE:", code);
+  console.log("👉 INVENTORY ITEMS SAMPLE:", inventoryItems?.[0]);
+  console.log("👉 MATCHED ITEM:", selectedItem);
 
-                  {inventoryItems?.map((inventory) => (
-                    <option
-                      key={inventory.id || inventory.item_code}
-                      value={inventory.item_code}
-                    >
-                      {inventory.itemCode}
-                    </option>
-                  ))}
-                </select>
+  setRegularForm((prev) => ({
+    ...prev,
+    itemCode: code,
+    itemName: selectedItem?.itemName || "",
+    price: Number(selectedItem?.unit_cost ?? 0),
+  }));
+}}
+  className="w-full border rounded-md p-2"
+>
+  <option value="">Select Product</option>
+
+  {inventoryItems?.map((inventory) => (
+    <option
+      key={inventory.id || inventory.item_code}
+      value={inventory.itemCode}
+    >
+      {inventory.itemCode}
+    </option>
+  ))}
+</select>
               </div>
               <div className="space-y-2">
                 <Label>Qty per Order</Label>
@@ -2582,15 +3024,15 @@ const Orders = () => {
               ) : (
                 regularOrders.map((template) => (
                   <TableRow key={template.id}>
-                    <TableCell className="font-mono text-xs text-primary">{template.templateNumber}</TableCell>
+                    <TableCell className="font-mono text-xs text-primary">{template.template_number}</TableCell>
                     <TableCell>{template.customer}</TableCell>
                     <TableCell>
-                      <div className="font-mono text-xs text-primary">{template.itemCode}</div>
-                      <div className="text-sm text-muted-foreground">{template.itemName}</div>
+                      <div className="font-mono text-xs text-primary">{template.item_code}</div>
+                      <div className="text-sm text-muted-foreground">{template.item_name}</div>
                     </TableCell>
                     <TableCell>{template.frequency}</TableCell>
-                    <TableCell>{template.nextOrderDate}</TableCell>
-                    <TableCell>{template.lastOrdered || "—"}</TableCell>
+                    <TableCell>{template.next_order_date}</TableCell>
+                    <TableCell>{template.last_ordered ?? "—"}</TableCell>
                     <TableCell>{renderValidationBadge(template.status === "Active" ? "available" : "missing", template.status)}</TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-2">
@@ -2690,18 +3132,17 @@ const Orders = () => {
 
   const renderPurchaseNeeds = () => (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Items to Purchase</div><div className="mt-2 text-2xl font-semibold text-primary">{purchaseNeeds.length}</div></div>
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Estimated Value</div><div className="mt-2 text-2xl font-semibold text-warning">{money(purchaseNeeds.reduce((sum, row) => sum + row.assessment.gap * Number(row.assessment.inventory?.unit_cost || row.item.rate || 0), 0))}</div></div>
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Urgent Buys</div><div className="mt-2 text-2xl font-semibold text-destructive">{purchaseNeeds.filter((row) => ["High", "Critical"].includes(row.order.priority)).length}</div></div>
-        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Suppliers</div><div className="mt-2 text-2xl font-semibold text-success">{new Set(purchaseNeeds.map((row) => row.assessment.inventory?.default_supplier).filter(Boolean)).size}</div></div>
       </div>
 
       <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b bg-portal-fieldset px-5 py-4">
           <h3 className="text-sm font-semibold">Purchase Requirements</h3>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={exportOrders}><Download className="mr-2 h-4 w-4" />Export</Button>
+            <Button variant="outline" onClick={exportPurchaseNeeds}><Download className="mr-2 h-4 w-4" />Export</Button>
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -2716,7 +3157,7 @@ const Orders = () => {
                 <TableHead className="text-right">To Purchase</TableHead>
                 <TableHead className="text-right">Est. Cost</TableHead>
                 <TableHead>Urgency</TableHead>
-                <TableHead>Supplier</TableHead>
+                
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
@@ -2736,7 +3177,7 @@ const Orders = () => {
                     <TableCell className="text-right font-medium text-primary">{assessment.gap}</TableCell>
                     <TableCell className="text-right">{money(assessment.gap * Number(assessment.inventory?.unit_cost || item.rate || 0))}</TableCell>
                     <TableCell>{renderValidationBadge(order.priority === "Critical" ? "missing" : order.priority === "High" ? "partial" : "available", order.priority)}</TableCell>
-                    <TableCell>{assessment.inventory?.default_supplier || "—"}</TableCell>
+                    
                     <TableCell className="text-right">
                       <Button variant="outline" size="sm" onClick={() => openRFQ(item, assessment.gap)}>Fix / Order</Button>
                     </TableCell>
@@ -3051,7 +3492,7 @@ const Orders = () => {
                 <Button variant="outline" onClick={() => cloneIntoComposer(viewOrder)}>
                   <Copy className="mr-2 h-4 w-4" />Clone
                 </Button>
-          {/*      <Button variant="outline" onClick={() => { setRefundOrder(viewOrder); setRefundDialogOpen(true); }}>
+                {/*      <Button variant="outline" onClick={() => { setRefundOrder(viewOrder); setRefundDialogOpen(true); }}>
                   <RotateCcw className="mr-2 h-4 w-4" />Refund
                 </Button>  */}
                 <Button variant="outline" onClick={() => handleOrderStatusChange(viewOrder.id, "Confirmed")}>
@@ -3065,13 +3506,17 @@ const Orders = () => {
       </Sheet>
 
       <Dialog open={rfqDialogOpen} onOpenChange={setRfqDialogOpen}>
-        <DialogContent className="max-w-3xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Create RFQ</DialogTitle>
-          </DialogHeader>
-          <RFQForm initialItem={rfqItem || undefined} onSuccess={() => setRfqDialogOpen(false)} />
-        </DialogContent>
-      </Dialog>
+  <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+    <DialogHeader>
+      <DialogTitle>Create RFQ</DialogTitle>
+    </DialogHeader>
+
+    <RFQForm
+      initialItem={rfqItem || undefined}
+      onSuccess={() => setRfqDialogOpen(false)}
+    />
+  </DialogContent>
+</Dialog>
 
       <RefundDialog open={refundDialogOpen} onOpenChange={setRefundDialogOpen} order={refundOrder} onRefundCreated={(refund) => setRefunds((prev) => [refund, ...prev])} />
     </Layout>
