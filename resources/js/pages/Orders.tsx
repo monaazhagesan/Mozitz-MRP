@@ -1182,6 +1182,15 @@ const Orders = () => {
     });
   }, [orders, searchTerm, statusFilter, typeFilter]);
 
+ useEffect(() => {
+  if (workspaceView === "orders") {
+    const load = async () => {
+      await fetchOrders();
+    };
+
+    load();
+  }
+}, [workspaceView]);
 
   const sortedOrders = useMemo(() => {
     const data = [...filteredOrders];
@@ -2593,7 +2602,7 @@ const Orders = () => {
               <h3 className="text-sm font-semibold text-foreground">Stock Validation</h3>
               <p className="mt-1 text-xs text-muted-foreground">Availability after allocations, shortages, and next action.</p>
             </div>
-            
+
           </div>
           <div className="px-5 py-4">
             <div className="grid grid-cols-2 gap-3">
@@ -2852,15 +2861,23 @@ const Orders = () => {
                         {(order.items ?? []).length}
                       </TableCell>
                       <TableCell className="font-medium text-foreground">{money(orderTotal)}</TableCell>
-                      <TableCell>
-                        {renderValidationBadge(
-                          getOrderField(order, "status") === "Cancelled" ? "missing"
-                            : getOrderField(order, "status") === "Processing" ? "produce"
-                              : getOrderField(order, "status") === "Confirmed" ? "available"
-                                : "partial",
-                          getOrderField(order, "status", "Unknown")
-                        )}
-                      </TableCell>                     <TableCell>{order.priority}</TableCell>
+                     <TableCell>
+  {order.delivery_status === "Partially Delivered"
+    ? renderValidationBadge(
+        "partial",
+        order.delivery_status
+      )
+    : renderValidationBadge(
+        getOrderField(order, "status") === "Cancelled"
+          ? "missing"
+          : getOrderField(order, "status") === "Processing"
+          ? "produce"
+          : getOrderField(order, "status") === "Confirmed"
+          ? "available"
+          : "partial",
+        getOrderField(order, "status", "Unknown")
+      )}
+</TableCell>                  <TableCell>{order.priority}</TableCell>
                       <TableCell>{order.expected_delivery_date || "—"}</TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-2">
@@ -3254,7 +3271,7 @@ const Orders = () => {
       <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b bg-portal-fieldset px-5 py-4">
           <h3 className="text-sm font-semibold">Pending Orders — Stock Validation</h3>
-         
+
         </div>
         <div className="overflow-x-auto">
           <Table>
@@ -3615,7 +3632,11 @@ const Orders = () => {
             <div className="space-y-6 py-6">
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="rounded-md border bg-muted/40 p-3"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Type</div><div className="mt-1 font-medium">{viewOrder.order_type}</div></div>
-                <div className="rounded-md border bg-muted/40 p-3"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Status</div><div className="mt-1 font-medium">{viewOrder.status}</div></div>
+                <div className="rounded-md border bg-muted/40 p-3"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Status</div><div className="mt-1 font-medium">
+  {viewOrder.delivery_status === "Partially Delivered"
+    ? "Partially Delivered"
+    : viewOrder.status}
+</div></div>
                 <div className="rounded-md border bg-muted/40 p-3"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Priority</div><div className="mt-1 font-medium">{viewOrder.priority}</div></div>
               </div>
 
@@ -3629,7 +3650,11 @@ const Orders = () => {
                 <div className="space-y-1 text-sm">
                   <div className="font-medium">Delivery</div>
                   <div className="text-muted-foreground">Dispatch: {viewOrder.expected_delivery_date || "—"}</div>
-                  <div className="text-muted-foreground">Status: {viewOrder.status}</div>
+                  <div className="text-muted-foreground">
+  Status: {viewOrder.delivery_status === "Partially Delivered"
+    ? "Partially Delivered"
+    : viewOrder.status}
+</div>
                   <div className="text-muted-foreground">Mode: {viewOrder.dispatch_mode}</div>
                 </div>
               </div>
@@ -3672,10 +3697,28 @@ const Orders = () => {
                 {/*      <Button variant="outline" onClick={() => { setRefundOrder(viewOrder); setRefundDialogOpen(true); }}>
                   <RotateCcw className="mr-2 h-4 w-4" />Refund
                 </Button>  */}
-                <Button variant="outline" onClick={() => handleOrderStatusChange(viewOrder.id, "Confirmed")}>
-                  <Check className="mr-2 h-4 w-4" />Confirm
-                </Button>
-                <Button onClick={() => handleOrderStatusChange(viewOrder.id, "Processing")}>Move to Processing</Button>
+               <Button
+  variant="outline"
+  disabled={
+    viewOrder.status === "Delivered" ||
+    viewOrder.delivery_status === "Delivered" ||
+    viewOrder.delivery_status === "Partially Delivered"
+  }
+  onClick={() => handleOrderStatusChange(viewOrder.id, "Confirmed")}
+>
+  <Check className="mr-2 h-4 w-4" />
+  Confirm
+</Button>
+                <Button
+  disabled={
+    viewOrder.status === "Delivered" ||
+    viewOrder.delivery_status === "Delivered" ||
+    viewOrder.delivery_status === "Partially Delivered"
+  }
+  onClick={() => handleOrderStatusChange(viewOrder.id, "Processing")}
+>
+  Move to Processing
+</Button>
               </div>
             </div>
           )}

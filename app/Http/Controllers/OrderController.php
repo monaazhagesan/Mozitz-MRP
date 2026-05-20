@@ -233,4 +233,103 @@ class OrderController extends Controller
             'data' => 'SO-' . $year . '-' . str_pad($next, 5, '0', STR_PAD_LEFT)
         ]);
     }
+
+   public function recalculateStatus(Request $request)
+{
+    $orderNumber = $request->order_number;
+
+    $order = Order::where('order_no', $orderNumber)
+        ->with('items')
+        ->first();
+
+    if (!$order) {
+        return response()->json([
+            'message' => 'Order not found'
+        ], 404);
+    }
+
+    // Get all packages for this order
+    $packages = \App\Models\OrderPackage::where('order_number', $orderNumber)
+        ->get();
+
+    $deliveredMap = [];
+
+    // Calculate delivered quantities
+    foreach ($packages as $pkg) {
+
+        // Only consider delivered packages
+        if (strtolower($pkg->status) !== 'delivered') {
+            continue;
+        }
+
+        $items = is_string($pkg->items)
+            ? json_decode($pkg->items, true)
+            : $pkg->items;
+
+        if (!$items || !is_array($items)) {
+            continue;
+        }
+
+        foreach ($items as $item) {
+
+            $code = strtolower(trim($item['item_code'] ?? ''));
+
+            $qty = (int) (
+                $item['packed_quantity']
+                ?? $item['quantity_to_pack']
+                ?? 0
+            );
+
+            $deliveredMap[$code] = ($deliveredMap[$code] ?? 0) + $qty;
+        }
+    }
+
+    $allDelivered = true;
+    $anyDelivered = false;
+
+    // Check order items delivery status
+    foreach ($order->items as $item) {
+
+        $code = strtolower(trim($item->item_code));
+
+        $orderedQty = (int) $item->quantity;
+
+        $deliveredQty = $deliveredMap[$code] ?? 0;
+
+        // Any delivery happened
+        if ($deliveredQty > 0) {
+            $anyDelivered = true;
+        }
+
+        // Not fully delivered
+        if ($deliveredQty < $orderedQty) {
+            $allDelivered = false;
+        }
+    }
+
+    // Final Status Update
+    if ($allDelivered && $anyDelivered) {
+
+        $order->status = 'Delivered';
+        $order->delivery_status = 'Delivered';
+
+    } elseif ($anyDelivered) {
+
+        $order->status = 'Confirmed';
+        $order->delivery_status = 'Partially Delivered';
+
+    } else {
+
+        $order->status = 'Confirmed';
+        $order->delivery_status = 'Awaiting';
+    }
+
+    $order->save();
+
+    return response()->json([
+        'success' => true,
+        'status' => $order->status,
+        'delivery_status' => $order->delivery_status
+    ]);
+}
 }

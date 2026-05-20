@@ -68,7 +68,7 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout']);
 Route::get('/user', [AuthController::class, 'user']);
 Route::get('/check-session', [AuthController::class, 'checkSession']);
-Route::post('/forgot-password', [AuthController::class, 'forgotPassword']); 
+Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 });
 
 
@@ -188,6 +188,8 @@ Route::get('/orders/next-so', [OrderController::class, 'getNextSONumber']);
 Route::get('/orders/{id}', [OrderController::class, 'show'])
     ->where('id', '[0-9]+');
 
+Route::put('/orders/recalculate-status', [OrderController::class, 'recalculateStatus']);
+
 Route::get('/order-packages', [OrderPackageController::class, 'index']);
 Route::post('/order-packages', [OrderPackageController::class, 'store']);
 Route::get('/order-packages/{id}', [OrderPackageController::class, 'show']);
@@ -248,12 +250,12 @@ Route::post('/supplier-payables', [SupplierPayableController::class, 'store']);
 
 
 Route::post('/po-return-items', [PoReturnItemController::class, 'store']); // store multiple items
-Route::get('/po-return-items/{returnId}', [PoReturnItemController::class, 'index']); 
+Route::get('/po-return-items/{returnId}', [PoReturnItemController::class, 'index']);
 
 
 Route::post('/po-returns', [PoReturnController::class, 'store']);      // create PO Return
 Route::get('/po-returns', [PoReturnController::class, 'index']);       // list all PO Returns
-Route::get('/po-returns/{id}', [PoReturnController::class, 'show']); 
+Route::get('/po-returns/{id}', [PoReturnController::class, 'show']);
 
 Route::post('/regular-template', [RegularOrderTemplateController::class, 'store']);
 Route::delete('/regular-template/{id}', [RegularOrderTemplateController::class, 'destroy']);

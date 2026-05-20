@@ -101,6 +101,8 @@ const OrderPackagesTab = ({ orders }: OrderPackagesTabProps) => {
   const [filterDateFrom, setFilterDateFrom] = useState<string>("");
   const [filterDateTo, setFilterDateTo] = useState<string>("");
 
+  const [companyDetails, setCompanyDetails] = useState<any>(null);
+const [companyLoading, setCompanyLoading] = useState(false);
   // Report state
   const [reportMonth, setReportMonth] = useState<string>(String(new Date().getMonth() + 1));
   const [reportYear, setReportYear] = useState<string>(String(new Date().getFullYear()));
@@ -168,6 +170,31 @@ const OrderPackagesTab = ({ orders }: OrderPackagesTabProps) => {
 
     return map;
   };
+
+  useEffect(() => {
+  const fetchCompanyDetails = async () => {
+    try {
+      setCompanyLoading(true);
+
+      const res = await axios.get("/api/company");
+
+      if (!res.data) {
+        console.warn("⚠️ No company data returned from API");
+      }
+
+      setCompanyDetails(res.data);
+
+    } catch (error: any) {
+      console.error("❌ Failed to fetch company details:", error);
+      console.error("❌ Error response:", error?.response?.data);
+    } finally {
+      setCompanyLoading(false);
+      console.log("🏁 Company loading finished");
+    }
+  };
+
+  fetchCompanyDetails();
+}, []);
 
   // Load order items when order is selected
   useEffect(() => {
@@ -451,23 +478,31 @@ const isOrderFullyPacked = (order: Order, packages: OrderPackage[]) => {
 
 
   // Mark package as delivered
-  const markAsDelivered = async (packageId: string) => {
-    try {
-      await axios.put(`/api/order-packages/${packageId}`, {
-        status: "delivered",
-      });
+ const markAsDelivered = async (packageId: string) => {
+  try {
+    // 1. Update package
+    const res = await axios.put(`/api/order-packages/${packageId}`, {
+      status: "delivered",
+    });
 
-      setPackages((prev) =>
-        prev.map((pkg) =>
-          pkg.id === packageId ? { ...pkg, status: "delivered" } : pkg
-        )
-      );
+    const orderNumber = res.data?.data?.order_number;
 
-      toast.success("Package marked as delivered");
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || "Failed to update package status");
-    }
-  };
+    setPackages((prev) =>
+      prev.map((pkg) =>
+        pkg.id === packageId ? { ...pkg, status: "delivered" } : pkg
+      )
+    );
+
+    // 2. Ask backend to recalculate order status
+    await axios.put(`/api/orders/recalculate-status`, {
+      order_number: orderNumber,
+    });
+
+    toast.success("Package marked as delivered");
+  } catch (error: any) {
+    toast.error(error.response?.data?.message || "Failed to update package status");
+  }
+};
 
   // Revert package to Not Shipped
   const markAsNotShipped = async (packageId: string) => {
@@ -661,115 +696,738 @@ if (order) {
   }, []);
 
   // Print shipping label
-  const printShippingLabel = (pkg: OrderPackage) => {
-    const printWindow = window.open("", "_blank", "width=400,height=600");
+ const printShippingLabel = (pkg: OrderPackage) => {
+  const printWindow = window.open("", "_blank", "width=1200,height=900");
 
-    const items = Array.isArray(pkg.items)
-      ? pkg.items
-      : typeof pkg.items === "string"
-        ? JSON.parse(pkg.items)
-        : [];
+  if (!printWindow) {
+    toast.error("Unable to open print window. Please allow popups.");
+    return;
+  }
 
-    const totalPackedQty = items.reduce((sum: number, item: any) => {
-      return sum + Number(item.packed_quantity || 0);
-    }, 0);
+  const items = Array.isArray(pkg.items)
+    ? pkg.items
+    : typeof pkg.items === "string"
+      ? JSON.parse(pkg.items)
+      : [];
 
-    if (!printWindow) {
-      toast.error("Unable to open print window. Please allow popups.");
-      return;
-    }
+  const totalOrderedQty = items.reduce(
+    (sum: number, item: any) =>
+      sum + Number(item.ordered_quantity || item.qty || 0),
+    0
+  );
 
-    const labelContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Shipping Label - ${pkg.packageSlip}</title>
-        <style>
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { font-family: Arial, sans-serif; padding: 20px; }
-          .label { border: 2px solid #000; padding: 20px; max-width: 350px; margin: 0 auto; }
-          .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 15px; margin-bottom: 15px; }
-          .carrier-logo { font-size: 28px; font-weight: bold; margin-bottom: 10px; }
-          .section { margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px dashed #ccc; }
-          .section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
-          .label-title { font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 3px; }
-          .label-value { font-size: 14px; font-weight: 600; }
-          .tracking { text-align: center; margin: 20px 0; }
-          .tracking-number { font-size: 18px; font-weight: bold; letter-spacing: 2px; font-family: monospace; }
-          .barcode-fallback { border: 1px solid #000; padding: 10px; background: repeating-linear-gradient(90deg, #000 0px, #000 2px, #fff 2px, #fff 4px); height: 60px; margin: 15px auto; max-width: 200px; }
-          .package-info { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-          .from-to { display: grid; grid-template-columns: 1fr; gap: 15px; }
-          .address-block { padding: 10px; background: #f5f5f5; }
-          .print-date { text-align: center; font-size: 10px; color: #999; margin-top: 15px; }
-          @media print { body { padding: 0; } .label { border-width: 1px; } }
-        </style>
-      </head>
-      <body>
-        <div class="label">
-          <div class="header">
-            <div class="carrier-logo">${pkg.carrier || 'Standard Shipping'}</div>
-            <div style="font-size: 12px; color: #666;">SHIPPING LABEL</div>
-          </div>
-          <div class="section from-to">
-  <div class="address-block">
-    <div class="label-title">Ship To</div>
+  const totalPackedQty = items.reduce(
+    (sum: number, item: any) =>
+      sum + Number(item.packed_quantity || 0),
+    0
+  );
 
-    <div class="label-value">
-      ${pkg.order?.customer || pkg.customer_name}
+
+  const company = companyDetails || {};
+
+  const css = `
+/* ── RESET & BASE ─────────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ink:#111111;--ink2:#333333;--ink3:#666666;--ink4:#999999;
+  --border:#CCCCCC;--border2:#E5E5E5;--bg:#FFFFFF;--bg2:#F5F5F5;
+  --accent:#2563EB;
+  --amber:#CC5500;
+  --mono:'IBM Plex Mono',monospace;
+  --sans:'IBM Plex Sans',sans-serif;
+}
+
+body{
+  font-family:var(--sans);
+  background:#E8E8E8;
+  min-height:100vh;
+  padding:24px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:16px;
+}
+
+/* ── TOOLBAR ──────────────────────────────────────────────────────── */
+.toolbar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  background:#fff;
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:10px 16px;
+  width:780px;
+  max-width:100%;
+  box-shadow:0 2px 8px rgba(0,0,0,.06);
+}
+
+.toolbar-title{
+  font-size:13px;
+  font-weight:600;
+  color:var(--ink2);
+  flex:1;
+}
+
+.tb-btn{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:0 14px;
+  height:32px;
+  border-radius:6px;
+  border:1.5px solid var(--border);
+  background:#fff;
+  font-family:var(--sans);
+  font-size:12px;
+  font-weight:600;
+  color:var(--ink2);
+  cursor:pointer;
+}
+
+.tb-btn.primary{
+  background:var(--ink);
+  border-color:var(--ink);
+  color:#fff;
+}
+
+/* ── SLIP ─────────────────────────────────────────────────────────── */
+.slip-outer{
+  width:780px;
+  max-width:100%;
+  background:#fff;
+  border:1.5px solid #999;
+  box-shadow:0 4px 24px rgba(0,0,0,.12);
+}
+
+.slip-inner{
+  margin:10px;
+  border:1px solid var(--ink);
+  padding:24px 28px;
+}
+
+/* ── HEADER ───────────────────────────────────────────────────────── */
+.slip-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding-bottom:14px;
+  border-bottom:2.5px solid var(--ink);
+  margin-bottom:16px;
+  gap:16px;
+}
+
+.company-logo-block{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.logo-mark{
+  width:50px;
+  height:50px;
+  border-radius:10px;
+  background:#1A1A2E;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.logo-letter{
+  font-family:var(--mono);
+  font-weight:700;
+  font-size:18px;
+  color:#fff;
+}
+
+.company-name{
+  font-family:var(--mono);
+  font-weight:700;
+  font-size:17px;
+}
+
+.company-name .accent{
+  color:#2563EB;
+}
+
+.company-sub{
+  font-size:9px;
+  font-weight:600;
+  letter-spacing:.18em;
+  text-transform:uppercase;
+  color:var(--ink3);
+  margin-top:3px;
+}
+
+.company-addr{
+  font-family:var(--mono);
+  font-size:9.5px;
+  color:var(--ink4);
+  margin-top:2px;
+}
+
+.slip-doc-block{
+  text-align:right;
+}
+
+.slip-doc-title{
+  font-family:var(--mono);
+  font-weight:700;
+  font-size:16px;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+
+.slip-doc-badge{
+  display:inline-block;
+  font-family:var(--mono);
+  font-size:10px;
+  font-weight:700;
+  background:var(--ink);
+  color:#fff;
+  padding:2px 9px;
+  border-radius:3px;
+  margin-top:5px;
+}
+
+.slip-doc-date{
+  font-family:var(--mono);
+  font-size:10px;
+  color:var(--ink3);
+  margin-top:4px;
+}
+
+/* ── TOP ──────────────────────────────────────────────────────────── */
+.slip-top{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  border-bottom:1px dashed var(--border);
+  padding-bottom:14px;
+  margin-bottom:14px;
+}
+
+.ship-to{
+  border-right:1px solid var(--border2);
+  padding-right:20px;
+}
+
+.tracking-col{
+  padding-left:20px;
+  text-align:center;
+}
+
+.field-label{
+  font-family:var(--mono);
+  font-size:9px;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  color:var(--ink3);
+  margin-bottom:4px;
+}
+
+.field-value{
+  font-size:11px;
+  font-weight:700;
+}
+
+.field-value.lg{
+  font-size:15px;
+}
+
+.field-sub{
+  font-size:11px;
+  color:var(--ink2);
+  line-height:1.6;
+  margin-top:3px;
+}
+
+.track-num{
+  font-family:var(--mono);
+  font-size:18px;
+  font-weight:700;
+  letter-spacing:.2em;
+  margin:8px 0;
+}
+
+.barcode-wrap{
+  display:flex;
+  justify-content:center;
+}
+
+.barcode-svg{
+  width:160px;
+  height:52px;
+}
+
+/* ── META ─────────────────────────────────────────────────────────── */
+.meta-row{
+  display:grid;
+  grid-template-columns:repeat(5,1fr);
+  border:1px solid var(--border);
+  margin-bottom:14px;
+}
+
+.meta-cell{
+  padding:8px 10px;
+  border-right:1px solid var(--border);
+}
+
+.meta-cell:last-child{
+  border-right:none;
+}
+
+/* ── TABLE ────────────────────────────────────────────────────────── */
+.section-label{
+  font-family:var(--mono);
+  font-size:9px;
+  font-weight:700;
+  letter-spacing:.15em;
+  text-transform:uppercase;
+  color:var(--ink3);
+  margin-bottom:8px;
+}
+
+.items-table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:12px;
+}
+
+.items-table th{
+  font-family:var(--mono);
+  font-size:9px;
+  font-weight:700;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  background:var(--ink);
+  color:#fff;
+  padding:8px 10px;
+  text-align:center;
+  border-right:1px solid #444;
+}
+
+.items-table th:first-child{
+  text-align:left;
+}
+
+.items-table td{
+  padding:8px 10px;
+  border-bottom:1px solid var(--border2);
+  border-right:1px solid var(--border2);
+  vertical-align:middle;
+}
+
+.items-table td:last-child{
+  border-right:none;
+}
+
+.items-table tbody tr:nth-child(even){
+  background:var(--bg2);
+}
+
+.td-no{
+  text-align:center;
+}
+
+.td-desc{
+  font-weight:600;
+}
+
+.td-sku{
+  font-family:var(--mono);
+  font-size:10px;
+  color:var(--ink3);
+  margin-top:2px;
+}
+
+.td-center{
+  text-align:center;
+}
+
+.td-packed.ok{
+  color:#111;
+  font-weight:700;
+}
+
+.td-packed.short{
+  color:var(--amber);
+  font-weight:700;
+}
+
+.items-table tfoot tr{
+  background:var(--bg2);
+  border-top:1.5px solid var(--ink);
+}
+
+.items-table tfoot td{
+  padding:9px 10px;
+  font-family:var(--mono);
+  font-weight:700;
+}
+
+/* ── FOOTER ───────────────────────────────────────────────────────── */
+.dashed{
+  border:none;
+  border-top:1px dashed var(--border);
+  margin:14px 0;
+}
+
+.slip-footer{
+  text-align:center;
+  font-family:var(--mono);
+  font-size:9px;
+  color:var(--ink3);
+  margin-top:14px;
+}
+
+/* ── PRINT ────────────────────────────────────────────────────────── */
+@media print{
+  body{
+    background:#fff;
+    padding:0;
+  }
+
+  .toolbar{
+    display:none !important;
+  }
+
+  .slip-outer{
+    width:100%;
+    border:none;
+    box-shadow:none;
+  }
+
+  @page{
+    size:A4 portrait;
+    margin:10mm;
+  }
+}
+`;
+
+  const rows = items.map((item: any, index: number) => {
+    const ordered = Number(item.ordered_quantity || item.qty || 0);
+    const packed = Number(item.packed_quantity || 0);
+
+    return `
+<tr>
+  <td class="td-no">${index + 1}</td>
+
+  <td>
+    <div class="td-desc">
+      ${item.item_code || item.itemName || "Item"}
     </div>
 
-    <div style="font-size: 12px; color: #666; margin-top: 5px;">
-
-      ${pkg.order?.contact_person || ""}<br/>
-    ${pkg.order?.contact_number || ""}<br/>
-    ${pkg.order?.email || ""}<br/>
-${pkg.order?.shipping_address
-      || pkg.order?.shippingAddress
-      || pkg.shipping_address
-      || ""}
-
+    <div class="td-sku">
+      ${item.item_name || "-"}
     </div>
+  </td>
+
+  <td class="td-center">
+    ${item.uom || "Nos"}
+  </td>
+
+  <td class="td-center">
+    ${ordered}
+  </td>
+
+  <td class="td-packed ${packed < ordered ? "short" : "ok"}">
+    ${packed}
+  </td>
+
+  <td></td>
+</tr>
+`;
+  }).join("");
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+
+<title>Packing Slip</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+${css}
+</style>
+</head>
+
+<body>
+
+<!-- SLIP -->
+<div class="slip-outer">
+<div class="slip-inner">
+
+  <!-- HEADER -->
+  <div class="slip-header">
+
+   <div class="company-logo-block">
+  <div class="logo-mark">
+    <span class="logo-letter">
+      ${company.name ? company.name.slice(0, 2).toUpperCase() : "MS"}
+    </span>
+  </div>
+
+  <div>
+    <div class="company-name">
+  ${company.name || "Company Name"}
+</div>
+
+
+    <div class="company-addr">
+  ${company.address || "Address not available"}
+</div>
   </div>
 </div>
-          <div class="section tracking">
-            <div class="label-title">Tracking Number</div>
-            <div class="tracking-number">${pkg.tracking_number || 'N/A'}</div>
-            <div class="barcode-fallback" title="Barcode"></div>
-          </div>
-          <div class="section package-info">
-          <div>
-  <div class="label-title">Total Packed Qty</div>
-  <div class="label-value">${totalPackedQty}</div>
+
+    <div class="slip-doc-block">
+      <div class="slip-doc-title">
+        Packing Slip
+      </div>
+
+      <div class="slip-doc-badge">
+        ${pkg.package_slip}
+      </div>
+
+      <div class="slip-doc-date">
+        ${new Date(pkg.date).toLocaleDateString()}
+      </div>
+    </div>
+
+  </div>
+
+  <!-- TOP -->
+  <div class="slip-top">
+
+    <div class="ship-to">
+      <div class="field-label">Ship To</div>
+
+      <div class="field-value lg">
+        ${pkg.order?.customer || pkg.customer_name || ""}
+      </div>
+
+      <div class="field-sub">
+        ${pkg.order?.contact_person || ""}<br/>
+        ${pkg.order?.contact_number || ""}<br/>
+        ${pkg.order?.email || ""}<br/>
+        ${
+          pkg.order?.shipping_address ||
+          pkg.order?.shippingAddress ||
+          pkg.shipping_address ||
+          ""
+        }
+      </div>
+    </div>
+
+    <div class="tracking-col">
+      <div class="field-label">
+        Tracking Number
+      </div>
+
+      <div class="track-num">
+        ${pkg.tracking_number || "N/A"}
+      </div>
+
+      <div class="barcode-wrap">
+        <svg class="barcode-svg" id="barcode-svg"
+          viewBox="0 0 160 52"
+          xmlns="http://www.w3.org/2000/svg">
+        </svg>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- META -->
+  <div class="meta-row">
+
+    <div class="meta-cell">
+      <div class="field-label">
+        Total Packed Qty
+      </div>
+
+      <div class="field-value">
+        ${totalPackedQty}
+      </div>
+    </div>
+
+    <div class="meta-cell">
+      <div class="field-label">
+        Package Slip
+      </div>
+
+      <div class="field-value">
+        ${pkg.package_slip}
+      </div>
+    </div>
+
+    <div class="meta-cell">
+      <div class="field-label">
+        Order Number
+      </div>
+
+      <div class="field-value">
+        ${pkg.order_number || "-"}
+      </div>
+    </div>
+
+    <div class="meta-cell">
+      <div class="field-label">
+        Date
+      </div>
+
+      <div class="field-value">
+        ${new Date(pkg.date).toLocaleDateString()}
+      </div>
+    </div>
+
+    <div class="meta-cell">
+      <div class="field-label">
+        Status
+      </div>
+
+      <div class="field-value">
+        ${
+          pkg.status === "shipped"
+            ? "Shipped"
+            : pkg.status === "delivered"
+            ? "Delivered"
+            : "Not Shipped"
+        }
+      </div>
+    </div>
+
+  </div>
+
+  <hr class="dashed"/>
+
+  <!-- TABLE -->
+  <div class="section-label">
+    Packed Items
+  </div>
+
+  <table class="items-table">
+
+    <thead>
+      <tr>
+        <th style="width:32px">#</th>
+        <th>Description</th>
+        <th style="width:70px">UOM</th>
+        <th style="width:80px">Ord Qty</th>
+        <th style="width:90px">Packed Qty</th>
+        <th style="width:28px"></th>
+      </tr>
+    </thead>
+
+    <tbody>
+      ${rows}
+    </tbody>
+
+    <tfoot>
+      <tr>
+        <td colspan="3" style="text-align:right">
+          TOTAL
+        </td>
+
+        <td class="td-center">
+          ${totalOrderedQty}
+        </td>
+
+        <td class="td-center">
+          ${totalPackedQty}
+        </td>
+
+        <td></td>
+      </tr>
+    </tfoot>
+
+  </table>
+
+  <hr class="dashed"/>
+
+  <!-- FOOTER -->
+  <div class="slip-footer">
+    Printed: ${new Date().toLocaleString()}
+  </div>
+
 </div>
-            <div>
-              <div class="label-title">Package Slip</div>
-              <div class="label-value">${pkg.package_slip}</div>
-            </div>
-            <div>
-              <div class="label-title">Order Number</div>
-              <div class="label-value">${pkg.order_number}</div>
-            </div>
-            <div>
-              <div class="label-title">Date</div>
-              <div class="label-value">${formatDate(pkg.date)}</div>
-            </div>
-            <div>
-              <div class="label-title">Status</div>
-              <div class="label-value">${pkg.status === 'shipped' ? 'Shipped' : pkg.status === 'delivered' ? 'Delivered' : 'Not Shipped'}</div>
-            </div>
-          </div>
-          <div class="print-date">Printed: ${new Date().toLocaleString()}</div>
-        </div>
-        <script>window.onload = function() { window.print(); }</script>
-      </body>
-      </html>
-    `;
+</div>
 
-    printWindow.document.write(labelContent);
-    printWindow.document.close();
-    toast.success("Shipping label sent to print");
-  };
+<script>
+function drawBarcode(value) {
+  const svg = document.getElementById('barcode-svg');
 
+  if (!svg) return;
+
+  const str = String(value);
+  const bars = [];
+
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+
+    for (let b = 0; b < 9; b++) {
+      const wide = ((code >> b) & 1) === 1;
+
+      bars.push(wide ? 3 : 1);
+      bars.push(1);
+    }
+
+    bars.push(2);
+  }
+
+  const totalWidth = bars.reduce((a,b) => a+b, 0);
+
+  const svgW = 160;
+  const scale = svgW / totalWidth;
+
+  let paths = '';
+  let x = 0;
+  let isBar = true;
+
+  bars.forEach(w => {
+    if(isBar) {
+      paths += '<rect x="' + (x*scale).toFixed(2) +
+      '" y="0" width="' + (w*scale).toFixed(2) +
+      '" height="44" fill="#111"/>';
+    }
+
+    x += w;
+    isBar = !isBar;
+  });
+
+  svg.innerHTML = paths;
+}
+
+window.onload = async function () {
+
+  if (document.fonts) {
+    await document.fonts.ready;
+  }
+
+  drawBarcode("${pkg.tracking_number || "56321"}");
+
+  setTimeout(() => {
+    window.print();
+  }, 500);
+};
+</script>
+
+</body>
+</html>
+`;
+
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+
+  toast.success("Packing slip sent to print");
+};
   const PackageCard = ({ pkg }: { pkg: OrderPackage }) => (
     <div className="flex items-start gap-3 p-4 border-b last:border-b-0 hover:bg-muted/30 transition-colors group">
       <Checkbox

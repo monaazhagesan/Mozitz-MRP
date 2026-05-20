@@ -736,18 +736,18 @@ const saveRecurringInvoice = async (invoice: any) => {
         console.error(err);
       }
     };
-  
+
 
     fetchCustomers();
   }, []);
-  
+
 
   useEffect(() => {
   // Only when creating NEW invoice (not editing)
   if (isCreateDialogOpen && !selectedInvoice) {
     const nextInvoiceNo = generateInvoiceNumber(invoices);
     setInvoiceNumber(nextInvoiceNo);
-    
+
   }
 }, [isCreateDialogOpen, selectedInvoice, invoices]);
 
@@ -792,7 +792,7 @@ const saveRecurringInvoice = async (invoice: any) => {
             console.error("Failed to fetch inventory items:", errorData.message);
             return;
           }
-  
+
           const data = await response.json();
           console.log("Raw API data:", data);
           console.log("Keys:", Object.keys(data));
@@ -801,10 +801,10 @@ const saveRecurringInvoice = async (invoice: any) => {
           console.error("Error fetching inventory items:", error);
         }
       };
-  
+
       fetchInventoryItems();
     }, []);
-  
+
 
   useEffect(() => {
     if (!customerId) {
@@ -1077,7 +1077,7 @@ const saveRecurringInvoice = async (invoice: any) => {
 <body>
   <div class="page">
     <div class="tax-invoice-label">TAX INVOICE</div>
-    
+
     <div class="billing-section">
       <div class="billing-box">
         <h3>Billed By</h3>
@@ -1230,7 +1230,7 @@ ${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST" ? `<td>‚Ç
       <p>${invoice.signatory ? invoice.signatory : "Your Company Name"}</p>
         <div class="line"></div>
         <p class="name">Authorized Signatory</p>
-        
+
       </div>
     </div>
 
@@ -1286,7 +1286,7 @@ const handleDownloadPDF = async (invoice: Invoice) => {
       if (paise > 0) result += ' and ' + convert(paise) + ' Paise';
       return result + ' Only';
     };
-    
+
 
     const html = `
 <!DOCTYPE html>
@@ -1351,7 +1351,7 @@ const handleDownloadPDF = async (invoice: Invoice) => {
 <body>
   <div class="page">
     <div class="tax-invoice-label">TAX INVOICE</div>
-    
+
     <div class="billing-section">
       <div class="billing-box">
         <h3>Billed By</h3>
@@ -1501,7 +1501,7 @@ ${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST" ? `<td>‚Ç
       <p>${invoice.signatory ? invoice.signatory : "Your Company Name"}</p>
         <div class="line"></div>
         <p class="name">Authorized Signatory</p>
-        
+
       </div>
     </div>
 
@@ -1764,7 +1764,7 @@ html2pdf().set(options).from(element).save().finally(() => {
     console.log("Full Invoice Object:", invoice);
    console.log("Invoice object passed to edit:", invoice);
   console.log("invoice.order_reference:", invoice.recurringEndDate);
-    setSelectedInvoice(invoice); 
+    setSelectedInvoice(invoice);
 
      setCustomerId(invoice.customerId  || "");
 
@@ -1795,7 +1795,7 @@ html2pdf().set(options).from(element).save().finally(() => {
 
     setBankAccountName(invoice.bankAccountName || "");
     setBankAccountNumber(invoice.bankAccountNumber || "");
-    setBankIFSC(invoice.bankIFSC || ""); 
+    setBankIFSC(invoice.bankIFSC || "");
     setBankName(invoice.bankName || "");
     setBankBranch(invoice.bankBranch || "");
     setBankAccountType(invoice.bankAccountType || "");
@@ -2421,18 +2421,18 @@ const handleSaveInvoice = async (
       // Recurring fields - Safer handling to avoid 422
       frequency: isRecurring ? recurringFrequency : null,
       start_date: isRecurring && recurringStartDate ? recurringStartDate : null,
-      end_after: isRecurring && recurringEndType === "occurrences" && recurringOccurrences 
-                 ? Number(recurringOccurrences) 
+      end_after: isRecurring && recurringEndType === "occurrences" && recurringOccurrences
+                 ? Number(recurringOccurrences)
                  : null,
-      end_date: isRecurring && recurringEndType === "date" && recurringEndDate 
-                ? recurringEndDate 
+      end_date: isRecurring && recurringEndType === "date" && recurringEndDate
+                ? recurringEndDate
                 : null,
 
       reminder: Boolean(sendReminders),
       before_due_days: sendReminders && reminderDaysBefore ? Number(reminderDaysBefore) : null,
       reminder_on_due_date: Boolean(sendReminders && reminderOnDueDate),
-      overdue_reminder_days: reminderAfterEnabled && reminderDaysAfter 
-                             ? Number(reminderDaysAfter) 
+      overdue_reminder_days: reminderAfterEnabled && reminderDaysAfter
+                             ? Number(reminderDaysAfter)
                              : null,
 
       type: formIsProforma ? "proforma" : "invoice",
@@ -2470,7 +2470,7 @@ const handleSaveInvoice = async (
     await fetchRecurringInvoices();
 
     // Success Message
-   
+
 
     // ========================
     // 7Ô∏è‚É£ RESET
@@ -2566,7 +2566,7 @@ const customer = customers.find(
         tds_amount: parseFloat(inv.tds_total || 0),
         sgstTotal: parseFloat(inv.tax_amount) / 2,
         cgstTotal: parseFloat(inv.tax_amount) / 2,
-        igstTotal: parseFloat(inv.igst_total || 0), 
+        igstTotal: parseFloat(inv.igst_total || 0),
         vatTotal: parseFloat(inv.vat_total || 0),
         salesTaxTotal: parseFloat(inv.sales_tax_total || 0),
         total: parseFloat(inv.total_amount),
@@ -2576,7 +2576,7 @@ const customer = customers.find(
         placeOfSupply: inv.place_of_supply,
         contactEmail: inv.contact_email,     // <-- ADD THIS
         formCustomerEmail: inv.customer_email,
-        contactPhone: inv.contact_phone,  
+        contactPhone: inv.contact_phone,
         formFreight: parseFloat(inv.shipping_charge || 0),
         formOtherCharges: parseFloat(inv.other_charges || 0),
         formNotes: inv.notes || "",
@@ -2591,9 +2591,9 @@ const customer = customers.find(
          recurringEndType: inv.end_after ? "occurrences" : inv.end_date ? "date" : "",
          recuringEndDate: inv.end_date || "",
          reccuringEndAfter: inv.end_after || 0,
-         
+
         cessPercentage: inv.cess_percentage || 0,
-        tdsTotal: parseFloat(inv.tds_total || 0), 
+        tdsTotal: parseFloat(inv.tds_total || 0),
         formOrderRef: inv.order_reference || "",
         formContactPerson: inv.contact_person || "",
         formShipAddress: inv.delivery_address || "",
@@ -2771,7 +2771,7 @@ const customer = customers.find(
     </SelectContent>
   </Select>
 
- 
+
 </div>
                             <div className="space-y-2">
                               <Label>GSTIN / VAT No.</Label>
@@ -3634,7 +3634,7 @@ const customer = customers.find(
                               openEditInvoice(invoice);
                             }}
                             title="Edit"
-                          >                                                 
+                          >
                             <Edit className="h-4 w-4" />
                           </Button>
                           <Button
@@ -3783,7 +3783,7 @@ const customer = customers.find(
           </DialogContent>
         </Dialog>
 
-       
+
 
         {/* Configure Tax Dialog */}
         <Dialog open={taxConfigOpen} onOpenChange={setTaxConfigOpen}>
@@ -4065,11 +4065,11 @@ const customer = customers.find(
   <Card>
     <CardHeader className="flex flex-row items-center justify-between">
       <CardTitle className="text-base sm:text-lg">Pro-forma Invoices</CardTitle>
-      <Button 
-        size="sm" 
-        onClick={() => { 
-          setFormIsProforma(true); 
-          setIsCreateDialogOpen(true); 
+      <Button
+        size="sm"
+        onClick={() => {
+          setFormIsProforma(true);
+          setIsCreateDialogOpen(true);
         }}
       >
         <Plus className="h-4 w-4 mr-2" /> New Pro-forma
@@ -4112,9 +4112,9 @@ const customer = customers.find(
                   </TableCell>
                   <TableCell>{getStatusBadge(calculateInvoiceStatus(inv))}</TableCell>
                   <TableCell className="text-right space-x-1">
-                    <Button 
-                      size="sm" 
-                      variant="ghost" 
+                    <Button
+                      size="sm"
+                      variant="ghost"
                       onClick={() => {
   console.log("clicked proforma:", inv);
   setViewInvoice({ ...inv });
@@ -4123,9 +4123,9 @@ const customer = customers.find(
                     >
                       <Eye className="h-4 w-4" />
                     </Button>
-                    <Button 
-                      size="sm" 
-                      variant="ghost" 
+                    <Button
+                      size="sm"
+                      variant="ghost"
                       onClick={() => openEditInvoice(inv)}
                       title="Edit"
                     >
@@ -4300,7 +4300,7 @@ const customer = customers.find(
             )}
           </DialogContent>
         </Dialog>
-        
+
       </div>
     </Layout>
   );

@@ -1,0 +1,51 @@
+{
+  "_html2canvas-5deff10e.js": {
+    "file": "assets/html2canvas-5deff10e.js",
+    "imports": [
+      "resources/js/main.tsx"
+    ],
+    "isDynamicEntry": true
+  },
+  "node_modules/canvg/lib/index.es.js": {
+    "file": "assets/index.es-71ba14e4.js",
+    "imports": [
+      "resources/js/main.tsx"
+    ],
+    "isDynamicEntry": true,
+    "src": "node_modules/canvg/lib/index.es.js"
+  },
+  "node_modules/dompurify/dist/purify.es.mjs": {
+    "file": "assets/purify.es-098197fe.js",
+    "isDynamicEntry": true,
+    "src": "node_modules/dompurify/dist/purify.es.mjs"
+  },
+  "resources/css/app.css": {
+    "file": "assets/app-704f3cda.css",
+    "isEntry": true,
+    "src": "resources/css/app.css"
+  },
+  "resources/js/assets/logo.jpg": {
+    "file": "assets/logo-335fa37b.jpg",
+    "src": "resources/js/assets/logo.jpg"
+  },
+  "resources/js/main.css": {
+    "file": "assets/main-051156e5.css",
+    "src": "resources/js/main.css"
+  },
+  "resources/js/main.tsx": {
+    "assets": [
+      "assets/logo-335fa37b.jpg"
+    ],
+    "css": [
+      "assets/main-051156e5.css"
+    ],
+    "dynamicImports": [
+      "_html2canvas-5deff10e.js",
+      "node_modules/dompurify/dist/purify.es.mjs",
+      "node_modules/canvg/lib/index.es.js"
+    ],
+    "file": "assets/main-10f815a8.js",
+    "isEntry": true,
+    "src": "resources/js/main.tsx"
+  }
+}
