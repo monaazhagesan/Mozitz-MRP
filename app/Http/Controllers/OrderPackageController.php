@@ -35,6 +35,8 @@ class OrderPackageController extends Controller
                 'carrier' => $pkg->carrier,
                 'tracking_number' => $pkg->tracking_number,
 
+                   'items' => json_decode($pkg->items, true),
+
                 // ✅ FROM ORDER TABLE
                 'contact_person' => $pkg->order->contact_person ?? null,
                 'contact_number' => $pkg->order->contact_number ?? null,
@@ -112,7 +114,7 @@ class OrderPackageController extends Controller
             // IMPORTANT
         'carrier' => $request->carrier ?? $package->carrier,
         'tracking_number' => $request->tracking_number ?? $package->tracking_number,
-        'status' => $request->status ?? $package->status,
+        
         
             'status' => $request->status ?? $package->status,
             'internal_notes' => $request->internal_notes ?? $package->internal_notes,

@@ -222,8 +222,6 @@ const ORDER_VIEWS: Array<{ id: OrderWorkspaceView; label: string; icon: any; cou
   { id: "regular", label: "Regular Orders", icon: RotateCcw, countKey: "regular" },
   { id: "validation", label: "Stock Validation", icon: CheckCircle2 },
   { id: "purchase", label: "Purchase Needs", icon: Truck, countKey: "purchase" },
-  { id: "excess", label: "Excess Production", icon: Factory },
-  
 ];
 
 const todayISO = () => new Date().toISOString().split("T")[0];
@@ -363,20 +361,20 @@ const Orders = () => {
   }, [refunds]);
 
   useEffect(() => {
-  fetchRegularOrders();
-}, []);
+    fetchRegularOrders();
+  }, []);
 
-const fetchRegularOrders = async () => {
-  try {
-    const res = await axios.get("/api/regular-template");
+  const fetchRegularOrders = async () => {
+    try {
+      const res = await axios.get("/api/regular-template");
 
-    console.log(res.data); // 👈 check data first
+      console.log(res.data); // 👈 check data first
 
-    setRegularOrders(res.data); // IMPORTANT
-  } catch (error) {
-    console.error("Failed to fetch templates", error);
-  }
-};
+      setRegularOrders(res.data); // IMPORTANT
+    } catch (error) {
+      console.error("Failed to fetch templates", error);
+    }
+  };
 
 
   const generateSONumber = async () => {
@@ -391,9 +389,22 @@ const fetchRegularOrders = async () => {
   };
 
   const generateRegularNumber = () => {
-    const year = new Date().getFullYear();
-    return `REG-${year}-${String(regularOrders.length + 1).padStart(4, "0")}`;
-  };
+  const year = new Date().getFullYear();
+
+  const prefix = `REG-${year}-`;
+
+  const numbers = regularOrders
+    .map((o) => o.template_number || o.order_number)
+    .filter(Boolean)
+    .filter((n) => n.startsWith(prefix))
+    .map((n) => parseInt(n.split("-").pop() || "0", 10));
+
+  const lastNumber = numbers.length > 0 ? Math.max(...numbers) : 0;
+
+  const nextNumber = lastNumber + 1;
+
+  return `${prefix}${String(nextNumber).padStart(4, "0")}`;
+};
 
 
   const calculateOrderValue = (order: any) =>
@@ -447,21 +458,25 @@ const fetchRegularOrders = async () => {
     if (!itemCode) return 0;
 
     const inventory = getInventoryRecord(itemCode);
-    if (!inventory) {
-      console.log(`❌ No inventory found for: ${itemCode}`);
-      return 0;
+    if (!inventory) return 0;
+
+    const fields = [
+      inventory.available_quantity,
+      inventory.availableQuantity,
+      inventory.available_stock,
+    ];
+
+    const direct = fields.find(v => v !== null && v !== undefined);
+
+    if (direct !== undefined) {
+      return Math.max(0, Math.round(Number(direct)));
     }
 
+    const computed =
+      (Number(inventory.quantity_on_hand ?? 0) -
+        Number(inventory.allocated_quantity ?? 0));
 
-    const available =
-      Number(inventory.available_quantity) ||
-      Number(inventory.availableQuantity) ||
-      Number(inventory.available_stock) ||
-      (Number(inventory.quantity_on_hand || 0) - Number(inventory.allocated_quantity || 0)) ||
-      Number(inventory.quantity) ||
-      0;
-
-    return Math.max(0, Math.round(available));
+    return Math.max(0, Math.round(computed));
   };
 
   const fetchInventory = async () => {
@@ -785,7 +800,7 @@ const fetchRegularOrders = async () => {
           shippingAddress:
             customer.shipping_address || customer.billing_address || "",
 
-          location: customer.country || prev.location,
+          location: customer.city || prev.location,
         };
 
         console.log("🧾 Updated form data:", updated);
@@ -1067,6 +1082,11 @@ const fetchRegularOrders = async () => {
         expected_delivery_date: order.expected_delivery_date || order.expectedDeliveryDate || "",
         deliveryStatus: order.deliveryStatus || order.delivery_status || "Awaiting",
         // Add more if needed
+        shippingAddress:
+    order.shippingAddress ||
+    order.shipping_address ||
+    order.shipping_address1 ||
+    "",
       }));
 
       console.log("🟣 FINAL NORMALIZED ORDERS ARRAY:", data);
@@ -1345,49 +1365,49 @@ const fetchRegularOrders = async () => {
 
 
   const exportPurchaseNeeds = () => {
-  const rows = purchaseNeeds.map(({ order, item, assessment }) => ({
-    item_code: item.item_code,
-    item_name: item.item_name,
-    order_no: order.order_no,
-    required: assessment.quantity,
-    available: assessment.available,
-    to_purchase: assessment.gap,
-    estimated_cost:
-      assessment.gap *
-      Number(assessment.inventory?.unit_cost || item.rate || 0),
-    urgency: order.priority,
-    
-  }));
+    const rows = purchaseNeeds.map(({ order, item, assessment }) => ({
+      item_code: item.item_code,
+      item_name: item.item_name,
+      order_no: order.order_no,
+      required: assessment.quantity,
+      available: assessment.available,
+      to_purchase: assessment.gap,
+      estimated_cost:
+        assessment.gap *
+        Number(assessment.inventory?.unit_cost || item.rate || 0),
+      urgency: order.priority,
 
-  const headers = Object.keys(rows[0] || {});
+    }));
 
-  const csv = [
-    headers.join(","),
-    ...rows.map((r) =>
-      headers.map((h) => JSON.stringify(r[h] ?? "")).join(",")
-    ),
-  ].join("\n");
+    const headers = Object.keys(rows[0] || {});
 
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
+    const csv = [
+      headers.join(","),
+      ...rows.map((r) =>
+        headers.map((h) => JSON.stringify(r[h] ?? "")).join(",")
+      ),
+    ].join("\n");
 
-  const link = document.createElement("a");
-  link.href = url;
-  link.setAttribute("download", "purchase-needs.csv");
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-};
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
 
- const printOrder = (order: any) => {
-  const printWindow = window.open("", "_blank", "width=1000,height=700");
-  if (!printWindow) return;
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "purchase-needs.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
-  const itemsHtml = (order.items || [])
-    .map((item: any) => {
-      const assessment = getLineAssessment?.(item);
+  const printOrder = (order: any) => {
+    const printWindow = window.open("", "_blank", "width=1000,height=700");
+    if (!printWindow) return;
 
-      return `
+    const itemsHtml = (order.items || [])
+      .map((item: any) => {
+        const assessment = getLineAssessment?.(item);
+
+        return `
         <tr>
           <td>
             <div class="item-code">${item.item_code || "-"}</div>
@@ -1399,10 +1419,10 @@ const fetchRegularOrders = async () => {
           <td class="center">${assessment?.label || "Stock OK"}</td>
         </tr>
       `;
-    })
-    .join("");
+      })
+      .join("");
 
-  printWindow.document.write(`
+    printWindow.document.write(`
     <html>
       <head>
         <title>${order.order_no}</title>
@@ -1602,124 +1622,183 @@ const fetchRegularOrders = async () => {
     </html>
   `);
 
-  printWindow.document.close();
-};
+    printWindow.document.close();
+  };
 
   const handleOrderStatusChange = async (
-    orderId: string,
-    nextStatus: string
-  ) => {
-    const current = orders.find((order) => order.id === orderId);
-    if (!current) return;
+  orderId: string,
+  nextStatus: string
+) => {
+  const current = orders.find((order) => order.id === orderId);
+  if (!current) return;
 
-    try {
-      // 1️⃣ stock update logic
-      if (
-        current.status === "Awaiting Confirmation" &&
-        nextStatus === "Processing"
-      ) {
-        for (const item of current.items) {
-          const stockRes = await axios.get(
-            `/api/inventory-stock/${item.itemCode}`
-          );
+  try {
+    // 1️⃣ stock update logic
+    if (
+      current.status === "Awaiting Confirmation" &&
+      nextStatus === "Processing"
+    ) {
+      for (const item of current.items) {
+        const stockRes = await axios.get(
+          `/api/inventory-stock/${item.itemCode}`
+        );
 
-          const currentStock = stockRes.data;
+        const currentStock = stockRes.data;
 
-          const allocated = Number(currentStock?.allocated_quantity || 0);
-          const committed = Number(currentStock?.committed_quantity || 0);
-          const qty = Number(item.quantityOrdered);
+        const allocated = Number(currentStock?.allocated_quantity || 0);
+        const committed = Number(currentStock?.committed_quantity || 0);
+        const qty = Number(item.quantityOrdered);
 
-          await axios.put("/api/inventory-stock/update", {
-            itemCode: item.itemCode,
-            allocated_quantity: Math.max(0, allocated - qty),
-            committed_quantity: committed + qty,
-          });
-        }
+        await axios.put("/api/inventory-stock/update", {
+          itemCode: item.itemCode,
+          allocated_quantity: Math.max(0, allocated - qty),
+          committed_quantity: committed + qty,
+        });
       }
-
-      // 2️⃣ 🔥 UPDATE BACKEND ORDER STATUS (MISSING PART)
-      await axios.put(`/api/orders/${orderId}/status`, {
-        status: nextStatus,
-      });
-
-      // 3️⃣ update UI
-      setOrders((prev) =>
-        prev.map((order) =>
-          order.id === orderId
-            ? { ...order, status: nextStatus }
-            : order
-        )
-      );
-
-      toast({
-        title: "Status updated",
-        description: `${current.order_no} is now ${nextStatus}.`,
-      });
-    } catch (error) {
-      console.error("Error updating order status:", error);
-      toast({
-        title: "Error",
-        description: "Failed to update order status.",
-      });
     }
+
+    // 2️⃣ UPDATE BACKEND ORDER STATUS (UNCHANGED)
+    await axios.put(`/api/orders/${orderId}/status`, {
+      status: nextStatus,
+    });
+
+    // 3️⃣ update UI
+    setOrders((prev) =>
+      prev.map((order) =>
+        order.id === orderId
+          ? { ...order, status: nextStatus }
+          : order
+      )
+    );
+
+    toast({
+      title: "Status updated",
+      description: `${current.order_no} is now ${nextStatus}.`,
+    });
+
+  } catch (error: any) {
+    console.error("Error updating order status:", error);
+
+    // 🔥 ADDED LOGIC: fallback retry (ONLY EXTRA LOGIC)
+    if (error?.response?.status === 405) {
+      try {
+        // fallback attempt (sometimes backend expects different format)
+        await axios.post(`/api/orders/update-status`, {
+          orderId,
+          status: nextStatus,
+        });
+
+        setOrders((prev) =>
+          prev.map((order) =>
+            order.id === orderId
+              ? { ...order, status: nextStatus }
+              : order
+          )
+        );
+
+        toast({
+          title: "Status updated (fallback)",
+          description: `${current.order_no} is now ${nextStatus}.`,
+        });
+
+        return;
+      } catch (fallbackError) {
+        console.error("Fallback also failed:", fallbackError);
+      }
+    }
+
+    toast({
+      title: "Error",
+      description: "Failed to update order status.",
+    });
+  }
+};
+
+  const calculateNextOrderDate = (currentDate: string, frequency: string) => {
+    const date = new Date(currentDate);
+
+    switch (frequency) {
+      case "Weekly":
+        date.setDate(date.getDate() + 7);
+        break;
+
+      case "Fortnightly":
+        date.setDate(date.getDate() + 14);
+        break;
+
+      case "Monthly":
+        date.setMonth(date.getMonth() + 1);
+        break;
+
+      case "Quarterly":
+        date.setMonth(date.getMonth() + 3);
+        break;
+
+      default:
+        return currentDate;
+    }
+
+    return date.toISOString().split("T")[0];
   };
+
+
   const startClone = (order: Order) => {
     setSelectedCloneId(order.id);
     setWorkspaceView("clone");
   };
 
   const cloneIntoComposer = async (row: any) => {
-  const newSONumber = await generateSONumber();
+    const newSONumber = await generateSONumber();
 
-  // 🔥 normalize order source
-  const order = row?.items ? row : row?.data ? row.data[0] : row;
+    // 🔥 normalize order source
+    const order = row?.items ? row : row?.data ? row.data[0] : row;
 
-  console.log("CLONING ORDER:", order);
+    console.log("CLONING ORDER:", order);
 
-  setFormData({
-    customerId: order.customer_id ?? "",
-    customerName: order.customer ?? order.customer_name ?? "",
+    setFormData({
+      customerId: order.customer_id ?? "",
+      customerName: order.customer ?? order.customer_name ?? "",
 
-    customerCode: "",
-    contactPerson: order.contact_person ?? "",
-    contactNumber: order.contact_number ?? "",
-    email: order.email ?? "",
+      customerCode: "",
+      contactPerson: order.contact_person ?? "",
+      contactNumber: order.contact_number ?? "",
+      email: order.email ?? "",
 
-    billingAddress: order.billing_address ?? "",
-    shippingAddress: order.shipping_address ?? "",
+      billingAddress: order.billing_address ?? "",
+      shippingAddress: order.shipping_address ?? "",
 
-    orderNo: newSONumber || `SO-${Date.now()}`,
-    orderDate: todayISO(),
+      orderNo: newSONumber || `SO-${Date.now()}`,
+      orderDate: todayISO(),
 
-    expectedDeliveryDate:
-      order.expected_delivery_date || order.order_date,
+      expectedDeliveryDate:
+        order.expected_delivery_date || order.order_date,
 
-    orderType: order.order_type ?? "",
-    referenceNo: order.reference_no ?? "",
-    priority: order.priority ?? "",
-    remarks: order.remarks ?? "",
+      orderType: order.order_type ?? "",
+      referenceNo: order.reference_no ?? "",
+      priority: order.priority ?? "",
+      remarks: order.remarks ?? "",
 
-    dispatchMode: order.dispatch_mode ?? "",
-    transporterName: order.transporter_name ?? "",
-    vehicleNo: order.vehicle_no ?? "",
-    expectedDispatchDate: order.expected_dispatch_date ?? "",
+      dispatchMode: order.dispatch_mode ?? "",
+      transporterName: order.transporter_name ?? "",
+      vehicleNo: order.vehicle_no ?? "",
+      expectedDispatchDate: order.expected_dispatch_date ?? "",
 
-    deliveryStatus: "Awaiting",
-    warehouseLocation: order.warehouse_location ?? "",
-    location: order.location ?? "",
+      deliveryStatus: "Awaiting",
+      warehouseLocation: order.warehouse_location ?? "",
+      location: order.location ?? "",
 
-    paymentType: order.payment_type ?? "",
-    paymentTerms: order.payment_terms ?? "",
+      paymentType: order.payment_type ?? "",
+      paymentTerms: order.payment_terms ?? "",
 
-    advanceAmount: Number(order.advance_amount ?? 0),
-    balanceAmount: Number(order.balance_amount ?? 0),
-    invoiceRequired: order.invoice_required ?? 0,
-  });
+      advanceAmount: Number(order.advance_amount ?? 0),
+      balanceAmount: Number(order.balance_amount ?? 0),
+      invoiceRequired: order.invoice_required ?? 0,
+    });
 
-  // 🔥 FIX: MULTIPLE ITEMS SUPPORT
-  const items = (order.items && order.items.length > 0)
-    ? order.items
-    : [
+    // 🔥 FIX: MULTIPLE ITEMS SUPPORT
+    const items = (order.items && order.items.length > 0)
+      ? order.items
+      : [
         {
           item_code: order.item_code,
           item_name: order.item_name,
@@ -1733,33 +1812,73 @@ const fetchRegularOrders = async () => {
         },
       ];
 
-  setLineItems(
-    items.map((item: any) => ({
-      id: crypto.randomUUID(),
+    const fetchBomByItemCode = async (itemCode: string) => {
+      try {
+        const res = await axios.get(`/api/bom-component`, {
+          params: { item_code: itemCode }
+        });
 
-      itemCode: item.item_code,
-      itemName: item.item_name,
-      itemType: item.item_type,
+        const data = res.data;
 
-      quantityOrdered: Number(item.quantity ?? 0),
-      uom: item.uom ?? "",
-      rate: Number(item.rate ?? 0),
-      tax: Number(item.tax ?? 0),
-      totalAmount: Number(item.total_amount ?? 0),
-       availableStock: Number(item.available_stock ?? 0), // 
+        if (Array.isArray(data)) return data;
+        if (data && typeof data === "object") return Object.values(data).flat();
 
-      bomComponents: item.bomComponents ?? [],
-      discount: Number(item.discount ?? 0),
-    }))
-  );
+        return [];
+      } catch (err) {
+        console.error("BOM API ERROR:", err);
+        return [];
+      }
+    };
 
-  setWorkspaceView("new");
+    const itemsWithBom = await Promise.all(
+      items.map(async (item: any) => {
+        console.log("ITEM:", item.item_code);
 
-  toast({
-    title: "Order cloned",
-    description: `${order.order_no ?? "Order"} copied into the composer.`,
-  });
-};
+        const bomComponents = item.item_code
+          ? await fetchBomByItemCode(item.item_code)
+          : [];
+
+        console.log("BOM RESULT:", item.item_code, bomComponents);
+
+        return {
+          id: crypto.randomUUID(),
+          itemCode: item.item_code,
+          itemName: item.item_name,
+          itemType: item.item_type,
+          quantityOrdered: Number(item.quantity ?? 0),
+          uom: item.uom ?? "",
+          rate: Number(item.rate ?? 0),
+          tax: Number(item.tax ?? 0),
+          totalAmount: Number(item.total_amount ?? 0),
+          availableStock: Number(item.available_stock ?? 0),
+
+          bomComponents: Array.isArray(bomComponents)
+            ? bomComponents.map((c: any) => ({
+              component: c.component,
+              description: c.description,
+              type: c.type,
+              requiredQty: Number(
+                c.requiredQty ??
+                c.required_qty ??
+                c.qty_required ??
+                c.quantity ??
+                0
+              ),
+            }))
+            : [],
+
+          discount: Number(item.discount ?? 0),
+        };
+      })
+    );
+    setLineItems(itemsWithBom);
+    setWorkspaceView("new");
+
+    toast({
+      title: "Order cloned",
+      description: `${order.order_no ?? "Order"} copied into the composer.`,
+    });
+  };
 
   const createRegularTemplate = async () => {
     const inventory = getInventoryRecord(regularForm.itemCode);
@@ -1807,7 +1926,7 @@ const fetchRegularOrders = async () => {
         ...prev,
       ]);
 
-       await fetchRegularOrders();
+      await fetchRegularOrders();
 
       setRegularDialogOpen(false);
 
@@ -1836,108 +1955,160 @@ const fetchRegularOrders = async () => {
   };
 
 
- const fireRegularOrder = async (template: RegularOrderTemplate) => {
-  const inventory = getInventoryRecord(template.itemCode);
+  const fireRegularOrder = async (template: RegularOrderTemplate) => {
+    const inventory = getInventoryRecord(template.item_code);
 
-  const quantity = integer(template.quantity);
-  const rate = Number(template.price || inventory?.unit_cost || 0);
-  const gstMultiplier = 1.18;
+    const quantity = integer(template.quantity);
+    const rate = Number(template.price || inventory?.unit_cost || 0);
+    const gstMultiplier = 1.18;
 
-  const orderPayload = {
-    orderDate: todayISO(),
-    orderType: "Regular",
-
-    customer: template.customer,
-
-    // FIXED: safe customer_id
-    customer_id: template.customer_id || template.customerId,
-
-    contact_person: template.contact_person || "",
-contact_number: template.contact_number || "",
-email: template.email || "",
-
-dispatch_mode: "Courier",
-
-expected_dispatch_date: template.nextOrderDate,
-    billingAddress: "",
-    shippingAddress: "",
-    referenceNo: "",
-    priority: "Normal",
-
-    remarks: `Auto-generated from ${template.template_number ?? template.id}`,
-
-    items: [
-      {
-        item_code: template.itemCode,
-        item_name: template.itemName,
-
-        // FIXED: backend expects "quantity"
-        quantity: quantity,
-
-        rate,
-       available_stock: Number(getAvailableStock(template.itemCode) ?? 0),
-        stockValidated: getAvailableStock(template.itemCode) >= quantity,
-
-        total_amount: quantity * rate * gstMultiplier,
-      },
-    ],
-
-    dispatchMode: "Courier",
-    transporterName: "",
-    vehicleNo: "",
-    expectedDispatchDate: template.nextOrderDate,
-
-    deliveryStatus: "Awaiting",
-    warehouseLocation: "",
-    location: "",
-
-    paymentType: "Credit",
-    paymentTerms: "Net 30 days",
-    advanceAmount: 0,
-    balanceAmount: quantity * rate * gstMultiplier,
-
-    invoiceRequired: "1",
-    status: "Awaiting Confirmation",
-  };
-
-  try {
-    // 1. CREATE ORDER
-    const { data: createdOrder } = await axios.post("/api/orders", orderPayload);
-
-    // 2. UPDATE TEMPLATE (FIXED FIELD NAMES)
-    await axios.put(`/api/regular-template/${template.id}`, {
-      last_ordered: todayISO(),
-      next_order_date: template.next_order_date || template.nextOrderDate,
-    });
-
-    // 3. UPDATE UI STATE
-    setRegularOrders((prev) =>
-      prev.map((item) =>
-        item.id === template.id
-          ? {
-              ...item,
-              last_ordered: todayISO(),
-              next_order_date: template.next_order_date || template.nextOrderDate,
-            }
-          : item
-      )
+    const customerData = customers.find(
+      (c) => c.id === template.customer_id
     );
 
-    toast({
-      title: "Regular order created",
-      description: `${template.template_number ?? "Template"} generated a new order.`,
-    });
-  } catch (error: any) {
-    console.error("ORDER ERROR:", error?.response?.data);
+    const orderPayload = {
+      order_date: todayISO(),
+      order_type: "Regular",
 
-    toast({
-      title: "Error",
-      description:
-        error?.response?.data?.message ||
-        "Failed to generate regular order",
-    });
-  }
-};
+      customer: template.customer,
+
+      // FIXED: safe customer_id
+      customer_id: template.customer_id || template.customerId,
+
+      contact_person:
+        customerData?.contact_person ??
+        customerData?.contactPerson ??
+        "",
+
+      contact_number:
+        customerData?.contact_number ??
+        customerData?.phone ??
+        customerData?.mobile ??
+        "",
+
+      email:
+        customerData?.email ??
+        customerData?.customer_email ??
+        "",
+
+      location: customerData?.city ??
+        customerData?.customer_city ??
+        "",
+      dispatch_mode: "Courier",
+
+      expected_delivery_date: template.next_order_date,
+      billingAddress: "",
+     shipping_address: String(
+  template.shipping_address ||
+  (template as any).shippingAddress ||
+  customerData?.shipping_address ||
+  customerData?.shippingAddress ||
+  customerData?.address ||
+  ""
+),
+      referenceNo: "",
+      priority: "Normal",
+
+      remarks: `Auto-generated from ${template.template_number ?? template.id}`,
+
+      items: [
+        {
+          item_code: template.item_code,
+          item_name: template.item_name,
+          item_type:
+            inventory?.item_type ??
+            inventory?.category ??
+            inventory?.type ??
+            "",
+          tax:
+            inventory?.tax ??
+            inventory?.gst ??
+            18,
+
+          // FIXED: backend expects "quantity"
+          quantity: quantity,
+
+          rate,
+          available_stock: Number(getAvailableStock(template.item_code) ?? 0),
+          stockValidated: getAvailableStock(template.item_code) >= quantity,
+
+          total_amount: quantity * rate * gstMultiplier,
+        },
+      ],
+
+      dispatchMode: "Courier",
+      transporterName: "",
+      vehicleNo: "",
+      expectedDispatchDate: template.next_order_date,
+
+      deliveryStatus: "Awaiting",
+      warehouseLocation: "",
+
+
+      paymentType: "Credit",
+      payment_terms: "Net 30 days",
+      advanceAmount: 0,
+      balanceAmount: quantity * rate * gstMultiplier,
+
+      invoiceRequired: "1",
+      status: "Awaiting Confirmation",
+    };
+
+    try {
+
+      console.log("========== TEMPLATE ==========");
+      console.log(template);
+
+      console.log("========== ORDER PAYLOAD ==========");
+      console.log(orderPayload);
+      // 1. CREATE ORDER
+      const { data: createdOrder } = await axios.post("/api/orders", orderPayload);
+
+      await fetchOrders();
+
+      // 2. UPDATE TEMPLATE (FIXED FIELD NAMES)
+      const nextDate = calculateNextOrderDate(
+        template.next_order_date || todayISO(),
+        template.frequency
+      );
+
+      await axios.put(`/api/regular-template/${template.id}`, {
+        last_ordered: todayISO(),
+        next_order_date: nextDate,
+      });
+
+      // 3. UPDATE UI STATE
+      setRegularOrders((prev) =>
+        prev.map((item) =>
+          item.id === template.id
+            ? {
+              ...item,
+              lastOrdered: todayISO(),      // UI field
+              nextOrderDate: nextDate,      // UI field
+            }
+            : item
+        )
+      );
+
+      await fetchRegularOrders();
+
+      toast({
+        title: "Regular order created",
+        description: `${template.template_number ?? "Template"} generated a new order.`,
+      });
+    } catch (error: any) {
+      console.error("ORDER ERROR:", error?.response?.data);
+
+      toast({
+        title: "Error",
+        description:
+          error?.response?.data?.message ||
+          "Failed to generate regular order",
+      });
+    }
+  };
+
+
   const openRFQ = (item: LineItem, shortage: number) => {
     setRfqItem({
       item_code: item.itemCode,
@@ -2142,8 +2313,8 @@ expected_dispatch_date: template.nextOrderDate,
               <Input value={formData.location} onChange={(event) => setFormData((prev) => ({ ...prev, location: event.target.value }))} />
             </div>
             <div className="space-y-2 md:col-span-2">
-              <Label>Delivery Address</Label>
-              <Textarea value={formData.remarks || formData.shippingAddress} onChange={(event) => setFormData((prev) => ({ ...prev, shippingAddress: event.target.value }))} rows={3} />
+              <Label>Delivery Address/Notes</Label>
+              <Textarea value={formData.shippingAddress} onChange={(event) => setFormData((prev) => ({ ...prev, shippingAddress: event.target.value }))} rows={3} />
             </div>
           </div>
         </section>
@@ -2340,7 +2511,9 @@ expected_dispatch_date: template.nextOrderDate,
                           </TableHeader>
                           <TableBody>
                             {(item.bomComponents || []).map((component) => {
-                              const available = Number(component.availableQty || 0);
+                              const inventory = getInventoryRecord(component.component);
+
+                              const available = getAvailableStock(component.component);
                               const required = Number(component.requiredQty || 0);
 
                               return (
@@ -2362,7 +2535,7 @@ expected_dispatch_date: template.nextOrderDate,
                                   <TableCell className="text-right">
                                     <div className="inline-flex items-center gap-2">
                                       <span>{required}</span>
-                                      {component.availableQty < component.requiredQty && (
+                                      {available < required && (
                                         <Badge variant="outline" className="border-warning/20 bg-warning/10 text-warning">
                                           Low
                                         </Badge>
@@ -2420,10 +2593,7 @@ expected_dispatch_date: template.nextOrderDate,
               <h3 className="text-sm font-semibold text-foreground">Stock Validation</h3>
               <p className="mt-1 text-xs text-muted-foreground">Availability after allocations, shortages, and next action.</p>
             </div>
-            <Button variant="outline" size="sm" onClick={runValidation}>
-              <Sparkles className="mr-2 h-4 w-4" />
-              Validate
-            </Button>
+            
           </div>
           <div className="px-5 py-4">
             <div className="grid grid-cols-2 gap-3">
@@ -2723,156 +2893,156 @@ expected_dispatch_date: template.nextOrderDate,
     </div>
   );
 
- const renderCloneView = () => {
-  const sortedOrders = [...orders].sort((a, b) => {
-    // Best case: if createdAt exists
-    if (a.createdAt && b.createdAt) {
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    }
+  const renderCloneView = () => {
+    const sortedOrders = [...orders].sort((a, b) => {
+      // Best case: if createdAt exists
+      if (a.createdAt && b.createdAt) {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
 
-    // fallback: order_no sorting (SO-2026-00004 > SO-2026-00003)
-    return String(b.order_no || "").localeCompare(String(a.order_no || ""));
-  });
+      // fallback: order_no sorting (SO-2026-00004 > SO-2026-00003)
+      return String(b.order_no || "").localeCompare(String(a.order_no || ""));
+    });
 
-  return (
-    <div className="grid gap-6 xl:grid-cols-2">
-      <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
-        <div className="border-b bg-portal-fieldset px-5 py-4">
-          <h3 className="text-sm font-semibold">Select Order to Clone</h3>
-        </div>
+    return (
+      <div className="grid gap-6 xl:grid-cols-2">
+        <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+          <div className="border-b bg-portal-fieldset px-5 py-4">
+            <h3 className="text-sm font-semibold">Select Order to Clone</h3>
+          </div>
 
-        <div className="space-y-3 p-5">
-          {sortedOrders.length === 0 ? (
-            <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-              No orders available to clone.
-            </div>
-          ) : (
-            sortedOrders.map((order) => {
-              const active = selectedCloneOrder?.id === order.id;
-
-              return (
-                <button
-                  key={order.id}
-                  type="button"
-                  onClick={() => setSelectedCloneId(order.id)}
-                  className={cn(
-                    "flex w-full items-start gap-3 rounded-lg border p-4 text-left transition-colors",
-                    active
-                      ? "border-primary bg-primary/10"
-                      : "hover:border-border hover:bg-muted/30",
-                  )}
-                >
-                  <div className="rounded-md bg-primary/10 p-2 text-primary">
-                    <Copy className="h-4 w-4" />
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="font-mono text-xs text-primary">
-                      {order.order_no}
-                    </div>
-
-                    <div className="mt-1 font-medium text-foreground">
-                      {order.customer}
-                    </div>
-
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {order.order_type} • {order.items.length} lines •{" "}
-                      {money(
-                        order.items.reduce(
-                          (sum, item) => sum + Number(item.total_amount || 0),
-                          0
-                        )
-                      )}
-                    </div>
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
-        <div className="flex items-center justify-between gap-3 border-b bg-portal-fieldset px-5 py-4">
-          <h3 className="text-sm font-semibold">Clone Preview</h3>
-          {selectedCloneOrder && (
-            <Button onClick={() => cloneIntoComposer(selectedCloneOrder)}>
-              <Copy className="mr-2 h-4 w-4" />
-              Clone to Composer
-            </Button>
-          )}
-        </div>
-
-        <div className="p-5">
-          {!selectedCloneOrder ? (
-            <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-              Select an order to preview and clone.
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-md border bg-background p-3">
-                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Type</div>
-                  <div className="mt-1 font-medium">{selectedCloneOrder.order_type}</div>
-                </div>
-
-                <div className="rounded-md border bg-background p-3">
-                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Status</div>
-                  <div className="mt-1 font-medium">{selectedCloneOrder.status}</div>
-                </div>
-
-                <div className="rounded-md border bg-background p-3">
-                  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Priority</div>
-                  <div className="mt-1 font-medium">{selectedCloneOrder.priority}</div>
-                </div>
+          <div className="space-y-3 p-5">
+            {sortedOrders.length === 0 ? (
+              <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+                No orders available to clone.
               </div>
+            ) : (
+              sortedOrders.map((order) => {
+                const active = selectedCloneOrder?.id === order.id;
 
-              <div className="overflow-hidden rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Item</TableHead>
-                      <TableHead className="text-right">Qty</TableHead>
-                      <TableHead className="text-right">Rate</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
+                return (
+                  <button
+                    key={order.id}
+                    type="button"
+                    onClick={() => setSelectedCloneId(order.id)}
+                    className={cn(
+                      "flex w-full items-start gap-3 rounded-lg border p-4 text-left transition-colors",
+                      active
+                        ? "border-primary bg-primary/10"
+                        : "hover:border-border hover:bg-muted/30",
+                    )}
+                  >
+                    <div className="rounded-md bg-primary/10 p-2 text-primary">
+                      <Copy className="h-4 w-4" />
+                    </div>
 
-                  <TableBody>
-                    {selectedCloneOrder?.items?.map((item: any) => (
-                      <TableRow key={item.id || item.item_code}>
-                        <TableCell>
-                          <div className="font-mono text-xs text-primary">
-                            {item.item_code}
-                          </div>
-                          <div className="text-sm text-foreground">
-                            {item.item_name}
-                          </div>
-                        </TableCell>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-mono text-xs text-primary">
+                        {order.order_no}
+                      </div>
 
-                        <TableCell className="text-right">
-                          {item.quantity ?? 0}
-                        </TableCell>
+                      <div className="mt-1 font-medium text-foreground">
+                        {order.customer}
+                      </div>
 
-                        <TableCell className="text-right">
-                          {money(Number(item.rate) || 0)}
-                        </TableCell>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {order.order_type} • {order.items.length} lines •{" "}
+                        {money(
+                          order.items.reduce(
+                            (sum, item) => sum + Number(item.total_amount || 0),
+                            0
+                          )
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
 
-                        <TableCell className="text-right">
-                          {money(Number(item.total_amount) || 0)}
-                        </TableCell>
+        <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+          <div className="flex items-center justify-between gap-3 border-b bg-portal-fieldset px-5 py-4">
+            <h3 className="text-sm font-semibold">Clone Preview</h3>
+            {selectedCloneOrder && (
+              <Button onClick={() => cloneIntoComposer(selectedCloneOrder)}>
+                <Copy className="mr-2 h-4 w-4" />
+                Clone to Composer
+              </Button>
+            )}
+          </div>
+
+          <div className="p-5">
+            {!selectedCloneOrder ? (
+              <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+                Select an order to preview and clone.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-md border bg-background p-3">
+                    <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Type</div>
+                    <div className="mt-1 font-medium">{selectedCloneOrder.order_type}</div>
+                  </div>
+
+                  <div className="rounded-md border bg-background p-3">
+                    <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Status</div>
+                    <div className="mt-1 font-medium">{selectedCloneOrder.status}</div>
+                  </div>
+
+                  <div className="rounded-md border bg-background p-3">
+                    <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Priority</div>
+                    <div className="mt-1 font-medium">{selectedCloneOrder.priority}</div>
+                  </div>
+                </div>
+
+                <div className="overflow-hidden rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Item</TableHead>
+                        <TableHead className="text-right">Qty</TableHead>
+                        <TableHead className="text-right">Rate</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+
+                    <TableBody>
+                      {selectedCloneOrder?.items?.map((item: any) => (
+                        <TableRow key={item.id || item.item_code}>
+                          <TableCell>
+                            <div className="font-mono text-xs text-primary">
+                              {item.item_code}
+                            </div>
+                            <div className="text-sm text-foreground">
+                              {item.item_name}
+                            </div>
+                          </TableCell>
+
+                          <TableCell className="text-right">
+                            {item.quantity ?? 0}
+                          </TableCell>
+
+                          <TableCell className="text-right">
+                            {money(Number(item.rate) || 0)}
+                          </TableCell>
+
+                          <TableCell className="text-right">
+                            {money(Number(item.total_amount) || 0)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
-    </div>
-  );
-};
+    );
+  };
 
   const renderRegularOrders = () => (
     <div className="space-y-6">
@@ -2897,20 +3067,23 @@ expected_dispatch_date: template.nextOrderDate,
                 <Label>Customer *</Label>
 
                 <select
-                  value={regularForm.customer}
-                 onChange={(event) => {
-  const selectedId = event.target.value;
+                  value={regularForm.customer_id}
+                  onChange={(event) => {
+                    const selectedId = event.target.value;
 
-  const selectedCustomer = customers.find(
-    (c) => String(c.id) === String(selectedId)
-  );
+                    const selectedCustomer = customers.find(
+                      (c) => String(c.id) === String(selectedId)
+                    );
 
-  setRegularForm((prev) => ({
-    ...prev,
-    customer_id: selectedCustomer?.id || "",
-    customer: selectedCustomer?.name || selectedCustomer?.customer_name || "",
-  }));
-}}
+                    setRegularForm((prev) => ({
+                      ...prev,
+                      customer_id: selectedCustomer?.id || "",
+                      customer:
+                        selectedCustomer?.name ||
+                        selectedCustomer?.customer_name ||
+                        "",
+                    }));
+                  }}
                   className="w-full border rounded-md p-2"
                 >
                   <option value="">Select Customer</option>
@@ -2926,39 +3099,39 @@ expected_dispatch_date: template.nextOrderDate,
               <div className="space-y-2">
                 <Label>Product *</Label>
 
-               <select
-  value={regularForm.itemCode}
- onChange={(event) => {
-  const code = event.target.value;
+                <select
+                  value={regularForm.itemCode}
+                  onChange={(event) => {
+                    const code = event.target.value;
 
- const selectedItem = inventoryItems.find(
-  (item) => String(item.itemCode) === String(code)
-);
+                    const selectedItem = inventoryItems.find(
+                      (item) => String(item.itemCode) === String(code)
+                    );
 
-  console.log("👉 SELECTED CODE:", code);
-  console.log("👉 INVENTORY ITEMS SAMPLE:", inventoryItems?.[0]);
-  console.log("👉 MATCHED ITEM:", selectedItem);
+                    console.log("👉 SELECTED CODE:", code);
+                    console.log("👉 INVENTORY ITEMS SAMPLE:", inventoryItems?.[0]);
+                    console.log("👉 MATCHED ITEM:", selectedItem);
 
-  setRegularForm((prev) => ({
-    ...prev,
-    itemCode: code,
-    itemName: selectedItem?.itemName || "",
-    price: Number(selectedItem?.unit_cost ?? 0),
-  }));
-}}
-  className="w-full border rounded-md p-2"
->
-  <option value="">Select Product</option>
+                    setRegularForm((prev) => ({
+                      ...prev,
+                      itemCode: code,
+                      itemName: selectedItem?.itemName || "",
+                      price: Number(selectedItem?.unit_cost ?? 0),
+                    }));
+                  }}
+                  className="w-full border rounded-md p-2"
+                >
+                  <option value="">Select Product</option>
 
-  {inventoryItems?.map((inventory) => (
-    <option
-      key={inventory.id || inventory.item_code}
-      value={inventory.itemCode}
-    >
-      {inventory.itemCode}
-    </option>
-  ))}
-</select>
+                  {inventoryItems?.map((inventory) => (
+                    <option
+                      key={inventory.id || inventory.item_code}
+                      value={inventory.itemCode}
+                    >
+                      {inventory.itemCode}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="space-y-2">
                 <Label>Qty per Order</Label>
@@ -3081,7 +3254,7 @@ expected_dispatch_date: template.nextOrderDate,
       <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b bg-portal-fieldset px-5 py-4">
           <h3 className="text-sm font-semibold">Pending Orders — Stock Validation</h3>
-          <Button variant="outline" size="sm" onClick={runValidation}>Run Full Validation</Button>
+         
         </div>
         <div className="overflow-x-auto">
           <Table>
@@ -3103,7 +3276,11 @@ expected_dispatch_date: template.nextOrderDate,
                   <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">No pending orders to validate.</TableCell>
                 </TableRow>
               ) : (
-                validationRows.map(({ order, item, assessment }) => (
+                [...validationRows]
+  .sort((a, b) =>
+    String(b.order.order_no).localeCompare(String(a.order.order_no))
+  )
+  .map(({ order, item, assessment }) => (
                   <TableRow key={`${order.id || "o"}-${item.id || item.item_code}`}>
                     <TableCell className="font-mono text-xs text-primary">{order.order_no}</TableCell>
                     <TableCell>{order.customer}</TableCell>
@@ -3157,7 +3334,7 @@ expected_dispatch_date: template.nextOrderDate,
                 <TableHead className="text-right">To Purchase</TableHead>
                 <TableHead className="text-right">Est. Cost</TableHead>
                 <TableHead>Urgency</TableHead>
-                
+
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
@@ -3177,7 +3354,7 @@ expected_dispatch_date: template.nextOrderDate,
                     <TableCell className="text-right font-medium text-primary">{assessment.gap}</TableCell>
                     <TableCell className="text-right">{money(assessment.gap * Number(assessment.inventory?.unit_cost || item.rate || 0))}</TableCell>
                     <TableCell>{renderValidationBadge(order.priority === "Critical" ? "missing" : order.priority === "High" ? "partial" : "available", order.priority)}</TableCell>
-                    
+
                     <TableCell className="text-right">
                       <Button variant="outline" size="sm" onClick={() => openRFQ(item, assessment.gap)}>Fix / Order</Button>
                     </TableCell>
@@ -3506,17 +3683,17 @@ expected_dispatch_date: template.nextOrderDate,
       </Sheet>
 
       <Dialog open={rfqDialogOpen} onOpenChange={setRfqDialogOpen}>
-  <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
-    <DialogHeader>
-      <DialogTitle>Create RFQ</DialogTitle>
-    </DialogHeader>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create RFQ</DialogTitle>
+          </DialogHeader>
 
-    <RFQForm
-      initialItem={rfqItem || undefined}
-      onSuccess={() => setRfqDialogOpen(false)}
-    />
-  </DialogContent>
-</Dialog>
+          <RFQForm
+            initialItem={rfqItem || undefined}
+            onSuccess={() => setRfqDialogOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
 
       <RefundDialog open={refundDialogOpen} onOpenChange={setRefundDialogOpen} order={refundOrder} onRefundCreated={(refund) => setRefunds((prev) => [refund, ...prev])} />
     </Layout>

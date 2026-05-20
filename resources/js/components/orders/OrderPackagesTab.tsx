@@ -27,6 +27,13 @@ interface Order {
   orderNo: string;
   customer: string;
   status: string;
+
+  contact_person?: string;
+  phone?: string;
+  contact_number?: string;
+  email?: string;
+
+  shipping_address?: string;
   items: {
     id: string;
     itemCode: string;
@@ -57,6 +64,17 @@ interface OrderPackage {
   packageSlip: string;
   date: string;
   status: "not_shipped" | "shipped" | "delivered";
+
+  order?: {
+    customerData?: {
+      customer_name?: string;
+      contact_person?: string;
+      phone?: string;
+      email?: string;
+      shipping_address?: string;
+    };
+  };
+
   items: PackageItem[];
   internalNotes?: string;
   carrier?: string;
@@ -75,30 +93,30 @@ const OrderPackagesTab = ({ orders }: OrderPackagesTabProps) => {
   const [barcodeInput, setBarcodeInput] = useState("");
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState("packages");
-  
+
   // Filter state
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterCarrier, setFilterCarrier] = useState<string>("all");
   const [filterOrder, setFilterOrder] = useState<string>("all");
   const [filterDateFrom, setFilterDateFrom] = useState<string>("");
   const [filterDateTo, setFilterDateTo] = useState<string>("");
-  
+
   // Report state
   const [reportMonth, setReportMonth] = useState<string>(String(new Date().getMonth() + 1));
   const [reportYear, setReportYear] = useState<string>(String(new Date().getFullYear()));
-  
+
   // New package form state
   const [selectedOrder, setSelectedOrder] = useState<string>("");
   const [packageSlip, setPackageSlip] = useState("");
   const [packageDate, setPackageDate] = useState(new Date().toISOString().split("T")[0]);
   const [packageItems, setPackageItems] = useState<PackageItem[]>([]);
   const [internalNotes, setInternalNotes] = useState("");
-  
+
 
   // Get confirmed/approved orders only
   const confirmedOrders = useMemo(() => {
-    return orders.filter(order => 
-      order.status === "Confirmed" || 
+    return orders.filter(order =>
+      order.status === "Confirmed" ||
       order.status === "Approved" ||
       order.status === "Processing" ||
       order.status === "In Progress"
@@ -111,31 +129,120 @@ const OrderPackagesTab = ({ orders }: OrderPackagesTabProps) => {
     return `PKG-${new Date().getFullYear()}-${String(count).padStart(5, "0")}`;
   };
 
-  // Load order items when order is selected
- useEffect(() => {
-  if (selectedOrder) {
-    const order = confirmedOrders.find(o => o.id === selectedOrder);
-    if (order) {
-      console.log("Order items from selected order:", order.items);
-      if (order.items?.length > 0) {
-        const items: PackageItem[] = order.items.map((item, idx) => ({
-          id: `pkg-item-${idx}`,
-         itemName: item.itemName || item.item_name,
-itemCode: item.itemCode || item.item_code,
-ordered: item.quantityOrdered || item.quantity,
-          description: "", // can be extended to include actual descriptions        
-          packed: 0,
-          quantityToPack: item.quantityOrdered, // must be >0
-          uom: item.uom || "pcs",
-        }));
-        console.log("Mapped package items:", items);
-        setPackageItems(items); // ✅ should populate state
+  const getPackedMap = (orderNumber: string) => {
+    const map: Record<string, number> = {};
+
+    packages.forEach(pkg => {
+      if (String(pkg.order_number) !== String(orderNumber)) return;
+
+      let items: any[] = [];
+
+      try {
+        items =
+          typeof pkg.items === "string"
+            ? JSON.parse(pkg.items)
+            : pkg.items || [];
+      } catch {
+        items = [];
       }
-      setPackageSlip(generatePackageSlip());
+
+      items.forEach((item: any) => {
+        const key = String(
+          item.item_code || item.itemCode || ""
+        )
+          .trim()
+          .toLowerCase();
+
+        // ✅ ONLY packed quantity
+        const qty = Number(
+          item.packed_quantity || 0
+        );
+
+        if (!key) return;
+
+        map[key] = (map[key] || 0) + qty;
+      });
+    });
+
+    console.log("FINAL packedMap:", map);
+
+    return map;
+  };
+
+  // Load order items when order is selected
+  useEffect(() => {
+    if (selectedOrder) {
+      const order = confirmedOrders.find(o => o.id === selectedOrder);
+      if (order) {
+        console.log("Order items from selected order:", order.items);
+        if (order.items?.length > 0) {
+          const packedMap = getPackedMap(
+            order.orderNo ||
+            order.order_number ||
+            order.order_no
+          );
+
+
+
+          const items: PackageItem[] = order.items.map((item, idx) => {
+            const itemCode = String(item.itemCode || item.item_code).trim().toLowerCase();
+
+            const orderedQty = Number(item.quantityOrdered || item.quantity || 0);
+            const alreadyPacked = packedMap[itemCode] || 0;
+            const remainingQty = Math.max(orderedQty - alreadyPacked, 0);
+
+            return {
+              id: `pkg-item-${idx}`,
+              itemName: item.itemName || item.item_name,
+              itemCode,
+              ordered: orderedQty,
+              description: "",
+              packed: alreadyPacked,
+              quantityToPack: remainingQty,// ✅ IMPORTANT FIX
+              uom: item.uom || "pcs",
+            };
+          });
+          console.log("Mapped package items:", items);
+          setPackageItems(items); // ✅ should populate state
+        }
+        setPackageSlip(generatePackageSlip());
+      }
     }
-  }
-}, [selectedOrder, confirmedOrders]);
-  
+  }, [selectedOrder, confirmedOrders]);
+
+
+  const packableOrders = useMemo(() => {
+  return confirmedOrders.filter((order) => {
+    const packedMap = getPackedMap(
+      order.orderNo || order.order_number || order.order_no
+    );
+
+    const isFullyPacked = order.items?.every((item) => {
+      const code = String(item.itemCode || item.item_code).trim().toLowerCase();
+      const orderedQty = Number(item.quantityOrdered || item.quantity || 0);
+      const packedQty = packedMap[code] || 0;
+
+      return packedQty >= orderedQty;
+    });
+
+    return !isFullyPacked; // ❗ keep only NOT fully packed orders
+  });
+}, [confirmedOrders, packages]);
+
+
+const isOrderFullyPacked = (order: Order, packages: OrderPackage[]) => {
+  const packedMap = getPackedMap(
+    order.orderNo || order.order_number || order.order_no
+  );
+
+  return order.items.every((item) => {
+    const code = String(item.itemCode || item.item_code).trim().toLowerCase();
+    const orderedQty = Number(item.quantityOrdered || item.quantity || 0);
+    const packedQty = packedMap[code] || 0;
+
+    return packedQty >= orderedQty;
+  });
+};
 
   // Apply filters
   const filteredPackages = useMemo(() => {
@@ -175,7 +282,7 @@ ordered: item.quantityOrdered || item.quantity,
   const monthlyReport = useMemo(() => {
     const month = parseInt(reportMonth);
     const year = parseInt(reportYear);
-    
+
     const monthPackages = packages.filter((pkg) => {
       const date = new Date(pkg.date);
       return date.getMonth() + 1 === month && date.getFullYear() === year;
@@ -275,216 +382,298 @@ ordered: item.quantityOrdered || item.quantity,
     setShipmentDialogOpen(true);
   };
 
-// Confirm shipment (single or bulk)
-const confirmShipment = async () => {
-  if (!selectedCarrier) {
-    toast.error("Please select a carrier");
-    return;
-  }
-  if (!trackingNumber.trim()) {
-    toast.error("Please enter a tracking number");
-    return;
-  }
-
-  try {
-    const packagesToShip = isBulkShipment
-      ? packages.filter((pkg) => selectedPackages.has(pkg.id))
-      : packages.filter((pkg) => pkg.id === selectedPackageForShipment);
-
-    if (packagesToShip.length === 0) {
-      toast.error("No packages selected for shipment");
+  // Confirm shipment (single or bulk)
+  const confirmShipment = async () => {
+    if (!selectedCarrier) {
+      toast.error("Please select a carrier");
+      return;
+    }
+    if (!trackingNumber.trim()) {
+      toast.error("Please enter a tracking number");
       return;
     }
 
-    // Update each package via API
-    await Promise.all(
-      packagesToShip.map((pkg) =>
-        axios.put(`/api/order-packages/${pkg.id}`, {
-          carrier: selectedCarrier,
-          tracking_number: trackingNumber.trim(),
-          status: "shipped",
-          items: pkg.items, // preserve item details
-        })
-      )
-    );
+    try {
+      const packagesToShip = isBulkShipment
+        ? packages.filter((pkg) => selectedPackages.has(pkg.id))
+        : packages.filter((pkg) => pkg.id === selectedPackageForShipment);
 
-    // Update frontend state
-    setPackages((prevPackages) =>
-      prevPackages.map((pkg) =>
-        packagesToShip.find((p) => p.id === pkg.id)
-          ? { ...pkg, status: "shipped", carrier: selectedCarrier, trackingNumber: trackingNumber.trim() }
-          : pkg
-      )
-    );
+      if (packagesToShip.length === 0) {
+        toast.error("No packages selected for shipment");
+        return;
+      }
 
-    // Toast feedback
-    if (isBulkShipment) {
-      toast.success(`${packagesToShip.length} package(s) marked as shipped via ${selectedCarrier}`);
-      setSelectedPackages(new Set());
-    } else {
-      toast.success(`Package shipped via ${selectedCarrier}`);
+      // Update each package via API
+      await Promise.all(
+        packagesToShip.map((pkg) =>
+          axios.put(`/api/order-packages/${pkg.id}`, {
+            carrier: selectedCarrier,
+            tracking_number: trackingNumber.trim(),
+            status: "shipped",
+            items: pkg.items, // preserve item details
+          })
+        )
+      );
+
+      // Update frontend state
+      setPackages((prevPackages) =>
+        prevPackages.map((pkg) =>
+          packagesToShip.find((p) => p.id === pkg.id)
+            ? { ...pkg, status: "shipped", carrier: selectedCarrier, trackingNumber: trackingNumber.trim() }
+            : pkg
+        )
+      );
+
+      // Toast feedback
+      if (isBulkShipment) {
+        toast.success(`${packagesToShip.length} package(s) marked as shipped via ${selectedCarrier}`);
+        setSelectedPackages(new Set());
+      } else {
+        toast.success(`Package shipped via ${selectedCarrier}`);
+      }
+
+      // Reset dialog
+      setShipmentDialogOpen(false);
+      setSelectedPackageForShipment(null);
+      setSelectedCarrier("");
+      setTrackingNumber("");
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || error.message || "Error updating shipment");
     }
+  };
 
-    // Reset dialog
-    setShipmentDialogOpen(false);
-    setSelectedPackageForShipment(null);
-    setSelectedCarrier("");
-    setTrackingNumber("");
-  } catch (error: any) {
-    toast.error(error.response?.data?.message || error.message || "Error updating shipment");
-  }
-};
-
-const selectedOrderData = useMemo(() => {
-  return confirmedOrders.find(
-    (o) => String(o.id) === String(selectedOrder)
-  );
-}, [selectedOrder, confirmedOrders]);
-
-// Mark package as delivered
-const markAsDelivered = async (packageId: string) => {
-  try {
-    await axios.put(`/api/order-packages/${packageId}`, {
-      status: "delivered",
-    });
-
-    setPackages((prev) =>
-      prev.map((pkg) =>
-        pkg.id === packageId ? { ...pkg, status: "delivered" } : pkg
-      )
+  const selectedOrderData = useMemo(() => {
+    return confirmedOrders.find(
+      (o) => String(o.id) === String(selectedOrder)
     );
+  }, [selectedOrder, confirmedOrders]);
 
-    toast.success("Package marked as delivered");
-  } catch (error: any) {
-    toast.error(error.response?.data?.message || "Failed to update package status");
-  }
-};
 
-// Revert package to Not Shipped
-const markAsNotShipped = async (packageId: string) => {
-  try {
-    await axios.put(`/api/order-packages/${packageId}`, {
-      status: "not_shipped",
-      carrier: null,
-      tracking_number: null,
-    });
 
-    setPackages((prev) =>
-      prev.map((pkg) =>
-        pkg.id === packageId
-          ? { ...pkg, status: "not_shipped", carrier: undefined, trackingNumber: undefined }
-          : pkg
-      )
-    );
+  // Mark package as delivered
+  const markAsDelivered = async (packageId: string) => {
+    try {
+      await axios.put(`/api/order-packages/${packageId}`, {
+        status: "delivered",
+      });
 
-    toast.success("Package status updated to Not Shipped");
-  } catch (error: any) {
-    toast.error(error.response?.data?.message || "Failed to update package status");
-  }
-};
+      setPackages((prev) =>
+        prev.map((pkg) =>
+          pkg.id === packageId ? { ...pkg, status: "delivered" } : pkg
+        )
+      );
+
+      toast.success("Package marked as delivered");
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to update package status");
+    }
+  };
+
+  // Revert package to Not Shipped
+  const markAsNotShipped = async (packageId: string) => {
+    try {
+      await axios.put(`/api/order-packages/${packageId}`, {
+        status: "not_shipped",
+        carrier: null,
+        tracking_number: null,
+      });
+
+      setPackages((prev) =>
+        prev.map((pkg) =>
+          pkg.id === packageId
+            ? { ...pkg, status: "not_shipped", carrier: undefined, trackingNumber: undefined }
+            : pkg
+        )
+      );
+
+      toast.success("Package status updated to Not Shipped");
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to update package status");
+    }
+  };
 
   const handleRemoveItem = (itemId: string) => {
     setPackageItems((prev) => prev.filter((item) => item.id !== itemId));
   };
 
-  const handleQuantityChange = (itemId: string, newQuantity: number) => {
-    setPackageItems((prev) =>
-      prev.map((item) => (item.id === itemId ? { ...item, quantityToPack: newQuantity } : item))
+  const handleQuantityChange = (
+    itemId: string,
+    newQuantity: number
+  ) => {
+    setPackageItems(prev =>
+      prev.map(item => {
+        if (item.id !== itemId) return item;
+
+        const remaining = item.ordered - item.packed;
+
+        // ❌ prevent over packing
+        if (newQuantity > remaining) {
+          toast.error(
+            `Cannot pack more than remaining quantity (${remaining})`
+          );
+
+          return {
+            ...item,
+            quantityToPack: remaining,
+          };
+        }
+
+        return {
+          ...item,
+          quantityToPack: newQuantity,
+        };
+      })
     );
   };
 
- const handleSavePackage = async () => {
-  if (!selectedOrder) {
-    toast.error("Please select an order");
-    return;
-  }
-  if (!packageSlip) {
-    toast.error("Please enter a package slip number");
-    return;
-  }
-
-  // Use all package items (even if quantityToPack = 0)
-  const itemsToPack = packageItems;
-
-  if (itemsToPack.length === 0) {
-    toast.error("Please add at least one item to pack");
-    return;
-  }
-
-  const order = confirmedOrders.find(o => o.id === selectedOrder);
-  if (!order) {
-    toast.error("Selected order not found");
-    return;
-  }
-
-  const payload = {
-    order_id: selectedOrder,
-    order_number: order.orderNo || order.order_no,
-    customer_name: order.customer,
-    package_slip: packageSlip,
-    date: packageDate,
-    status: "not_shipped",
-    internal_notes: internalNotes,
-    items: itemsToPack.map(item => ({
-      item_name: item.itemName,
-      item_code: item.itemCode,
-      description: item.description || "",
-      ordered_quantity: item.ordered,
-      packed_quantity: item.packed,
-      quantity_to_pack: item.quantityToPack,
-      uom: item.uom,
-    })),
-  };
-
-  console.log("Payload being sent to backend:", payload);
-
-  try {
-    const { data } = await axios.post("/api/order-packages", payload);
-    toast.success(`Package ${packageSlip} created for order ${order.orderNo}`);
-    fetchPackages();
-    setNewPackageOpen(false);
-    setSelectedOrder("");
-    setPackageSlip("");
-    setPackageDate(new Date().toISOString().split("T")[0]);
-    setPackageItems([]);
-    setInternalNotes("");
-    setScanModeActive(false);
-    setBarcodeInput("");
-  } catch (error: any) {
-    toast.error(error.response?.data?.message || "Failed to create package");
-  }
-};
-
-
-const fetchPackages = async () => {
-  try {
-    const response = await axios.get("/api/order-packages"); // Replace with your API endpoint
-
-    // The API returns { status: true, data: [...] }
-    const packagesArray = response.data.data;
-
-    if (!Array.isArray(packagesArray)) {
-      console.error("Expected array from API, got:", response.data);
-      setPackages([]); // fallback
-      toast.error("Failed to fetch packages properly");
+  const handleSavePackage = async () => {
+    if (!selectedOrder) {
+      toast.error("Please select an order");
+      return;
+    }
+    if (!packageSlip) {
+      toast.error("Please enter a package slip number");
       return;
     }
 
-    setPackages(packagesArray); // <-- set the array
-  } catch (error: any) {
-    console.error(error);
-    toast.error(error.response?.data?.message || "Failed to fetch packages");
-    setPackages([]); // fallback
+    const hasValidItems = packageItems.some(item => item.quantityToPack > 0);
+
+    if (!hasValidItems) {
+      toast.error("This order is already fully packed");
+      return;
+    }
+    // Use all package items (even if quantityToPack = 0)
+    const itemsToPack = packageItems;
+
+    if (itemsToPack.length === 0) {
+      toast.error("Please add at least one item to pack");
+      return;
+    }
+
+    const order = confirmedOrders.find(o => o.id === selectedOrder);
+    if (!order) {
+      toast.error("Selected order not found");
+      return;
+    }
+
+    const payload = {
+      order_id: selectedOrder,
+      order_number: order.orderNo || order.order_no,
+      customer_name: order.customer,
+      package_slip: packageSlip,
+      date: packageDate,
+      status: "not_shipped",
+      internal_notes: internalNotes,
+      items: itemsToPack.map(item => ({
+        item_name: item.itemName,
+        item_code: item.itemCode,
+        description: item.description || "",
+        ordered_quantity: item.ordered,
+        packed_quantity: item.quantityToPack,
+        quantity_to_pack: item.quantityToPack,
+        uom: item.uom,
+      })),
+    };
+
+    console.log("Payload being sent to backend:", payload);
+
+    try {
+      const { data } = await axios.post("/api/order-packages", payload);
+
+      await fetchPackages();
+
+      const order = confirmedOrders.find(o => o.id === selectedOrder);
+
+if (order) {
+  // get updated packages AFTER save
+  const updatedPackages = await axios.get("/api/order-packages");
+
+  const normalized = updatedPackages.data.data;
+
+  const isFullyPacked = isOrderFullyPacked(order, normalized);
+
+  if (isFullyPacked) {
+    await axios.put(`/api/orders/${order.id}`, {
+      status: "Packed"
+    });
   }
-};
-// Call fetchPackages once on component mount
-useEffect(() => {
-  fetchPackages();
-}, []);
+}
+
+      setPackageItems(prev =>
+        prev.map(item => ({
+          ...item,
+          packed: item.packed + item.quantityToPack,
+          quantityToPack: 0
+        }))
+      );
+      toast.success(`Package ${packageSlip} created for order ${order.order_no}`);
+      fetchPackages();
+      setNewPackageOpen(false);
+      setSelectedOrder("");
+      setPackageSlip("");
+      setPackageDate(new Date().toISOString().split("T")[0]);
+      setPackageItems([]);
+      setInternalNotes("");
+      setScanModeActive(false);
+      setBarcodeInput("");
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to create package");
+    }
+  };
+
+
+  const fetchPackages = async () => {
+    try {
+      const response = await axios.get("/api/order-packages");
+
+      const packagesArray = response.data.data;
+
+      if (!Array.isArray(packagesArray)) {
+        setPackages([]);
+        return;
+      }
+
+      const normalized = packagesArray.map((pkg: any) => {
+        const order = orders.find(
+          (o) =>
+            String(o.orderNo) === String(pkg.order_number) ||
+            String(o.order_no) === String(pkg.order_number)
+        );
+
+        return {
+          ...pkg,
+          items: typeof pkg.items === "string"
+            ? JSON.parse(pkg.items)
+            : pkg.items ?? [],
+          order, // ✅ attach full order object here
+        };
+      });
+
+      setPackages(normalized);
+    } catch (error) {
+      setPackages([]);
+    }
+  };
+
+  // Call fetchPackages once on component mount
+  useEffect(() => {
+    fetchPackages();
+  }, []);
 
   // Print shipping label
   const printShippingLabel = (pkg: OrderPackage) => {
     const printWindow = window.open("", "_blank", "width=400,height=600");
+
+    const items = Array.isArray(pkg.items)
+      ? pkg.items
+      : typeof pkg.items === "string"
+        ? JSON.parse(pkg.items)
+        : [];
+
+    const totalPackedQty = items.reduce((sum: number, item: any) => {
+      return sum + Number(item.packed_quantity || 0);
+    }, 0);
+
     if (!printWindow) {
       toast.error("Unable to open print window. Please allow popups.");
       return;
@@ -531,13 +720,13 @@ useEffect(() => {
 
     <div style="font-size: 12px; color: #666; margin-top: 5px;">
 
-      ${pkg.order?.contact_person ?? ""}<br/>
-
-      ${pkg.order?.contact_number ?? ""}<br/>
-
-      ${pkg.order?.email ?? ""}<br/>
-
-      ${pkg.order?.shipping_address ?? "No Address Available"}
+      ${pkg.order?.contact_person || ""}<br/>
+    ${pkg.order?.contact_number || ""}<br/>
+    ${pkg.order?.email || ""}<br/>
+${pkg.order?.shipping_address
+      || pkg.order?.shippingAddress
+      || pkg.shipping_address
+      || ""}
 
     </div>
   </div>
@@ -548,6 +737,10 @@ useEffect(() => {
             <div class="barcode-fallback" title="Barcode"></div>
           </div>
           <div class="section package-info">
+          <div>
+  <div class="label-title">Total Packed Qty</div>
+  <div class="label-value">${totalPackedQty}</div>
+</div>
             <div>
               <div class="label-title">Package Slip</div>
               <div class="label-value">${pkg.package_slip}</div>
@@ -652,14 +845,14 @@ useEffect(() => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">Order Packages</h2>
-        <Button 
+        <Button
           onClick={() => {
             if (confirmedOrders.length === 0) {
               toast.error("No confirmed orders available. Package creation is only allowed for confirmed/approved orders.");
               return;
             }
             setNewPackageOpen(true);
-          }} 
+          }}
           className="bg-primary hover:bg-primary/90"
         >
           <Plus className="h-4 w-4 mr-2" />
@@ -744,13 +937,13 @@ useEffect(() => {
                       <SelectValue placeholder="All Orders" />
                     </SelectTrigger>
                     <SelectContent>
-  <SelectItem value="all">All Orders</SelectItem>
-  {uniqueOrderNumbers.map((orderNum, index) => (
-    <SelectItem key={`${orderNum}-${index}`} value={orderNum}>
-      {orderNum}
-    </SelectItem>
-  ))}
-</SelectContent>
+                      <SelectItem value="all">All Orders</SelectItem>
+                      {uniqueOrderNumbers.map((orderNum, index) => (
+                        <SelectItem key={`${orderNum}-${index}`} value={orderNum}>
+                          {orderNum}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1">
@@ -904,45 +1097,45 @@ useEffect(() => {
               </CardContent>
             </Card>
 
-          <Card>
-  <CardHeader className="pb-2">
-    <CardTitle className="text-base flex items-center gap-2">
-      <Package className="h-4 w-4" />
-      Packages by Order
-    </CardTitle>
-  </CardHeader>
-  <CardContent>
-    {monthlyReport.packages.length === 0 ? (
-      <div className="text-center text-muted-foreground py-4">
-        No data for this period
-      </div>
-    ) : (
-      <ScrollArea className="h-[200px]">
-        <div className="space-y-2">
-          {Object.entries(
-            monthlyReport.packages.reduce<Record<string, number>>((acc, pkg) => {
-              if (pkg.order_number) {
-                acc[pkg.order_number] = (acc[pkg.order_number] || 0) + 1;
-              }
-              return acc;
-            }, {})
-          )
-            .filter(([_, count]) => count > 0)
-            .sort(([, a], [, b]) => b - a)
-            .map(([orderNumber, count]) => (
-              <div
-                key={orderNumber}
-                className="flex items-center justify-between p-2 bg-muted/30 rounded"
-              >
-                <span className="font-medium">{orderNumber}</span>
-                <span className="text-primary font-semibold">{count}</span>
-              </div>
-            ))}
-        </div>
-      </ScrollArea>
-    )}
-  </CardContent>
-</Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Package className="h-4 w-4" />
+                  Packages by Order
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {monthlyReport.packages.length === 0 ? (
+                  <div className="text-center text-muted-foreground py-4">
+                    No data for this period
+                  </div>
+                ) : (
+                  <ScrollArea className="h-[200px]">
+                    <div className="space-y-2">
+                      {Object.entries(
+                        monthlyReport.packages.reduce<Record<string, number>>((acc, pkg) => {
+                          if (pkg.order_number) {
+                            acc[pkg.order_number] = (acc[pkg.order_number] || 0) + 1;
+                          }
+                          return acc;
+                        }, {})
+                      )
+                        .filter(([_, count]) => count > 0)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([orderNumber, count]) => (
+                          <div
+                            key={orderNumber}
+                            className="flex items-center justify-between p-2 bg-muted/30 rounded"
+                          >
+                            <span className="font-medium">{orderNumber}</span>
+                            <span className="text-primary font-semibold">{count}</span>
+                          </div>
+                        ))}
+                    </div>
+                  </ScrollArea>
+                )}
+              </CardContent>
+            </Card>
           </div>
 
           {/* Package List for Period */}
@@ -975,13 +1168,12 @@ useEffect(() => {
                           <TableCell>{formatDate(pkg.date)}</TableCell>
                           <TableCell>{pkg.carrier || "-"}</TableCell>
                           <TableCell>
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              pkg.status === "delivered" 
-                                ? "bg-green-100 text-green-700" 
-                                : pkg.status === "shipped" 
-                                  ? "bg-blue-100 text-blue-700" 
-                                  : "bg-amber-100 text-amber-700"
-                            }`}>
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${pkg.status === "delivered"
+                              ? "bg-green-100 text-green-700"
+                              : pkg.status === "shipped"
+                                ? "bg-blue-100 text-blue-700"
+                                : "bg-amber-100 text-amber-700"
+                              }`}>
                               {pkg.status === "not_shipped" ? "Not Shipped" : pkg.status === "shipped" ? "Shipped" : "Delivered"}
                             </span>
                           </TableCell>
@@ -1019,7 +1211,7 @@ useEffect(() => {
                       {confirmedOrders.length === 0 ? (
                         <div className="p-2 text-sm text-muted-foreground">No confirmed orders available</div>
                       ) : (
-                        confirmedOrders.map((order) => (
+                        packableOrders.map((order) => (
                           <SelectItem key={order.id} value={order.id}>
                             {order.orderNo || order.order_no} - {order.customer} ({order.status})
                           </SelectItem>
@@ -1029,14 +1221,14 @@ useEffect(() => {
                   </Select>
                   <p className="text-xs text-muted-foreground">Only confirmed/approved orders can be packaged</p>
                 </div>
-               <div className="space-y-2">
-  <Label>Customer</Label>
-  <Input
-    value={selectedOrderData?.customer || selectedOrderData?.customer_name || ""}
-    disabled
-    className="h-10 bg-muted"
-  />
-</div>
+                <div className="space-y-2">
+                  <Label>Customer</Label>
+                  <Input
+                    value={selectedOrderData?.customer || selectedOrderData?.customer_name || ""}
+                    disabled
+                    className="h-10 bg-muted"
+                  />
+                </div>
               </div>
 
               {/* Package Slip and Date */}
