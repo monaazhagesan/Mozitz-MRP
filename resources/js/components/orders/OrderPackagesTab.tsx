@@ -116,14 +116,24 @@ const [companyLoading, setCompanyLoading] = useState(false);
 
 
   // Get confirmed/approved orders only
-  const confirmedOrders = useMemo(() => {
-    return orders.filter(order =>
-      order.status === "Confirmed" ||
-      order.status === "Approved" ||
-      order.status === "Processing" ||
-      order.status === "In Progress"
-    );
-  }, [orders]);
+ const confirmedOrders = useMemo(() => {
+  return orders.filter(order =>
+    order.status === "Confirmed" ||
+    order.status === "Approved" ||
+    order.status === "Processing" ||
+    order.status === "In Progress" ||
+
+    // ✅ ADD PARTIAL STATUSES
+    order.status === "Partially Shipped" ||
+    order.status === "Partially Delivered" ||
+    order.status === "Partially Shipped & Delivered" ||
+
+     order.status === "Partially Fulfilled" ||
+
+    // optional but recommended
+    order.status === "Shipped"
+  );
+}, [orders]);
 
   // Generate package slip number
   const generatePackageSlip = () => {
@@ -442,6 +452,14 @@ const isOrderFullyPacked = (order: Order, packages: OrderPackage[]) => {
         )
       );
 
+      // ✅ ADD THIS (IMPORTANT)
+const orderNumber = packagesToShip[0]?.order_number;
+
+if (orderNumber) {
+  await axios.put(`/api/orders/recalculate-status`, {
+    order_number: orderNumber,
+  });
+}
       // Update frontend state
       setPackages((prevPackages) =>
         prevPackages.map((pkg) =>
@@ -505,27 +523,43 @@ const isOrderFullyPacked = (order: Order, packages: OrderPackage[]) => {
 };
 
   // Revert package to Not Shipped
-  const markAsNotShipped = async (packageId: string) => {
-    try {
-      await axios.put(`/api/order-packages/${packageId}`, {
-        status: "not_shipped",
-        carrier: null,
-        tracking_number: null,
+ const markAsNotShipped = async (packageId: string) => {
+  try {
+    const res = await axios.put(`/api/order-packages/${packageId}`, {
+      status: "not_shipped",
+      carrier: null,
+      tracking_number: null,
+    });
+
+    const orderNumber = res.data?.data?.order_number;
+
+    setPackages((prev) =>
+      prev.map((pkg) =>
+        pkg.id === packageId
+          ? {
+              ...pkg,
+              status: "not_shipped",
+              carrier: undefined,
+              trackingNumber: undefined,
+            }
+          : pkg
+      )
+    );
+
+    // ✅ IMPORTANT: recalculate order status
+    if (orderNumber) {
+      await axios.put(`/api/orders/recalculate-status`, {
+        order_number: orderNumber,
       });
-
-      setPackages((prev) =>
-        prev.map((pkg) =>
-          pkg.id === packageId
-            ? { ...pkg, status: "not_shipped", carrier: undefined, trackingNumber: undefined }
-            : pkg
-        )
-      );
-
-      toast.success("Package status updated to Not Shipped");
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || "Failed to update package status");
     }
-  };
+
+    toast.success("Package status updated to Not Shipped");
+  } catch (error: any) {
+    toast.error(
+      error.response?.data?.message || "Failed to update package status"
+    );
+  }
+};
 
   const handleRemoveItem = (itemId: string) => {
     setPackageItems((prev) => prev.filter((item) => item.id !== itemId));
@@ -615,6 +649,8 @@ const isOrderFullyPacked = (order: Order, packages: OrderPackage[]) => {
     try {
       const { data } = await axios.post("/api/order-packages", payload);
 
+        const orderNumber = data?.data?.order_number;
+
       await fetchPackages();
 
       const order = confirmedOrders.find(o => o.id === selectedOrder);
@@ -633,6 +669,10 @@ if (order) {
     });
   }
 }
+
+ await axios.put(`/api/orders/recalculate-status`, {
+    order_number: orderNumber,
+  });
 
       setPackageItems(prev =>
         prev.map(item => ({
@@ -1054,6 +1094,10 @@ body{
   font-weight:700;
 }
 
+.td-packed{
+  text-align: center;
+}
+
 .items-table tfoot tr{
   background:var(--bg2);
   border-top:1.5px solid var(--ink);
@@ -1112,23 +1156,21 @@ body{
 <tr>
   <td class="td-no">${index + 1}</td>
 
-  <td>
-    <div class="td-desc">
-      ${item.item_code || item.itemName || "Item"}
-    </div>
 
-    <div class="td-sku">
-      ${item.item_name || "-"}
-    </div>
+   <td class="td-center">
+    ${item.item_code || "Item"}
   </td>
+
+   <td class="td-center">
+     ${item.item_name || "Item"}
+  </td>
+
 
   <td class="td-center">
     ${item.uom || "Nos"}
   </td>
 
-  <td class="td-center">
-    ${ordered}
-  </td>
+
 
   <td class="td-packed ${packed < ordered ? "short" : "ok"}">
     ${packed}
@@ -1317,9 +1359,10 @@ ${css}
     <thead>
       <tr>
         <th style="width:32px">#</th>
-        <th>Description</th>
+        <th>Item Code</th>
+        <th>Item Name</th>
         <th style="width:70px">UOM</th>
-        <th style="width:80px">Ord Qty</th>
+
         <th style="width:90px">Packed Qty</th>
         <th style="width:28px"></th>
       </tr>
@@ -1331,13 +1374,10 @@ ${css}
 
     <tfoot>
       <tr>
-        <td colspan="3" style="text-align:right">
+        <td colspan="4" style="text-align:right">
           TOTAL
         </td>
 
-        <td class="td-center">
-          ${totalOrderedQty}
-        </td>
 
         <td class="td-center">
           ${totalPackedQty}
@@ -1428,6 +1468,8 @@ window.onload = async function () {
 
   toast.success("Packing slip sent to print");
 };
+
+
   const PackageCard = ({ pkg }: { pkg: OrderPackage }) => (
     <div className="flex items-start gap-3 p-4 border-b last:border-b-0 hover:bg-muted/30 transition-colors group">
       <Checkbox
@@ -1871,7 +1913,7 @@ window.onload = async function () {
                       ) : (
                         packableOrders.map((order) => (
                           <SelectItem key={order.id} value={order.id}>
-                            {order.orderNo || order.order_no} - {order.customer} ({order.status})
+                            {order.orderNo || order.order_no} - {order.customer}
                           </SelectItem>
                         ))
                       )}

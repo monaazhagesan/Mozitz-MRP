@@ -25,7 +25,6 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -42,11 +41,24 @@ import {
   TrendingDown,
   Package,
   CheckCircle2,
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  X,
+  GitBranch,
+
+  Info,
 } from "lucide-react";
+
+import { ClipboardList } from "lucide-react";
+
+// ─────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────
 
 type MRPItem = {
   id: string;
-   location_id: string | null; 
+  location_id: string | null;
   item_code: string;
   item_name: string;
   item_type: string | null;
@@ -58,7 +70,7 @@ type MRPItem = {
   safety_stock: number | null;
   reorder_point: number | null;
   lead_time_days: number | null;
-   unit_cost: number | null; // ✅ ADD THIS
+  unit_cost: number | null;
 };
 
 type Suggestion = "Sufficient" | "Below Reorder" | "Deficit";
@@ -71,6 +83,13 @@ interface ComputedRow extends MRPItem {
   flags: string[];
 }
 
+type BomRow = {
+  id: number;
+  component: string;
+  qty: number;
+  uom: string;
+};
+
 const NUMERIC_FIELDS: Array<keyof MRPItem> = [
   "on_hand",
   "allocated",
@@ -79,8 +98,35 @@ const NUMERIC_FIELDS: Array<keyof MRPItem> = [
   "safety_stock",
   "reorder_point",
   "lead_time_days",
-    "unit_cost", // ✅ ADD
+  "unit_cost",
 ];
+
+const TYPE_PREFIX: Record<string, string> = {
+  Material: "MAT",
+  Product: "PRD",
+  Component: "CMP",
+};
+
+const SAMPLE_COMPONENTS = [
+  "SKF Bearing 6205",
+  "Hydraulic Oil VG46",
+  "SS Sheet 304 2mm",
+  "Copper Wire 1.2mm",
+  "Gasket Set",
+  "O-Ring Kit",
+  "Pump Shaft 32mm",
+  "Motor Winding Copper",
+  "Steel Bolt M12 x 40",
+  "Rubber Seal 50mm",
+  "Impeller Casting",
+  "Housing Cap",
+];
+
+const UOM_OPTIONS = ["Nos", "Kg", "Ltr", "Mtr", "Set", "Box", "Pcs"];
+
+// ─────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────
 
 function compute(item: MRPItem): ComputedRow {
   const onHand = Number(item.on_hand ?? 0);
@@ -96,7 +142,8 @@ function compute(item: MRPItem): ComputedRow {
 
   let suggestion: Suggestion = "Sufficient";
   if (available < 0) suggestion = "Deficit";
-  else if (reorder != null && onHand < Number(reorder)) suggestion = "Below Reorder";
+  else if (reorder != null && onHand < Number(reorder))
+    suggestion = "Below Reorder";
 
   const flags: string[] = [];
   if (!item.item_code || !item.item_name) flags.push("Incomplete Record");
@@ -112,6 +159,20 @@ function compute(item: MRPItem): ComputedRow {
     flags,
   };
 }
+
+function generateItemCode(type: string, items: MRPItem[]) {
+  const prefix = TYPE_PREFIX[type] ?? "ITM";
+  const numbers = items
+    .filter((i) => i.item_code?.startsWith(prefix))
+    .map((i) => Number(i.item_code?.split("-")[1]))
+    .filter((n) => !isNaN(n));
+  const max = numbers.length ? Math.max(...numbers) : 0;
+  return `${prefix}-${String(max + 1).padStart(4, "0")}`;
+}
+
+// ─────────────────────────────────────────────
+// SMALL UI COMPONENTS
+// ─────────────────────────────────────────────
 
 function StockBar({ onHand, reorder }: { onHand: number; reorder: number | null }) {
   if (reorder == null || reorder <= 0) {
@@ -131,12 +192,98 @@ function StockBar({ onHand, reorder }: { onHand: number; reorder: number | null 
 }
 
 function SuggestionBadge({ s }: { s: Suggestion }) {
-  if (s === "Deficit")
-    return <Badge variant="destructive">Deficit</Badge>;
+  if (s === "Deficit") return <Badge variant="destructive">Deficit</Badge>;
   if (s === "Below Reorder")
     return <Badge className="bg-amber-500 hover:bg-amber-600 text-white">Below Reorder</Badge>;
   return <Badge className="bg-green-600 hover:bg-green-700 text-white">Sufficient</Badge>;
 }
+
+// Live preview pill used in the modal
+function LivePill({ oh, ss }: { oh: number; ss: number }) {
+  if (oh === 0)
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-red-100 text-red-800">
+        <X className="h-2.5 w-2.5" /> Out of stock
+      </span>
+    );
+  if (ss > 0 && oh <= ss)
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800">
+        <AlertTriangle className="h-2.5 w-2.5" /> Low stock
+      </span>
+    );
+  return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-green-100 text-green-800">
+      <Check className="h-2.5 w-2.5" /> Sufficient
+    </span>
+  );
+}
+
+// Stepper used in BOM step
+function Stepper({ step }: { step: 1 | 2 }) {
+  return (
+    <div className="flex items-center mb-5">
+      {/* Step 1 */}
+      <div className="flex items-center gap-2">
+        <div
+          className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-[11px] font-bold transition-all ${
+            step === 1
+              ? "border-green-600 text-green-600 bg-green-50"
+              : "border-green-600 bg-green-600 text-white"
+          }`}
+        >
+          {step === 2 ? <Check className="h-3 w-3" /> : "1"}
+        </div>
+        <div className="flex flex-col">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Step 1
+          </span>
+          <span
+            className={`text-xs font-semibold ${
+              step === 1 ? "text-green-600" : "text-foreground"
+            }`}
+          >
+            Item details
+          </span>
+        </div>
+      </div>
+      {/* Line */}
+      <div
+        className={`flex-1 h-px mx-3 transition-all ${
+          step === 2 ? "bg-green-600" : "bg-border"
+        }`}
+      />
+      {/* Step 2 */}
+      <div className="flex items-center gap-2">
+        <div
+          className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-[11px] font-bold transition-all ${
+            step === 2
+              ? "border-green-600 text-green-600 bg-green-50"
+              : "border-border text-muted-foreground bg-card"
+          }`}
+        >
+          2
+        </div>
+        <div className="flex flex-col">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Step 2
+          </span>
+          <span
+            className={`text-xs font-semibold ${
+              step === 2 ? "text-green-600" : "text-muted-foreground"
+            }`}
+          >
+            Bill of materials
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// ADD ITEM DIALOG  (the main converted modal)
+// ─────────────────────────────────────────────
 
 const emptyItem: Omit<MRPItem, "id"> = {
   item_code: "",
@@ -149,9 +296,822 @@ const emptyItem: Omit<MRPItem, "id"> = {
   safety_stock: null,
   reorder_point: null,
   lead_time_days: null,
-   unit_cost: null, // ✅ ADD
+  unit_cost: null,
+  location: null,
+  location_id: null,
 };
 
+type AddItemDialogProps = {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  isNew: boolean;
+  editing: MRPItem | null;
+  setEditing: React.Dispatch<React.SetStateAction<MRPItem | null>>;
+  items: MRPItem[];
+  locations: { id: string; location_name: string }[];
+  onSave: () => Promise<void>;
+};
+
+function AddItemDialog({
+  open,
+  onOpenChange,
+  isNew,
+  editing,
+  setEditing,
+  items,
+  locations,
+  onSave,
+}: AddItemDialogProps) {
+  // Which top-level tab: "new" | "stock"
+  const [mainTab, setMainTab] = useState<"new" | "stock">("new");
+  // Which step (only relevant for Product new items)
+  const [step, setStep] = useState<1 | 2>(1);
+  // BOM rows
+  const [bomRows, setBomRows] = useState<BomRow[]>([]);
+  const [simQty, setSimQty] = useState(1);
+  // Add-stock panel state
+  const [stockItem, setStockItem] = useState<{ cur: number; uom: string } | null>(null);
+  const [addQty, setAddQty] = useState(0);
+
+  const isProduct = editing?.item_type === "Product";
+
+  // Reset when dialog opens/closes
+  useEffect(() => {
+    if (open) {
+      setMainTab("new");
+      setStep(1);
+      setBomRows([]);
+      setSimQty(1);
+      setStockItem(null);
+      setAddQty(0);
+    }
+  }, [open]);
+
+  // Live preview calculations
+  const oh = Number(editing?.on_hand ?? 0);
+  const ss = Number(editing?.safety_stock ?? 0);
+  const available = Math.max(0, oh - ss);
+
+  // ── helpers ──────────────────────────────────
+
+  const addBomRow = () => {
+    setBomRows((prev) => [
+      ...prev,
+      { id: Date.now(), component: "", qty: 1, uom: "Nos" },
+    ]);
+  };
+
+  const updateBomRow = (id: number, field: keyof BomRow, value: string | number) => {
+    setBomRows((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, [field]: value } : r))
+    );
+  };
+
+  const removeBomRow = (id: number) => {
+    setBomRows((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const handleSubmit = async () => {
+    if (mainTab === "stock") {
+      onOpenChange(false);
+      return;
+    }
+    if (isProduct && step === 1) {
+      setStep(2);
+      return;
+    }
+    await onSave();
+  };
+
+  const handleTypeChange = (v: string) => {
+    if (!editing) return;
+    const shouldGenerate = isNew || !editing.item_code;
+    setEditing({
+      ...editing,
+      item_type: v,
+      item_code: shouldGenerate ? generateItemCode(v, items) : editing.item_code,
+    });
+  };
+
+  // Submit label / icon
+  const submitLabel = () => {
+    if (mainTab === "stock") return "Add stock";
+    if (isProduct && step === 1) return "Next: Map BOM";
+    if (isProduct && step === 2) return "Save item & BOM";
+    return isNew ? "Add item" : "Save";
+  };
+
+  const submitIcon = () => {
+    if (mainTab === "stock") return <Check className="h-4 w-4" />;
+    if (isProduct && step === 1) return <ArrowRight className="h-4 w-4" />;
+    return <Check className="h-4 w-4" />;
+  };
+
+  // ── dialog title + sub ────────────────────────
+
+  const dialogTitle = () => {
+    if (mainTab === "stock") return "Add stock";
+    if (step === 2) return "Bill of materials";
+    return isNew ? "Add item" : "Edit item";
+  };
+
+  const dialogSub = () => {
+    if (mainTab === "stock") return "Record a stock receipt for an existing item";
+    if (step === 2)
+      return `Step 2 of 2 — Mapping for: ${editing?.item_name || "Product"}`;
+    if (isProduct) return "Step 1 of 2 — Item details";
+    return isNew
+      ? "Type: Material — raw material for production"
+      : `Editing: ${editing?.item_code}`;
+  };
+
+  // ── render ────────────────────────────────────
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[93vh] overflow-hidden flex flex-col p-0 gap-0">
+        {/* ── HEADER ── */}
+        <div className="px-6 pt-5 pb-0 flex-shrink-0">
+          {/* Title row */}
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-9 h-9 rounded-lg bg-green-50 text-green-700 flex items-center justify-center flex-shrink-0">
+              {mainTab === "stock" ? (
+                <Plus className="h-4 w-4" />
+              ) : step === 2 ? (
+                <GitBranch className="h-4 w-4" />
+              ) : (
+                <Package className="h-4 w-4" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <DialogTitle className="text-base font-bold leading-tight">
+                {dialogTitle()}
+              </DialogTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">{dialogSub()}</p>
+            </div>
+          </div>
+
+          {/* Main tabs */}
+          <div className="flex border-b border-border -mx-0">
+            {(["new", "stock"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => {
+                  setMainTab(t);
+                  setStep(1);
+                }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-[13px] font-medium border-b-2 -mb-px transition-all ${
+                  mainTab === t
+                    ? "border-green-600 text-green-700"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t === "new" ? (
+                  <>
+                    <Plus className="h-3.5 w-3.5" /> New item
+                  </>
+                ) : (
+                  <>
+                    <ArrowRight className="h-3.5 w-3.5" /> Add stock
+                  </>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ── BODY ── */}
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {/* ════ NEW ITEM — STEP 1 ════ */}
+          {mainTab === "new" && step === 1 && editing && (
+            <div>
+              {/* Stepper (only for Product) */}
+              {isProduct && <Stepper step={1} />}
+
+              {/* Live preview bar */}
+              <div className="flex items-center gap-4 flex-wrap bg-muted/40 border border-border rounded-lg px-4 py-2.5 mb-5 text-sm">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Live preview
+                </span>
+                <span>
+                  Available:{" "}
+                  <span className="font-semibold">{available}</span>
+                </span>
+                <LivePill oh={oh} ss={ss} />
+              </div>
+
+              {/* Section: Basic info */}
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">
+                <Info className="h-3 w-3" /> Basic info
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                {/* Item code (readonly) */}
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Item code
+                  </Label>
+                  <Input
+                    value={editing.item_code}
+                    disabled
+                    className="bg-muted opacity-80 cursor-not-allowed"
+                  />
+                </div>
+
+                {/* Item name */}
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Item name <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    value={editing.item_name}
+                    placeholder="e.g. Pump Assembly Unit"
+                    onChange={(e) =>
+                      setEditing({ ...editing, item_name: e.target.value })
+                    }
+                  />
+                </div>
+
+                {/* Type */}
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Type <span className="text-destructive">*</span>
+                  </Label>
+                  <Select
+                    value={editing.item_type ?? "Material"}
+                    onValueChange={handleTypeChange}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Material">Material</SelectItem>
+                      <SelectItem value="Product">Product (manufactured)</SelectItem>
+                      <SelectItem value="Component">Component</SelectItem>
+                      <SelectItem value="N/A">N/A</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* On hand */}
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    On hand qty <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    type="number"
+                    value={editing.on_hand}
+                    onChange={(e) =>
+                      setEditing({ ...editing, on_hand: Number(e.target.value) })
+                    }
+                  />
+                </div>
+
+                {/* Unit cost */}
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Unit cost (₹)
+                  </Label>
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    value={editing.unit_cost ?? ""}
+                    onChange={(e) =>
+                      setEditing({
+                        ...editing,
+                        unit_cost: e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
+                  />
+                </div>
+
+                {/* Location */}
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Location <span className="text-destructive">*</span>
+                  </Label>
+                  <Select
+                    value={editing.location_id || ""}
+                    onValueChange={(value) => {
+                      const selectedLoc = locations.find((l) => l.id === value);
+                      setEditing({
+                        ...editing,
+                        location_id: value,
+                        location: selectedLoc?.location_name || "",
+                      });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select location" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {locations.map((loc) => (
+                        <SelectItem key={loc.id} value={loc.id}>
+                          {loc.location_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div className="border-t border-border my-4" />
+
+              {/* Section: Reorder settings */}
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">
+                <Calculator className="h-3 w-3" /> Reorder settings
+                <span className="ml-1 text-[10px] font-medium text-muted-foreground bg-muted border border-border rounded-full px-2 py-0.5 normal-case tracking-normal">
+                  optional
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {/* Safety stock */}
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Safety stock
+                  </Label>
+                  <Input
+                    type="number"
+                    placeholder="e.g. 10"
+                    value={editing.safety_stock ?? ""}
+                    onChange={(e) =>
+                      setEditing({
+                        ...editing,
+                        safety_stock:
+                          e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Buffer qty — triggers reorder before hitting 0
+                  </span>
+                </div>
+
+                {/* Reorder point */}
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Reorder point
+                  </Label>
+                  <Input
+                    type="number"
+                    placeholder="e.g. 20"
+                    value={editing.reorder_point ?? ""}
+                    onChange={(e) =>
+                      setEditing({
+                        ...editing,
+                        reorder_point:
+                          e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Stock level that auto-raises a Purchase Request
+                  </span>
+                </div>
+
+                {/* Lead time */}
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Lead time (days)
+                  </Label>
+                  <Input
+                    type="number"
+                    placeholder="e.g. 7"
+                    value={editing.lead_time_days ?? ""}
+                    onChange={(e) =>
+                      setEditing({
+                        ...editing,
+                        lead_time_days:
+                          e.target.value === "" ? null : Number(e.target.value),
+                      })
+                    }
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Days from order placed to stock arriving
+                  </span>
+                </div>
+
+                {/* Remaining numeric fields (allocated, bom_req, open_po) */}
+                {(["allocated", "bom_req", "open_po"] as Array<keyof MRPItem>).map(
+                  (f) => (
+                    <div key={f} className="flex flex-col gap-1">
+                      <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground capitalize">
+                        {String(f).replace(/_/g, " ")}
+                      </Label>
+                      <Input
+                        type="number"
+                        value={editing[f] == null ? "" : String(editing[f])}
+                        onChange={(e) => {
+                          const v =
+                            e.target.value === "" ? null : Number(e.target.value);
+                          setEditing({ ...editing, [f]: v as number });
+                        }}
+                      />
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ════ NEW ITEM — STEP 2 (BOM) — Product only ════ */}
+          {mainTab === "new" && step === 2 && editing && (
+            <div>
+              <Stepper step={2} />
+
+              {/* Product context banner */}
+              <div className="flex items-start gap-2.5 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 mb-4 text-[12px] text-blue-900">
+                <GitBranch className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span>
+                  Enter how many of each component is needed to make{" "}
+                  <strong>1 unit</strong> of{" "}
+                  <strong>{editing.item_name || "Product"}</strong>.{" "}
+                  <span className="opacity-70">
+                    e.g. Gearbox → Gear ×2, Bolt ×20, Bearing ×4, Shaft ×1
+                  </span>
+                </span>
+              </div>
+
+              {/* Production qty simulator */}
+              <div className="flex items-center justify-between flex-wrap gap-3 bg-muted/40 border border-border rounded-lg px-4 py-2.5 mb-4">
+                <div className="flex items-center gap-2 flex-wrap text-sm">
+                  <Calculator className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">
+                    Simulate production of
+                  </span>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={simQty}
+                    onChange={(e) =>
+                      setSimQty(Math.max(1, Number(e.target.value) || 1))
+                    }
+                    className="w-16 h-8 text-center font-bold text-green-800 bg-green-50 border-green-400 text-sm"
+                  />
+                  <span className="text-muted-foreground">
+                    unit(s) of{" "}
+                    <strong>{editing.item_name || "Product"}</strong>
+                  </span>
+                </div>
+                <span className="text-[11px] text-muted-foreground italic">
+                  ↑ change to preview total material needed
+                </span>
+              </div>
+
+              {/* BOM Section label */}
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">
+                <ClipboardList className="h-3 w-3" /> Components
+              </div>
+
+              {/* BOM table header */}
+              <div className="grid gap-2 px-3 py-2 bg-muted/40 border border-border rounded-t-lg border-b-0 text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
+                style={{ gridTemplateColumns: "1fr 96px 70px 88px 34px" }}>
+                <span>Component / Material</span>
+                <span className="text-center leading-tight">
+                  Qty per assy<br />
+                  <span className="text-[9px] font-normal normal-case tracking-normal text-muted-foreground">
+                    e.g. Gear=2, Bolt=20
+                  </span>
+                </span>
+                <span>UOM</span>
+                <span className="text-center">Total (×{simQty})</span>
+                <span />
+              </div>
+
+              {/* BOM rows */}
+              <div className="border border-border rounded-b-lg overflow-hidden">
+                {bomRows.length === 0 ? (
+                  <div className="py-8 text-center text-muted-foreground text-sm border-t border-border">
+                    <GitBranch className="h-6 w-6 mx-auto mb-2 opacity-30" />
+                    No components yet. Click <strong>Add component</strong> below to start building the BOM.
+                  </div>
+                ) : (
+                  bomRows.map((row) => {
+                    const total = row.qty * simQty;
+                    const fmt = Number.isInteger(total)
+                      ? String(total)
+                      : total.toFixed(3).replace(/\.?0+$/, "");
+                    return (
+                      <div
+                        key={row.id}
+                        className="grid items-center gap-2 px-3 py-2 border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors"
+                        style={{ gridTemplateColumns: "1fr 96px 70px 88px 34px" }}
+                      >
+                        {/* Component select */}
+                        <Select
+                          value={row.component}
+                          onValueChange={(v) => updateBomRow(row.id, "component", v)}
+                        >
+                          <SelectTrigger className="h-8 text-sm">
+                            <SelectValue placeholder="Select component…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {SAMPLE_COMPONENTS.map((c) => (
+                              <SelectItem key={c} value={c}>
+                                {c}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+
+                        {/* Qty per assy */}
+                        <Input
+                          type="number"
+                          min={0.001}
+                          step={1}
+                          value={row.qty}
+                          onChange={(e) =>
+                            updateBomRow(
+                              row.id,
+                              "qty",
+                              Number(e.target.value) || 0
+                            )
+                          }
+                          className="h-8 text-center font-bold text-green-800 bg-green-50 border-green-300 text-sm"
+                        />
+
+                        {/* UOM */}
+                        <Select
+                          value={row.uom}
+                          onValueChange={(v) => updateBomRow(row.id, "uom", v)}
+                        >
+                          <SelectTrigger className="h-8 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {UOM_OPTIONS.map((u) => (
+                              <SelectItem key={u} value={u}>
+                                {u}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+
+                        {/* Total */}
+                        <div className="text-[12px] font-bold text-green-800 bg-green-50 border border-green-200 rounded px-2 py-1 text-center whitespace-nowrap overflow-hidden text-ellipsis">
+                          {fmt} {row.uom}
+                        </div>
+
+                        {/* Delete */}
+                        <button
+                          onClick={() => removeBomRow(row.id)}
+                          className="w-7 h-7 flex items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-red-50 hover:border-red-200 hover:text-destructive transition-all"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Add component btn */}
+              <button
+                onClick={addBomRow}
+                className="inline-flex items-center gap-1.5 px-3 h-8 mt-3 rounded-lg border border-dashed border-border bg-muted/20 text-muted-foreground text-xs font-medium hover:border-green-500 hover:text-green-700 hover:bg-green-50 transition-all"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add component
+              </button>
+
+              {/* BOM summary */}
+              {bomRows.length > 0 && (
+                <div className="flex items-center gap-4 mt-4 bg-muted/40 border border-border rounded-lg px-4 py-3 text-sm">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Components
+                    </span>
+                    <span className="text-base font-bold">{bomRows.length}</span>
+                  </div>
+                  <div className="w-px h-8 bg-border" />
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Producing
+                    </span>
+                    <span className="text-base font-bold">{simQty} unit(s)</span>
+                  </div>
+                  <div className="w-px h-8 bg-border" />
+                  <p className="text-[12px] text-muted-foreground leading-relaxed flex-1">
+                    Total column = qty per assy × production qty.
+                    <br />
+                    BOM can be edited later from <strong>Item Settings → BOM.</strong>
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ════ ADD STOCK PANEL ════ */}
+          {mainTab === "stock" && (
+            <div>
+              {/* Stock preview bar */}
+              <div className="flex items-center gap-4 flex-wrap bg-muted/40 border border-border rounded-lg px-4 py-2.5 mb-5 text-sm">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Stock preview
+                </span>
+                <span>
+                  Current:{" "}
+                  <span className="font-semibold">
+                    {stockItem != null ? stockItem.cur : "—"}
+                  </span>
+                </span>
+                <span>
+                  Adding: <span className="font-semibold">{addQty}</span>
+                </span>
+                <span>
+                  New total:{" "}
+                  <span className="font-semibold">
+                    {stockItem != null ? stockItem.cur + addQty : "—"}
+                  </span>
+                </span>
+              </div>
+
+              {/* Select item */}
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">
+                <Search className="h-3 w-3" /> Select item
+              </div>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Item <span className="text-destructive">*</span>
+                  </Label>
+                  <Select
+                    onValueChange={(v) => {
+                      const [cur] = v.split("|");
+                      setStockItem({ cur: Number(cur), uom: "Nos" });
+                      setAddQty(0);
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Search or select…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="128|Nos">MAT-0001 — SKF Bearing 6205</SelectItem>
+                      <SelectItem value="120|Ltr">MAT-0045 — Hydraulic Oil VG46</SelectItem>
+                      <SelectItem value="0|Kg">MAT-0078 — SS Sheet 304 2mm</SelectItem>
+                      <SelectItem value="450|Kg">MAT-0091 — Copper Wire 1.2mm</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Qty to add <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={addQty}
+                    onChange={(e) => setAddQty(Math.max(0, Number(e.target.value)))}
+                  />
+                </div>
+              </div>
+
+              {/* Out-of-stock warning */}
+              {stockItem?.cur === 0 && (
+                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 text-[12px] text-amber-900">
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  <span>
+                    This item is currently <strong>out of stock.</strong> Adding stock
+                    will update available quantity immediately.
+                  </span>
+                </div>
+              )}
+
+              {/* Stock breakdown */}
+              <div className="border border-border rounded-lg overflow-hidden mb-4">
+                {[
+                  { label: "Current on hand", value: stockItem != null ? stockItem.cur : "—" },
+                  {
+                    label: "Quantity being added",
+                    value: `+${addQty}`,
+                    className: "text-green-700 font-semibold",
+                  },
+                  {
+                    label: "New on hand total",
+                    value: stockItem != null ? stockItem.cur + addQty : "—",
+                    bold: true,
+                  },
+                ].map(({ label, value, className, bold }) => (
+                  <div
+                    key={label}
+                    className={`flex justify-between items-center px-4 py-2.5 border-b border-border last:border-b-0 text-sm ${bold ? "font-semibold" : ""}`}
+                  >
+                    <span className="text-muted-foreground text-xs">{label}</span>
+                    <span className={className}>{value}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="border-t border-border my-4" />
+
+              {/* Receipt details */}
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">
+                <ClipboardList className="h-3 w-3" /> Receipt details
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Receipt type <span className="text-destructive">*</span>
+                  </Label>
+                  <Select>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="grn">Purchase receipt (GRN)</SelectItem>
+                      <SelectItem value="opening">Opening stock</SelectItem>
+                      <SelectItem value="return">Return from production</SelectItem>
+                      <SelectItem value="transfer">Transfer in</SelectItem>
+                      <SelectItem value="adjustment">Adjustment — surplus</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Receipt date <span className="text-destructive">*</span>
+                  </Label>
+                  <Input type="date" />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    PO / GRN reference
+                  </Label>
+                  <Input placeholder="e.g. PO-2024-0156" />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Unit cost (₹)
+                  </Label>
+                  <Input type="number" placeholder="0.00" min={0} />
+                </div>
+                <div className="flex flex-col gap-1 col-span-2">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Location <span className="text-destructive">*</span>
+                  </Label>
+                  <Select>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select location" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {locations.map((loc) => (
+                        <SelectItem key={loc.id} value={loc.id}>
+                          {loc.location_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── FOOTER ── */}
+        <div className="px-6 py-3.5 border-t border-border flex items-center justify-between flex-shrink-0">
+          {/* Left info */}
+          <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Info className="h-3.5 w-3.5" />
+            {isProduct && step === 1
+              ? <>Type set to <strong className="text-foreground">Product</strong> — BOM mapping on next step</>
+              : step === 2
+              ? "You can edit this BOM later from Item Settings"
+              : <>Fields marked <span className="text-destructive font-bold">*</span> are required</>}
+          </span>
+
+          {/* Right buttons */}
+          <div className="flex items-center gap-2">
+            {/* Back btn — step 2 only */}
+            {step === 2 && mainTab === "new" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setStep(1)}
+              >
+                <ArrowLeft className="h-4 w-4 mr-1" /> Back
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="bg-green-700 hover:bg-green-800 text-white"
+              onClick={handleSubmit}
+            >
+              {submitIcon()}
+              <span className="ml-1.5">{submitLabel()}</span>
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─────────────────────────────────────────────
+// MAIN MRP PLANNER TAB
+// ─────────────────────────────────────────────
 
 export default function MRPPlannerTab() {
   const [items, setItems] = useState<MRPItem[]>([]);
@@ -165,126 +1125,53 @@ export default function MRPPlannerTab() {
   const [editing, setEditing] = useState<MRPItem | null>(null);
   const [isNew, setIsNew] = useState(false);
 
-  const [locations, setLocations] = useState<
-  { id: string; location_name: string }[]
->([]);
+  const [locations, setLocations] = useState<{ id: string; location_name: string }[]>([]);
 
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get("/api/inventory-stock");
+      const data = res.data?.items ?? [];
+      const mapped: MRPItem[] = data.map((r: any) => ({
+        id: r.id,
+        item_code: r.itemCode ?? r.item_code ?? "",
+        item_name: r.itemName ?? r.item_name ?? "",
+        item_type: r.item_type ?? "N/A",
+        location: r.location ?? "Default",
+        location_id: r.location_id ?? null,
+        on_hand: Number(r.quantityOnHand ?? r.quantity_on_hand ?? 0),
+        allocated: Number(r.allocatedQuantity ?? r.allocated_quantity ?? 0),
+        bom_req: Number(r.committedQuantity ?? r.committed_quantity ?? 0),
+        open_po: Number(r.open_po ?? 0),
+        safety_stock: Number(r.safety_stock ?? r.safetyStock ?? r.safety_stock_qty ?? 0),
+        reorder_point: Number(r.reorderPoint ?? r.reorder_point ?? 0),
+        lead_time_days: Number(r.leadTimeDays ?? r.lead_time_days ?? 0),
+        unit_cost: Number(r.unit_cost ?? r.unitCost ?? 0),
+      }));
+      setItems(mapped);
+    } catch (error) {
+      toast.error("Failed to load inventory data");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-
-const TYPE_PREFIX: Record<string, string> = {
-  Material: "MAT",
-  Product: "PRD",
-  Component: "CMP",
-};
-
-function generateItemCode(type: string, items: MRPItem[]) {
-  const prefix = TYPE_PREFIX[type] ?? "ITM";
-
-  const numbers = items
-    .filter((i) => i.item_code?.startsWith(prefix))
-    .map((i) => {
-      const num = i.item_code?.split("-")[1];
-      return Number(num);
-    })
-    .filter((n) => !isNaN(n));
-
-  const max = numbers.length ? Math.max(...numbers) : 0;
-
-  const next = String(max + 1).padStart(4, "0");
-
-  return `${prefix}-${next}`;
-}
-
-const fetchData = async () => {
-  setLoading(true);
-
-  try {
-    console.log("🚀 Fetching inventory-stock...");
-
-    const res = await axios.get("/api/inventory-stock");
-
-    console.log("📦 RAW RESPONSE:", res.data);
-
-    const data = res.data?.items ?? [];
-
-    console.log("📊 ITEMS:", data);
-
-    // ✅ FIX: correct field mapping (IMPORTANT)
-   const mapped: MRPItem[] = data.map((r: any) => ({
-  id: r.id,
-
-  item_code: r.itemCode ?? r.item_code ?? "",
-  item_name: r.itemName ?? r.item_name ?? "",
-  item_type: r.item_type ?? "N/A",
-
-   location: r.location ?? "Default",
-     location_id: r.location_id ?? null,  
-
-  on_hand: Number(
-    r.quantityOnHand ?? r.quantity_on_hand ?? 0
-  ),
-
-  allocated: Number(
-    r.allocatedQuantity ?? r.allocated_quantity ?? 0
-  ),
-
-  bom_req: Number(
-    r.committedQuantity ?? r.committed_quantity ?? 0
-  ),
-
-  // ✅ IMPORTANT FIX: ensure fallback 0 not null
- open_po: Number(r.open_po ?? 0),
- 
- safety_stock: Number(
-  r.safety_stock ??
-  r.safetyStock ??
-  r.safety_stock_qty ??
-  0
-),
-
-  reorder_point: Number(
-    r.reorderPoint ?? r.reorder_point ?? 0
-  ),
-
-  lead_time_days: Number(
-    r.leadTimeDays ?? r.lead_time_days ?? 0
-  ),
-
-  unit_cost: Number(r.unit_cost ?? r.unitCost ?? 0), // ✅ ADD
-}));
-    console.log("✅ FINAL DATA:", mapped);
-
-    setItems(mapped);
-  } catch (error) {
-    console.error("❌ ERROR:", error);
-    toast.error("Failed to load inventory data");
-  } finally {
-    setLoading(false);
-  }
-};
   useEffect(() => {
     fetchData();
   }, []);
 
-
   useEffect(() => {
-  const fetchLocations = async () => {
-    try {
-      const res = await axios.get("/api/locations");
-
-      const data = Array.isArray(res.data)
-        ? res.data
-        : res.data?.data || [];
-
-      setLocations(data);
-    } catch (error) {
-      console.error("Failed to load locations", error);
-      toast.error("Failed to load locations");
-    }
-  };
-
-  fetchLocations();
-}, []);
+    const fetchLocations = async () => {
+      try {
+        const res = await axios.get("/api/locations");
+        const data = Array.isArray(res.data) ? res.data : res.data?.data || [];
+        setLocations(data);
+      } catch {
+        toast.error("Failed to load locations");
+      }
+    };
+    fetchLocations();
+  }, []);
 
   const computed = useMemo(() => items.map(compute), [items]);
 
@@ -292,10 +1179,7 @@ const fetchData = async () => {
     return computed.filter((r) => {
       if (search) {
         const s = search.toLowerCase();
-        if (
-          !r.item_code.toLowerCase().includes(s) &&
-          !r.item_name.toLowerCase().includes(s)
-        )
+        if (!r.item_code.toLowerCase().includes(s) && !r.item_name.toLowerCase().includes(s))
           return false;
       }
       if (typeFilter !== "all" && (r.item_type ?? "N/A") !== typeFilter) return false;
@@ -304,43 +1188,26 @@ const fetchData = async () => {
     });
   }, [computed, search, typeFilter, statusFilter]);
 
-  const stats = useMemo(() => {
-    return {
-      total: computed.length,
-      deficit: computed.filter((c) => c.suggestion === "Deficit").length,
-      below: computed.filter((c) => c.suggestion === "Below Reorder").length,
-      flagged: computed.filter((c) => c.flags.length > 0).length,
-    };
-  }, [computed]);
+  const stats = useMemo(() => ({
+    total: computed.length,
+    deficit: computed.filter((c) => c.suggestion === "Deficit").length,
+    below: computed.filter((c) => c.suggestion === "Below Reorder").length,
+    flagged: computed.filter((c) => c.flags.length > 0).length,
+  }), [computed]);
 
-
-const persistField = async (
-  id: string,
-  dbField: string,
-  value: number | null
-) => {
-  try {
-    await axios.patch(`/api/inventory-stock/${id}`, {
-      [dbField]: value,
-    });
-
-    toast.success("Updated");
-  } catch (error: any) {
-    console.error("Update failed:", error);
-
-    toast.error("Update failed");
-
-    // reload data to keep UI consistent
-    fetchData();
-  }
-};
+  const persistField = async (id: string, dbField: string, value: number | null) => {
+    try {
+      await axios.patch(`/api/inventory-stock/${id}`, { [dbField]: value });
+      toast.success("Updated");
+    } catch {
+      toast.error("Update failed");
+      fetchData();
+    }
+  };
 
   const handleInlineEdit = async (id: string, field: keyof MRPItem, raw: string) => {
     const val = raw.trim() === "" ? null : Number(raw);
-    if (val != null && Number.isNaN(val)) {
-      toast.error("Invalid number");
-      return;
-    }
+    if (val != null && Number.isNaN(val)) { toast.error("Invalid number"); return; }
     const dbMap: Record<string, string> = {
       on_hand: "quantity_on_hand",
       allocated: "allocated_quantity",
@@ -348,13 +1215,11 @@ const persistField = async (
       safety_stock: "safety_stock",
       reorder_point: "reorder_point",
       lead_time_days: "lead_time_days",
-       unit_cost: "unit_cost", // ✅ ADD
+      unit_cost: "unit_cost",
     };
     const dbField = dbMap[field as string];
     if (!dbField) return;
-    setItems((prev) =>
-      prev.map((it) => (it.id === id ? { ...it, [field]: val ?? 0 } : it))
-    );
+    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, [field]: val ?? 0 } : it)));
     await persistField(id, dbField, val);
   };
 
@@ -371,7 +1236,7 @@ const persistField = async (
       safety_stock: row.safety_stock,
       reorder_point: row.reorder_point,
       lead_time_days: row.lead_time_days,
-       unit_cost: row.unit_cost, // ✅ ADD THIS
+      unit_cost: row.unit_cost,
       location: row.location,
       location_id: row.location_id ? String(row.location_id) : null,
     });
@@ -379,120 +1244,82 @@ const persistField = async (
     setEditOpen(true);
   };
 
- const openAdd = () => {
-  const defaultType = "Material";
+  const openAdd = () => {
+    const defaultType = "Material";
+    setEditing({
+      id: "",
+      ...emptyItem,
+      item_type: defaultType,
+      item_code: generateItemCode(defaultType, items),
+    });
+    setIsNew(true);
+    setEditOpen(true);
+  };
 
-  setEditing({
-    id: "",
-    ...emptyItem,
-    item_type: defaultType,
-    item_code: generateItemCode(defaultType, items),
-  });
-
-  setIsNew(true);
-  setEditOpen(true);
-};
-
-
-// CREATE / UPDATE
-const saveEdit = async () => {
-  if (!editing) return;
-
-  if (!editing.item_code || !editing.item_name) {
-    toast.error("Item code and name are required");
-    return;
-  }
-
- const payload = {
-  item_code: editing.item_code?.trim() || null,
-  item_name: editing.item_name?.trim(),
-  item_type: editing.item_type || "Product",
-
-  location: editing.location?.trim() || "Default",
-  location_id: editing.location_id,
-  open_po: Number(editing.open_po ?? 0), 
-
-  quantity_on_hand: Number(editing.on_hand ?? 0),
-  allocated_quantity: Number(editing.allocated ?? 0),
-   available_quantity:
-    Number(editing.on_hand ?? 0) - Number(editing.allocated ?? 0),
-  committed_quantity: Number(editing.bom_req ?? 0),
-
-  safety_stock: Number(editing.safety_stock ?? 0),
-  reorder_point: Number(editing.reorder_point ?? 0),
-  lead_time_days: Number(editing.lead_time_days ?? 0),
-  unit_cost: Number(editing.unit_cost ?? 0),
-};
-
-console.log("🚀 SAVE PAYLOAD111:", payload);
-
-  try {
-    let res;
-
-    if (isNew) {
-      // CREATE
-      res = await axios.post("/api/inventory-stock", payload);
-      toast.success("Item added successfully");
-    } else {
-      // UPDATE
-      res = await axios.put(
-        `/api/inventory-stock/${editing.id}`,
-        payload
-      );
-      toast.success("Item updated successfully");
+  const saveEdit = async () => {
+    if (!editing) return;
+    if (!editing.item_code || !editing.item_name) {
+      toast.error("Item code and name are required");
+      return;
     }
+    const payload = {
+      item_code: editing.item_code?.trim() || null,
+      item_name: editing.item_name?.trim(),
+      item_type: editing.item_type || "Product",
+      location: editing.location?.trim() || "Default",
+      location_id: editing.location_id,
+      open_po: Number(editing.open_po ?? 0),
+      quantity_on_hand: Number(editing.on_hand ?? 0),
+      allocated_quantity: Number(editing.allocated ?? 0),
+      available_quantity: Number(editing.on_hand ?? 0) - Number(editing.allocated ?? 0),
+      committed_quantity: Number(editing.bom_req ?? 0),
+      safety_stock: Number(editing.safety_stock ?? 0),
+      reorder_point: Number(editing.reorder_point ?? 0),
+      lead_time_days: Number(editing.lead_time_days ?? 0),
+      unit_cost: Number(editing.unit_cost ?? 0),
+    };
+    try {
+      if (isNew) {
+        await axios.post("/api/inventory-stock", payload);
+        toast.success("Item added successfully");
+      } else {
+        await axios.put(`/api/inventory-stock/${editing.id}`, payload);
+        toast.success("Item updated successfully");
+      }
+      setEditOpen(false);
+      fetchData();
+    } catch (error: any) {
+      toast.error(
+        error?.response?.data?.message ||
+        JSON.stringify(error?.response?.data?.errors) ||
+        "Save failed"
+      );
+    }
+  };
 
-    setEditOpen(false);
-    fetchData();
-    return res.data;
+  const deleteItem = async (id: string) => {
+    if (!confirm("Delete this item?")) return;
+    try {
+      await axios.delete(`/api/inventory-stock/${id}`);
+      toast.success("Deleted");
+      fetchData();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || "Delete failed");
+    }
+  };
 
-  } catch (error: any) {
-  console.error("FULL ERROR:", error.response?.data);
-
-  toast.error(
-    error?.response?.data?.message ||
-    JSON.stringify(error?.response?.data?.errors) ||
-    "Save failed"
-  );
-}
-};
-
-// DELETE SINGLE
-const deleteItem = async (id: string) => {
-  if (!confirm("Delete this item?")) return;
-
-  try {
-    await axios.delete(`/api/inventory-stock/${id}`);
-    toast.success("Deleted");
-    fetchData();
-  } catch (error: any) {
-    console.error("Delete error:", error);
-    toast.error(error?.response?.data?.message || "Delete failed");
-  }
-};
-
-// BULK DELETE
-const bulkDelete = async () => {
-  if (selected.size === 0) return;
-
-  if (!confirm(`Delete ${selected.size} item(s)?`)) return;
-
-  try {
-    // Option 1: loop (works immediately with your current API)
-    await Promise.all(
-      Array.from(selected).map((id) =>
-        axios.delete(`/api/inventory-stock/${id}`)
-      )
-    );
-
-    toast.success(`${selected.size} item(s) deleted`);
-    setSelected(new Set());
-    fetchData();
-  } catch (error: any) {
-    console.error("Bulk delete error:", error);
-    toast.error("Bulk delete failed");
-  }
-};
+  const bulkDelete = async () => {
+    if (selected.size === 0) return;
+    if (!confirm(`Delete ${selected.size} item(s)?`)) return;
+    try {
+      await Promise.all(Array.from(selected).map((id) => axios.delete(`/api/inventory-stock/${id}`)));
+      toast.success(`${selected.size} item(s) deleted`);
+      setSelected(new Set());
+      fetchData();
+    } catch {
+      toast.error("Bulk delete failed");
+    }
+  };
 
   const exportCsv = () => {
     const headers = [
@@ -528,7 +1355,6 @@ const bulkDelete = async () => {
   const InlineNumber = ({
     row,
     field,
-    nullable = false,
   }: {
     row: ComputedRow;
     field: keyof MRPItem;
@@ -548,7 +1374,11 @@ const bulkDelete = async () => {
           className="w-full text-left px-1 py-0.5 rounded hover:bg-muted/60 transition"
           title="Double-click to edit"
         >
-          {row[field] == null ? <span className="text-muted-foreground">—</span> : String(row[field])}
+          {row[field] == null ? (
+            <span className="text-muted-foreground">—</span>
+          ) : (
+            String(row[field])
+          )}
         </button>
       );
     }
@@ -558,10 +1388,7 @@ const bulkDelete = async () => {
         type="number"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        onBlur={() => {
-          setEditing(false);
-          handleInlineEdit(row.id, field, value);
-        }}
+        onBlur={() => { setEditing(false); handleInlineEdit(row.id, field, value); }}
         onKeyDown={(e) => {
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           if (e.key === "Escape") setEditing(false);
@@ -621,19 +1448,16 @@ const bulkDelete = async () => {
                     checked={selected.has(r.id)}
                     onCheckedChange={(v) => {
                       const next = new Set(selected);
-                      if (v) next.add(r.id);
-                      else next.delete(r.id);
+                      if (v) next.add(r.id); else next.delete(r.id);
                       setSelected(next);
                     }}
                   />
                 </TableCell>
                 <TableCell className="font-medium text-muted-foreground">
-  <span className="select-none opacity-80">{r.item_code}</span>
-</TableCell>
-                <TableCell>{r.item_name}</TableCell>
-                <TableCell>
-                  <Badge variant="outline">{r.item_type ?? "N/A"}</Badge>
+                  <span className="select-none opacity-80">{r.item_code}</span>
                 </TableCell>
+                <TableCell>{r.item_name}</TableCell>
+                <TableCell><Badge variant="outline">{r.item_type ?? "N/A"}</Badge></TableCell>
                 <TableCell className="text-right"><InlineNumber row={r} field="on_hand" /></TableCell>
                 <TableCell className="text-right"><InlineNumber row={r} field="allocated" /></TableCell>
                 <TableCell className={`text-right font-semibold ${r.available < 0 ? "text-destructive" : ""}`}>
@@ -766,7 +1590,7 @@ const bulkDelete = async () => {
         </Button>
       </div>
 
-      {/* 3 Tabs */}
+      {/* Tabs */}
       <Tabs defaultValue="inventory">
         <TabsList>
           <TabsTrigger value="inventory">Inventory</TabsTrigger>
@@ -813,117 +1637,17 @@ const bulkDelete = async () => {
         </TabsContent>
       </Tabs>
 
-      {/* Edit/Add modal */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{isNew ? "Add Item" : "Edit Item"}</DialogTitle>
-            <DialogDescription>
-              {editing && (
-                <span>
-                  Live preview — Available:{" "}
-                  <strong>{compute(editing).available}</strong>, Net Req:{" "}
-                  <strong>{compute(editing).net_requirement}</strong>,{" "}
-                  <SuggestionBadge s={compute(editing).suggestion} />
-                </span>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          {editing && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Item Code *</Label>
-                <Input
-  value={editing.item_code}
-  disabled
-  className="bg-muted opacity-80 cursor-not-allowed"
-/>
-              </div>
-              <div>
-                <Label>Item Name *</Label>
-                <Input
-                  value={editing.item_name}
-                  onChange={(e) => setEditing({ ...editing, item_name: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label>Type</Label>
-                <Select
-  value={editing.item_type ?? "Material"}
-  onValueChange={(v) => {
-    setEditing((prev) => {
-      if (!prev) return prev;
-
-      const shouldGenerate = isNew || !prev.item_code;
-
-      return {
-        ...prev,
-        item_type: v,
-        item_code: shouldGenerate
-          ? generateItemCode(v, items)
-          : prev.item_code,
-      };
-    });
-  }}
->
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Material">Material</SelectItem>
-                    <SelectItem value="Product">Product</SelectItem>
-                    <SelectItem value="Component">Component</SelectItem>
-                    <SelectItem value="N/A">N/A</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {NUMERIC_FIELDS.map((f) => (
-                <div key={f}>
-                  <Label className="capitalize">{f.replace(/_/g, " ")}</Label>
-                  <Input
-                    type="number"
-                    value={editing[f] == null ? "" : String(editing[f])}
-                    onChange={(e) => {
-                      const v = e.target.value === "" ? null : Number(e.target.value);
-                      setEditing({ ...editing, [f]: v as any });
-                    }}
-                  />
-                </div>
-              ))}
-               <div>
-  <Label>Location</Label>
-
-  <Select
-    value={editing.location_id || ""}
-    onValueChange={(value) => {
-      const selectedLoc = locations.find((l) => l.id === value);
-
-      setEditing((prev) => ({
-        ...prev!,
-        location_id: value,
-        location: selectedLoc?.location_name || "",
-      }));
-    }}
-  >
-    <SelectTrigger>
-      <SelectValue placeholder="Select location" />
-    </SelectTrigger>
-
-    <SelectContent>
-      {locations.map((loc) => (
-        <SelectItem key={loc.id} value={loc.id}>
-          {loc.location_name}
-        </SelectItem>
-      ))}
-    </SelectContent>
-  </Select>
-</div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button onClick={saveEdit}>{isNew ? "Add" : "Save"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* ── THE NEW DIALOG (replaces old one) ── */}
+      <AddItemDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        isNew={isNew}
+        editing={editing}
+        setEditing={setEditing}
+        items={items}
+        locations={locations}
+        onSave={saveEdit}
+      />
     </div>
   );
 }

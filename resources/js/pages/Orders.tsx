@@ -1183,14 +1183,10 @@ const Orders = () => {
   }, [orders, searchTerm, statusFilter, typeFilter]);
 
  useEffect(() => {
-  if (workspaceView === "orders") {
-    const load = async () => {
-      await fetchOrders();
-    };
-
-    load();
+  if (mainTab === "orders") {
+    fetchOrders();
   }
-}, [workspaceView]);
+}, [mainTab]);
 
   const sortedOrders = useMemo(() => {
     const data = [...filteredOrders];
@@ -3665,6 +3661,9 @@ const Orders = () => {
                     <TableRow>
                       <TableHead>Item</TableHead>
                       <TableHead className="text-right">Qty</TableHead>
+
+      <TableHead className="text-right">Delivered Qty</TableHead>
+
                       <TableHead className="text-right">Rate</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
                       <TableHead>Stock</TableHead>
@@ -3680,6 +3679,11 @@ const Orders = () => {
                             <div>{item.item_name}</div>
                           </TableCell>
                           <TableCell className="text-right">{item.quantity}</TableCell>
+
+  <TableCell className="text-right">
+    {item.delivered_qty ?? 0}
+  </TableCell>
+
                           <TableCell className="text-right"> {money(Number(item.rate || 0))}</TableCell>
                           <TableCell className="text-right">{money(Number(item.total_amount || 0))}</TableCell>
                           <TableCell>{renderValidationBadge(assessment.state, assessment.label)}</TableCell>
@@ -3702,7 +3706,9 @@ const Orders = () => {
   disabled={
     viewOrder.status === "Delivered" ||
     viewOrder.delivery_status === "Delivered" ||
-    viewOrder.delivery_status === "Partially Delivered"
+    viewOrder.delivery_status === "Shipped" ||
+     viewOrder.delivery_status === "Not Shipped" ||
+    viewOrder.delivery_status === "Partially Fulfilled"
   }
   onClick={() => handleOrderStatusChange(viewOrder.id, "Confirmed")}
 >
@@ -3713,7 +3719,9 @@ const Orders = () => {
   disabled={
     viewOrder.status === "Delivered" ||
     viewOrder.delivery_status === "Delivered" ||
-    viewOrder.delivery_status === "Partially Delivered"
+    viewOrder.delivery_status === "Shipped" ||
+     viewOrder.delivery_status === "Not Shipped" ||
+    viewOrder.delivery_status === "Partially Fulfilled"
   }
   onClick={() => handleOrderStatusChange(viewOrder.id, "Processing")}
 >

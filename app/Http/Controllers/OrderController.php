@@ -137,6 +137,57 @@ class OrderController extends Controller
 
         $orders = $query->get();
 
+foreach ($orders as $order) {
+
+    // get all packages for this order
+  $packages = \App\Models\OrderPackage::where('order_number', $order->order_no)
+    ->where('user_id', Auth::id())
+    ->where('status', 'Delivered')
+    ->get();
+    
+    $packedMap = [];
+
+    foreach ($packages as $pkg) {
+
+        $items = $pkg->items;
+
+        // decode JSON if needed
+        if (is_string($items)) {
+            $items = json_decode($items, true);
+        }
+
+        if (!is_array($items)) {
+            $items = [];
+        }
+
+        foreach ($items as $pkgItem) {
+
+            $code = strtolower(trim($pkgItem['item_code'] ?? ''));
+
+            if (!$code) {
+                continue;
+            }
+
+            $packedQty = (int) (
+                $pkgItem['packed_quantity']
+                ?? 0
+            );
+
+            $packedMap[$code] =
+                ($packedMap[$code] ?? 0) + $packedQty;
+        }
+    }
+
+    // attach delivered_qty into order items
+    foreach ($order->items as $item) {
+
+        $code = strtolower(trim($item->item_code));
+
+        $item->delivered_qty =
+            $packedMap[$code] ?? 0;
+    }
+}
+
         return response()->json([
             'success' => true,
             'data' => $orders
@@ -155,7 +206,8 @@ class OrderController extends Controller
     public function updateStatus(Request $request, $id)
     {
         $request->validate([
-             'status' => 'required|string|in:Pending,Confirmed,Approved,Processing,Packed,Shipped,Delivered,Cancelled',
+             'status' => 'required|string|in:Pending,Confirmed,Approved,Processing,Packed,Shipped,Delivered,Cancelled,
+        Partially Fulfilled',
         ]);
 
         $order = Order::where('id', $id)
@@ -234,13 +286,14 @@ class OrderController extends Controller
         ]);
     }
 
-   public function recalculateStatus(Request $request)
+  public function recalculateStatus(Request $request)
 {
     $orderNumber = $request->order_number;
 
-    $order = Order::where('order_no', $orderNumber)
-        ->with('items')
-        ->first();
+   $order = Order::where('order_no', $orderNumber)
+    ->where('user_id', Auth::id())
+    ->with('items')
+    ->first();
 
     if (!$order) {
         return response()->json([
@@ -248,82 +301,138 @@ class OrderController extends Controller
         ], 404);
     }
 
-    // Get all packages for this order
-    $packages = \App\Models\OrderPackage::where('order_number', $orderNumber)
-        ->get();
+   $packages = \App\Models\OrderPackage::where('order_number', $orderNumber)
+    ->where('user_id', Auth::id())
+    ->get();
 
+    $shippedMap = [];
     $deliveredMap = [];
 
-    // Calculate delivered quantities
+    // =========================
+    // Build shipped + delivered maps
+    // =========================
     foreach ($packages as $pkg) {
 
-        // Only consider delivered packages
-        if (strtolower($pkg->status) !== 'delivered') {
-            continue;
-        }
+       $items = $pkg->items;
 
-        $items = is_string($pkg->items)
-            ? json_decode($pkg->items, true)
-            : $pkg->items;
+// if JSON string → decode
+if (is_string($items)) {
+    $items = json_decode($items, true);
+}
 
-        if (!$items || !is_array($items)) {
-            continue;
-        }
+// final safety
+if (!is_array($items)) {
+    $items = [];
+}
 
         foreach ($items as $item) {
 
             $code = strtolower(trim($item['item_code'] ?? ''));
+            if (!$code) continue;
 
             $qty = (int) (
                 $item['packed_quantity']
+                ?? $item['ordered_quantity']
                 ?? $item['quantity_to_pack']
                 ?? 0
             );
 
-            $deliveredMap[$code] = ($deliveredMap[$code] ?? 0) + $qty;
+            if (strtolower($pkg->status) === 'shipped') {
+                $shippedMap[$code] = ($shippedMap[$code] ?? 0) + $qty;
+            }
+
+            if (strtolower($pkg->status) === 'delivered') {
+                $deliveredMap[$code] = ($deliveredMap[$code] ?? 0) + $qty;
+            }
         }
     }
 
+    // =========================
+    // Flags
+    // =========================
+    $allShipped = true;
     $allDelivered = true;
-    $anyDelivered = false;
 
-    // Check order items delivery status
+    $hasAnyShipped = false;
+    $hasAnyDelivered = false;
+
+    $hasPartialShip = false;
+    $hasPartialDelivery = false;
+
+    // =========================
+    // Compare with order items
+    // =========================
     foreach ($order->items as $item) {
 
         $code = strtolower(trim($item->item_code));
-
         $orderedQty = (int) $item->quantity;
 
+        $shippedQty = $shippedMap[$code] ?? 0;
         $deliveredQty = $deliveredMap[$code] ?? 0;
 
-        // Any delivery happened
-        if ($deliveredQty > 0) {
-            $anyDelivered = true;
+        if ($shippedQty > 0) {
+            $hasAnyShipped = true;
         }
 
-        // Not fully delivered
+        if ($deliveredQty > 0) {
+            $hasAnyDelivered = true;
+        }
+
+        if ($shippedQty < $orderedQty) {
+            $allShipped = false;
+        }
+
         if ($deliveredQty < $orderedQty) {
             $allDelivered = false;
         }
+
+        if ($shippedQty > 0 && $shippedQty < $orderedQty) {
+            $hasPartialShip = true;
+        }
+
+        if ($deliveredQty > 0 && $deliveredQty < $orderedQty) {
+            $hasPartialDelivery = true;
+        }
     }
 
-    // Final Status Update
-    if ($allDelivered && $anyDelivered) {
+    // =========================
+    // FINAL STATUS LOGIC
+    // =========================
 
-        $order->status = 'Delivered';
-        $order->delivery_status = 'Delivered';
+    if ($allDelivered) {
 
-    } elseif ($anyDelivered) {
+        $status = 'Delivered';
 
-        $order->status = 'Confirmed';
-        $order->delivery_status = 'Partially Delivered';
+    } elseif ($hasPartialShip && $hasPartialDelivery) {
+
+        $status = 'Partially Fulfilled';
+
+    } elseif ($allShipped && !$allDelivered) {
+
+        $status = 'Shipped';
+
+    } elseif ($hasPartialShip) {
+
+        $status = 'Partially Fulfilled';
+
+    } elseif ($hasPartialDelivery) {
+
+        $status = 'Partially Fulfilled';
+
+    } elseif ($hasAnyShipped) {
+
+        $status = 'Shipped';
 
     } else {
 
-        $order->status = 'Confirmed';
-        $order->delivery_status = 'Awaiting';
+        $status = 'Not Shipped';
     }
 
+    // =========================
+    // SAVE
+    // =========================
+    $order->status = $status;
+    $order->delivery_status = $status;
     $order->save();
 
     return response()->json([
