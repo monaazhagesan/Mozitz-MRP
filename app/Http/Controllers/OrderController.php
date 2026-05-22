@@ -144,7 +144,7 @@ foreach ($orders as $order) {
     ->where('user_id', Auth::id())
     ->where('status', 'Delivered')
     ->get();
-    
+
     $packedMap = [];
 
     foreach ($packages as $pkg) {

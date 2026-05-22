@@ -27,7 +27,8 @@ interface Order {
   orderNo: string;
   customer: string;
   status: string;
-
+   order_no: string;
+   order_number: string;
   contact_person?: string;
   phone?: string;
   contact_number?: string;
@@ -40,7 +41,24 @@ interface Order {
     itemName: string;
     quantityOrdered: number;
     uom?: string;
+     item_code?: string;
+  item_name?: string;
+  quantity?: number;
   }[];
+}
+
+
+interface OrderItem {
+  id: string;
+  itemCode: string;
+  itemName: string;
+  quantityOrdered: number;
+  uom?: string;
+
+  // optional backend variants (prevents runtime crashes)
+  item_code?: string;
+  item_name?: string;
+  quantity?: number;
 }
 
 interface PackageItem {
@@ -52,6 +70,11 @@ interface PackageItem {
   packed: number;
   quantityToPack: number;
   uom: string;
+  line_id?: number;
+  item_name?: string;
+  item_code?: string;
+  ordered_quantity?: number;
+  packed_quantity?: number;
 }
 
 interface OrderPackage {
@@ -142,44 +165,33 @@ const [companyLoading, setCompanyLoading] = useState(false);
   };
 
   const getPackedMap = (orderNumber: string) => {
-    const map: Record<string, number> = {};
+  const map: Record<string, number> = {};
 
-    packages.forEach(pkg => {
-      if (String(pkg.order_number) !== String(orderNumber)) return;
+  packages.forEach(pkg => {
+    if (String(pkg.order_number) !== String(orderNumber)) return;
 
-      let items: any[] = [];
+    let items: any[] = [];
 
-      try {
-        items =
-          typeof pkg.items === "string"
-            ? JSON.parse(pkg.items)
-            : pkg.items || [];
-      } catch {
-        items = [];
-      }
+    try {
+      items =
+        typeof pkg.items === "string"
+          ? JSON.parse(pkg.items)
+          : pkg.items || [];
+    } catch {
+      items = [];
+    }
 
-      items.forEach((item: any) => {
-        const key = String(
-          item.item_code || item.itemCode || ""
-        )
-          .trim()
-          .toLowerCase();
+    items.forEach((item: any) => {
+      const key = `${item.item_code}_${item.line_id}`;
 
-        // ✅ ONLY packed quantity
-        const qty = Number(
-          item.packed_quantity || 0
-        );
+      const qty = Number(item.packed_quantity || 0);
 
-        if (!key) return;
-
-        map[key] = (map[key] || 0) + qty;
-      });
+      map[key] = (map[key] || 0) + qty;
     });
+  });
 
-    console.log("FINAL packedMap:", map);
-
-    return map;
-  };
+  return map;
+};
 
   useEffect(() => {
   const fetchCompanyDetails = async () => {
@@ -222,14 +234,28 @@ const [companyLoading, setCompanyLoading] = useState(false);
 
 
           const items: PackageItem[] = order.items.map((item, idx) => {
-            const itemCode = String(item.itemCode || item.item_code).trim().toLowerCase();
+            const itemCode = String(
+  item.itemCode || item.item_code
+).trim().toLowerCase();
 
-            const orderedQty = Number(item.quantityOrdered || item.quantity || 0);
-            const alreadyPacked = packedMap[itemCode] || 0;
-            const remainingQty = Math.max(orderedQty - alreadyPacked, 0);
+const lineId = item.line_id ?? idx;
+
+const mapKey = `${itemCode}_${lineId}`;
+
+const orderedQty = Number(
+  item.quantityOrdered || item.quantity || 0
+);
+
+const alreadyPacked = packedMap[mapKey] || 0;
+
+const remainingQty = Math.max(
+  orderedQty - alreadyPacked,
+  0
+);
 
             return {
               id: `pkg-item-${idx}`,
+              line_id: item.line_id ?? idx,
               itemName: item.itemName || item.item_name,
               itemCode,
               ordered: orderedQty,
@@ -469,6 +495,8 @@ if (orderNumber) {
         )
       );
 
+       await fetchPackages();
+
       // Toast feedback
       if (isBulkShipment) {
         toast.success(`${packagesToShip.length} package(s) marked as shipped via ${selectedCarrier}`);
@@ -605,12 +633,14 @@ if (orderNumber) {
       return;
     }
 
-    const hasValidItems = packageItems.some(item => item.quantityToPack > 0);
+   const hasValidItems = packageItems.some(
+  item => Number(item.quantityToPack) > 0
+);
 
-    if (!hasValidItems) {
-      toast.error("This order is already fully packed");
-      return;
-    }
+if (!hasValidItems) {
+  toast.error("Please enter quantity greater than 0");
+  return;
+}
     // Use all package items (even if quantityToPack = 0)
     const itemsToPack = packageItems;
 
@@ -634,6 +664,7 @@ if (orderNumber) {
       status: "not_shipped",
       internal_notes: internalNotes,
       items: itemsToPack.map(item => ({
+        line_id: item.line_id,
         item_name: item.itemName,
         item_code: item.itemCode,
         description: item.description || "",
@@ -1017,6 +1048,8 @@ body{
 }
 
 /* ── TABLE ────────────────────────────────────────────────────────── */
+/* ── TABLE ────────────────────────────────────────────────────────── */
+
 .section-label{
   font-family:var(--mono);
   font-size:9px;
@@ -1030,7 +1063,9 @@ body{
 .items-table{
   width:100%;
   border-collapse:collapse;
-  font-size:12px;
+  table-layout:fixed;
+  font-size:11px;
+  border:1px solid var(--border);
 }
 
 .items-table th{
@@ -1041,72 +1076,75 @@ body{
   text-transform:uppercase;
   background:var(--ink);
   color:#fff;
-  padding:8px 10px;
+  padding:9px 8px;
   text-align:center;
-  border-right:1px solid #444;
-}
-
-.items-table th:first-child{
-  text-align:left;
+  border:1px solid #444;
 }
 
 .items-table td{
-  padding:8px 10px;
-  border-bottom:1px solid var(--border2);
-  border-right:1px solid var(--border2);
+  padding:9px 8px;
+  border:1px solid var(--border2);
   vertical-align:middle;
-}
-
-.items-table td:last-child{
-  border-right:none;
+  word-wrap:break-word;
+  overflow-wrap:break-word;
 }
 
 .items-table tbody tr:nth-child(even){
   background:var(--bg2);
 }
 
+/* COLUMN STYLES */
+
 .td-no{
   text-align:center;
-}
-
-.td-desc{
+  width:40px;
   font-weight:600;
 }
 
-.td-sku{
+.td-code{
+  text-align:center;
+  width:130px;
   font-family:var(--mono);
   font-size:10px;
-  color:var(--ink3);
-  margin-top:2px;
 }
 
-.td-center{
+.td-name{
+  text-align:left;
+  font-weight:600;
+  padding-left:12px;
+}
+
+.td-uom{
   text-align:center;
+  width:70px;
+}
+
+.td-packed{
+  text-align:center;
+  width:90px;
+  font-weight:700;
 }
 
 .td-packed.ok{
   color:#111;
-  font-weight:700;
 }
 
 .td-packed.short{
   color:var(--amber);
-  font-weight:700;
 }
 
-.td-packed{
-  text-align: center;
-}
+/* FOOTER */
 
 .items-table tfoot tr{
-  background:var(--bg2);
-  border-top:1.5px solid var(--ink);
+  background:#EFEFEF;
+  border-top:2px solid var(--ink);
 }
 
 .items-table tfoot td{
-  padding:9px 10px;
+  padding:10px 8px;
   font-family:var(--mono);
   font-weight:700;
+  border:1px solid var(--border);
 }
 
 /* ── FOOTER ───────────────────────────────────────────────────────── */
@@ -1149,37 +1187,33 @@ body{
 `;
 
   const rows = items.map((item: any, index: number) => {
-    const ordered = Number(item.ordered_quantity || item.qty || 0);
-    const packed = Number(item.packed_quantity || 0);
+  const ordered = Number(item.ordered_quantity || item.qty || 0);
+  const packed = Number(item.packed_quantity || 0);
 
-    return `
+  return `
 <tr>
-  <td class="td-no">${index + 1}</td>
-
-
-   <td class="td-center">
-    ${item.item_code || "Item"}
+  <td class="td-no">
+    ${index + 1}
   </td>
 
-   <td class="td-center">
-     ${item.item_name || "Item"}
+  <td class="td-code">
+    ${item.item_code || "-"}
   </td>
 
+  <td class="td-name">
+    ${item.item_name || "Item"}
+  </td>
 
-  <td class="td-center">
+  <td class="td-uom">
     ${item.uom || "Nos"}
   </td>
-
-
 
   <td class="td-packed ${packed < ordered ? "short" : "ok"}">
     ${packed}
   </td>
-
-  <td></td>
 </tr>
 `;
-  }).join("");
+}).join("");
 
   const html = `
 <!DOCTYPE html>
@@ -1357,35 +1391,30 @@ ${css}
   <table class="items-table">
 
     <thead>
-      <tr>
-        <th style="width:32px">#</th>
-        <th>Item Code</th>
-        <th>Item Name</th>
-        <th style="width:70px">UOM</th>
-
-        <th style="width:90px">Packed Qty</th>
-        <th style="width:28px"></th>
-      </tr>
-    </thead>
+  <tr>
+    <th style="width:40px">#</th>
+    <th style="width:130px">Item Code</th>
+    <th>Item Name</th>
+    <th style="width:70px">UOM</th>
+    <th style="width:90px">Packed Qty</th>
+  </tr>
+</thead>
 
     <tbody>
       ${rows}
     </tbody>
 
     <tfoot>
-      <tr>
-        <td colspan="4" style="text-align:right">
-          TOTAL
-        </td>
+  <tr>
+    <td colspan="4" style="text-align:right">
+      TOTAL
+    </td>
 
-
-        <td class="td-center">
-          ${totalPackedQty}
-        </td>
-
-        <td></td>
-      </tr>
-    </tfoot>
+    <td class="td-packed">
+      ${totalPackedQty}
+    </td>
+  </tr>
+</tfoot>
 
   </table>
 
@@ -1890,7 +1919,7 @@ window.onload = async function () {
 
       {/* New Package Dialog */}
       <Dialog open={newPackageOpen} onOpenChange={setNewPackageOpen}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-5xl h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader className="flex flex-row items-center justify-between border-b pb-4">
             <DialogTitle className="text-xl font-semibold flex items-center gap-2">
               <Package className="h-5 w-5" /> New Package

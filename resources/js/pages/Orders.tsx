@@ -922,6 +922,7 @@ const Orders = () => {
     return true;
   };
 
+const closeOrderSheet = () => setViewOrder(null);
 
   const allocateInventoryForOrder = async (items: LineItem[]) => {
     try {
@@ -1419,6 +1420,9 @@ const Orders = () => {
             <div class="item-name">${item.item_name || ""}</div>
           </td>
           <td class="right">${item.quantity || 0}</td>
+          <td class="right">
+          ${item.delivered_qty ?? 0}
+        </td>
           <td class="right">₹${Number(item.rate || 0).toFixed(2)}</td>
           <td class="right">₹${Number(item.total_amount || 0).toFixed(2)}</td>
           <td class="center">${assessment?.label || "Stock OK"}</td>
@@ -1603,6 +1607,7 @@ const Orders = () => {
               <tr>
                 <th>Item</th>
                 <th class="right">Qty</th>
+                 <th class="right">Delivered Qty</th>
                 <th class="right">Rate</th>
                 <th class="right">Amount</th>
                 <th class="center">Stock</th>
@@ -2355,20 +2360,54 @@ const Orders = () => {
               <TableBody>
                 {lineItems.map((item, index) => {
                   const assessment = getLineAssessment(item);
+
+                   const filteredInventory = safeInventoryItems.filter((inv: any) => {
+    if (item.itemType === "Material") return inv.itemCode.startsWith("MAT");
+    if (item.itemType === "Product") return inv.itemCode.startsWith("PRD");
+    if (item.itemType === "Component") return inv.itemCode.startsWith("CMP"); // adjust if needed
+    return true;
+  });
+
                   return (
                     <TableRow key={item.id || item.item_code}>
                       <TableCell className="font-mono text-xs text-muted-foreground">{index + 1}</TableCell>
                       <TableCell>
-                        <Select value={item.itemType} onValueChange={(value) => updateLineItem(item.id, "itemType", value)}>
-                          <SelectTrigger className="bg-background">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Material">Material</SelectItem>
-                            <SelectItem value="Product">Product</SelectItem>
-                            <SelectItem value="Component">Component</SelectItem>
-                          </SelectContent>
-                        </Select>
+                       <Select
+  key={`${item.id}-${item.itemType}`}
+  value={item.itemType}
+  onValueChange={(value) => {
+    setLineItems(prev =>
+      prev.map(li =>
+        li.id === item.id
+          ? {
+              ...li,
+              itemType: value,
+
+              // reset everything dependent
+              itemCode: "",
+              item_code: "",
+              itemName: "",
+              rate: 0,
+              available: 0,
+              bomComponents: [],
+              noBOM: false,
+              bomLoading: false,
+              totalAmount: 0,
+            }
+          : li
+      )
+    );
+  }}
+>
+  <SelectTrigger className="bg-background">
+    <SelectValue />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="Material">Material</SelectItem>
+    <SelectItem value="Product">Product</SelectItem>
+    <SelectItem value="Component">Component</SelectItem>
+  </SelectContent>
+</Select>
                       </TableCell>
                       <TableCell>
                         <Select
@@ -2411,7 +2450,7 @@ const Orders = () => {
                           </SelectTrigger>
 
                           <SelectContent>
-                            {safeInventoryItems.map((inventory: any) => (
+                            {filteredInventory.map((inventory: any) => (
                               <SelectItem
                                 key={inventory.id}
                                 value={inventory.itemCode}
@@ -3695,7 +3734,10 @@ const Orders = () => {
               </div>
 
               <div className="flex flex-wrap justify-end gap-2">
-                <Button variant="outline" onClick={() => cloneIntoComposer(viewOrder)}>
+                <Button variant="outline" onClick={() => {
+  cloneIntoComposer(viewOrder);
+  closeOrderSheet();
+}}>
                   <Copy className="mr-2 h-4 w-4" />Clone
                 </Button>
                 {/*      <Button variant="outline" onClick={() => { setRefundOrder(viewOrder); setRefundDialogOpen(true); }}>
@@ -3710,7 +3752,10 @@ const Orders = () => {
      viewOrder.delivery_status === "Not Shipped" ||
     viewOrder.delivery_status === "Partially Fulfilled"
   }
-  onClick={() => handleOrderStatusChange(viewOrder.id, "Confirmed")}
+  onClick={() => {
+  handleOrderStatusChange(viewOrder.id, "Confirmed");
+  closeOrderSheet();
+}}
 >
   <Check className="mr-2 h-4 w-4" />
   Confirm
@@ -3723,7 +3768,10 @@ const Orders = () => {
      viewOrder.delivery_status === "Not Shipped" ||
     viewOrder.delivery_status === "Partially Fulfilled"
   }
-  onClick={() => handleOrderStatusChange(viewOrder.id, "Processing")}
+  onClick={() => {
+  handleOrderStatusChange(viewOrder.id, "Processing");
+  closeOrderSheet();
+}}
 >
   Move to Processing
 </Button>
