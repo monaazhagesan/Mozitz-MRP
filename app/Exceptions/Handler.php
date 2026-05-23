@@ -3,6 +3,7 @@
 namespace App\Exceptions;
 
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
+use Illuminate\Http\Client\ConnectionException;
 use Throwable;
 
 class Handler extends ExceptionHandler
@@ -44,5 +45,17 @@ class Handler extends ExceptionHandler
         $this->reportable(function (Throwable $e) {
             //
         });
+
+        // Network / internet connection error
+    $this->renderable(function (ConnectionException $e, $request) {
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Network error. Please check your internet connection.'
+            ], 503);
+        }
+
+    });
     }
 }

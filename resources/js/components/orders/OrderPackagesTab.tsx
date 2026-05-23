@@ -426,6 +426,8 @@ const isOrderFullyPacked = (order: Order, packages: OrderPackage[]) => {
   const [trackingNumber, setTrackingNumber] = useState("");
   const [isBulkShipment, setIsBulkShipment] = useState(false);
 
+  const [isSaving, setIsSaving] = useState(false);
+
   const openShipmentDialog = (packageId: string) => {
     setSelectedPackageForShipment(packageId);
     setIsBulkShipment(false);
@@ -633,12 +635,21 @@ if (orderNumber) {
       return;
     }
 
-   const hasValidItems = packageItems.some(
+   const hasInvalidNegative = packageItems.some(
+  item => Number(item.quantityToPack) < 0
+);
+
+if (hasInvalidNegative) {
+  toast.error("Quantity cannot be negative");
+  return;
+}
+
+const hasValidItems = packageItems.some(
   item => Number(item.quantityToPack) > 0
 );
 
 if (!hasValidItems) {
-  toast.error("Please enter quantity greater than 0");
+  toast.error("At least one item must have quantity greater than 0");
   return;
 }
     // Use all package items (even if quantityToPack = 0)
@@ -2055,7 +2066,15 @@ window.onload = async function () {
 
           <div className="flex justify-end gap-3 pt-4 border-t">
             <Button variant="outline" onClick={() => setNewPackageOpen(false)}>Cancel</Button>
-            <Button onClick={handleSavePackage} className="bg-primary">Save Package</Button>
+            <Button
+  onClick={(e) => {
+    e.currentTarget.disabled = true;
+    handleSavePackage();
+  }}
+  className="bg-primary"
+>
+  Save Package
+</Button>
           </div>
         </DialogContent>
       </Dialog>

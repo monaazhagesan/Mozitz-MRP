@@ -54,6 +54,7 @@ class OrderPackageController extends Controller
             'order_number' => 'required',
             'customer_name' => 'required',
             'date' => 'required|date',
+            'package_slip' => 'required|unique:order_packages,package_slip,NULL,id,user_id,' . Auth::id(),
         ]);
 
          $package = OrderPackage::create([

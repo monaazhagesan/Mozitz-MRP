@@ -189,6 +189,7 @@ Route::get('/orders/{id}', [OrderController::class, 'show'])
     ->where('id', '[0-9]+');
 
 Route::put('/orders/recalculate-status', [OrderController::class, 'recalculateStatus']);
+Route::put('/orders/{id}', [OrderController::class, 'update']);
 
 Route::get('/order-packages', [OrderPackageController::class, 'index']);
 Route::post('/order-packages', [OrderPackageController::class, 'store']);
