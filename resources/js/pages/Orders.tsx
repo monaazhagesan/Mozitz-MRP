@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Edit } from "lucide-react";
 import axios from "axios";
 import {
   Dialog,
@@ -224,6 +225,17 @@ const ORDER_VIEWS: Array<{ id: OrderWorkspaceView; label: string; icon: any; cou
   { id: "purchase", label: "Purchase Needs", icon: Truck, countKey: "purchase" },
 ];
 
+const initialOrderState = {
+  customer: "",
+  customer_id: "",
+  order_no: "",
+  order_type: "",
+  priority: "Normal",
+  expected_delivery_date: "",
+  dispatch_mode: "",
+  items: [],
+};
+
 const todayISO = () => new Date().toISOString().split("T")[0];
 const money = (value: number) => `₹${Number.isFinite(value) ? value.toFixed(2) : "0.00"}`;
 const integer = (value: number) => Math.max(0, Math.round(value || 0));
@@ -320,6 +332,10 @@ const Orders = () => {
   const [selectedCloneId, setSelectedCloneId] = useState<string | null>(null);
   const [viewOrder, setViewOrder] = useState<Order | null>(null);
   const [regularDialogOpen, setRegularDialogOpen] = useState(false);
+
+  const [isEditing, setIsEditing] = useState(false);
+const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+
   const [regularForm, setRegularForm] = useState({
     customer: "",
     itemCode: "",
@@ -478,6 +494,145 @@ const Orders = () => {
 
     return Math.max(0, Math.round(computed));
   };
+
+ const handleEditOrder = async (order: any) => {
+  const orderData = order?.items ? order : order?.data ? order.data[0] : order;
+
+  setIsEditing(true);              // ✅ ADD THIS
+  setEditingOrderId(orderData.id); // ✅ ADD THIS
+  console.log("EDITING ORDER:", orderData);
+
+  // DO NOT CHANGE ORDER NO
+  const existingSONumber = orderData.order_no;
+
+  // 1. SET FORM DATA (same structure as cloneIntoComposer)
+  setFormData({
+    customerId: orderData.customer_id ?? "",
+    customerName: orderData.customer ?? orderData.customer_name ?? "",
+
+    customerCode: "",
+    contactPerson: orderData.contact_person ?? "",
+    contactNumber: orderData.contact_number ?? "",
+    email: orderData.email ?? "",
+
+    billingAddress: orderData.billing_address ?? "",
+    shippingAddress: orderData.shipping_address ?? "",
+
+    orderNo: existingSONumber, // ✅ IMPORTANT: KEEP SAME
+    orderDate: orderData.order_date ?? todayISO(),
+
+    expectedDeliveryDate:
+      orderData.expected_delivery_date || orderData.order_date,
+
+    orderType: orderData.order_type ?? "",
+    referenceNo: orderData.reference_no ?? "",
+    priority: orderData.priority ?? "Normal",
+    remarks: orderData.remarks ?? "",
+    status: orderData.status ?? "Awaiting Confirmation",
+
+    dispatchMode: orderData.dispatch_mode ?? "",
+    transporterName: orderData.transporter_name ?? "",
+    vehicleNo: orderData.vehicle_no ?? "",
+    expectedDispatchDate: orderData.expected_dispatch_date ?? "",
+
+    deliveryStatus: orderData.delivery_status ?? "Awaiting",
+    warehouseLocation: orderData.warehouse_location ?? "",
+    location: orderData.location ?? "",
+
+    paymentType: orderData.payment_type ?? "",
+    paymentTerms: orderData.payment_terms ?? "",
+
+    advanceAmount: Number(orderData.advance_amount ?? 0),
+    balanceAmount: Number(orderData.balance_amount ?? 0),
+    invoiceRequired: orderData.invoice_required ?? 0,
+  });
+
+  // 2. ITEMS SAME AS CLONE
+  const items =
+    orderData.items && orderData.items.length > 0
+      ? orderData.items
+      : [
+          {
+            item_code: orderData.item_code,
+            item_name: orderData.item_name,
+            item_type: orderData.item_type,
+            uom: orderData.uom,
+            quantity: orderData.quantity,
+            rate: orderData.rate,
+            tax: orderData.tax,
+            total_amount: orderData.total_amount,
+            available_stock: Number(orderData.available_stock ?? 0),
+          },
+        ];
+
+  const fetchBomByItemCode = async (itemCode: string) => {
+    try {
+      const res = await axios.get(`/api/bom-component`, {
+        params: { item_code: itemCode },
+      });
+
+      const data = res.data;
+
+      if (Array.isArray(data)) return data;
+      if (data && typeof data === "object") return Object.values(data).flat();
+
+      return [];
+    } catch (err) {
+      console.error("BOM API ERROR:", err);
+      return [];
+    }
+  };
+
+  const itemsWithBom = await Promise.all(
+    items.map(async (item: any) => {
+      const bomComponents = item.item_code
+        ? await fetchBomByItemCode(item.item_code)
+        : [];
+
+      return {
+        id: crypto.randomUUID(),
+        itemCode: item.item_code,
+        itemName: item.item_name,
+        itemType: item.item_type,
+        quantityOrdered: Number(item.quantity ?? 0),
+        uom: item.uom ?? "",
+        rate: Number(item.rate ?? 0),
+        tax: Number(item.tax ?? 0),
+        totalAmount: Number(item.total_amount ?? 0),
+        availableStock: Number(item.available_stock ?? 0),
+
+        bomComponents: Array.isArray(bomComponents)
+          ? bomComponents.map((c: any) => ({
+              component: c.component,
+              description: c.description,
+              type: c.type,
+              requiredQty: Number(
+                c.requiredQty ??
+                  c.required_qty ??
+                  c.qty_required ??
+                  c.quantity ??
+                  0
+              ),
+            }))
+          : [],
+
+        discount: Number(item.discount ?? 0),
+      };
+    })
+  );
+
+  setLineItems(itemsWithBom);
+
+  // 3. OPEN AFTER STATE READY (important fix)
+  requestAnimationFrame(() => {
+    setWorkspaceView("new");
+  });
+
+  toast({
+    title: "Order loaded for editing",
+    description: `${existingSONumber} loaded into composer.`,
+  });
+};
 
   const fetchInventory = async () => {
     try {
@@ -939,127 +1094,145 @@ const closeOrderSheet = () => setViewOrder(null);
     }
   };
 
-  const createOrderFromComposer = async (status: string) => {
-    if (!validateComposer()) return;
+const createOrderFromComposer = async (status: string) => {
+  if (!validateComposer()) return;
 
-    // Phone validation
-    const phoneRegex = /^[0-9]{10}$/;
-    if (!phoneRegex.test(formData.contactNumber)) {
+  const phoneRegex = /^[0-9]{10}$/;
+  if (!phoneRegex.test(formData.contactNumber)) {
+    toast({
+      title: "Invalid phone number",
+      description: "Phone number must be exactly 10 digits.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (formData.email && !emailRegex.test(formData.email)) {
+    toast({
+      title: "Invalid email",
+      description: "Please enter a valid email address.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  const items = lineItems
+    .filter((item) => item.itemCode && item.quantityOrdered > 0)
+    .map((item) => ({
+      item_code: item.itemCode,
+      item_name: item.itemName,
+      item_type: item.itemType,
+      available_stock: Number(item.availableStock || 0),
+      uom: item.uom,
+      quantity: Number(item.quantityOrdered),
+      rate: Number(item.rate || 0),
+      tax: Number(item.tax || 0),
+      total_amount: Number(item.totalAmount || 0),
+    }));
+
+  if (!formData.customerId || items.length === 0) {
+    toast({
+      title: "Missing data",
+      description: "Customer and items are required.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  const payload = {
+    id: formData.orderNo || generateSONumber(),
+    customer_id: Number(formData.customerId),
+    order_date: formData.orderDate,
+    order_type: formData.orderType,
+    customer: formData.customerName,
+
+    contact_person: formData.contactPerson,
+    contact_number: formData.contactNumber,
+    email: formData.email,
+
+    billing_address: formData.billingAddress,
+    shipping_address: formData.shippingAddress || null,
+
+    reference_no: formData.referenceNo || null,
+    priority: formData.priority,
+    remarks: formData.remarks,
+
+    items,
+
+    dispatch_mode: formData.dispatchMode,
+    transporter_name: formData.transporterName,
+    vehicle_no: formData.vehicleNo,
+
+    expected_dispatch_date: formData.expectedDispatchDate,
+    expected_delivery_date: formData.expectedDeliveryDate,
+
+    delivery_status: formData.deliveryStatus,
+    warehouse_location: formData.warehouseLocation,
+    location: formData.location,
+
+    payment_type: formData.paymentType,
+    payment_terms: formData.paymentTerms,
+
+    advance_amount: Number(formData.advanceAmount || 0),
+    balance_amount: totalSummary.total - Number(formData.advanceAmount || 0),
+
+    invoice_required: formData.invoiceRequired,
+   status: isEditing ? formData.status : status,
+  };
+
+  try {
+    let res;
+
+    // ✅ EDIT MODE → UPDATE
+    if (isEditing && editingOrderId) {
+      res = await axios.put(`/api/orders/${editingOrderId}`, payload);
+
       toast({
-        title: "Invalid phone number",
-        description: "Phone number must be exactly 10 digits.",
-        variant: "destructive",
+        title: "Order updated",
+        description: `${payload.id} updated successfully.`,
       });
-      return;
     }
 
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (formData.email && !emailRegex.test(formData.email)) {
-      toast({
-        title: "Invalid email",
-        description: "Please enter a valid email address.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const items = lineItems
-      .filter((item) => item.itemCode && item.quantityOrdered > 0)
-      .map((item) => ({
-        item_code: item.itemCode,
-        item_name: item.itemName,
-        item_type: item.itemType,
-        available_stock: Number(item.availableStock || 0),
-        uom: item.uom,
-        quantity: Number(item.quantityOrdered),
-        rate: Number(item.rate || 0),
-        tax: Number(item.tax || 0),
-        total_amount: Number(item.totalAmount || 0),
-      }));
-
-    // ✅ ONLY IMPORTANT FIX (prevents 422)
-    if (!formData.customerId || items.length === 0) {
-      toast({
-        title: "Missing data",
-        description: "Customer and items are required.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const newOrder = {
-      id: formData.orderNo || generateSONumber(),
-
-      customer_id: Number(formData.customerId), // ✅ FIXED
-      order_date: formData.orderDate,
-      order_type: formData.orderType,
-      customer: formData.customerName,
-
-      contact_person: formData.contactPerson,
-      contact_number: formData.contactNumber,
-      email: formData.email,
-
-      billing_address: formData.billingAddress,
-      shipping_address: formData.shippingAddress || null,
-
-
-      reference_no: formData.referenceNo || null,
-      priority: formData.priority,
-      remarks: formData.remarks,
-
-      items,
-
-      dispatch_mode: formData.dispatchMode,
-      transporter_name: formData.transporterName,
-      vehicle_no: formData.vehicleNo,
-
-      expected_dispatch_date: formData.expectedDispatchDate,
-      expected_delivery_date: formData.expectedDeliveryDate,
-
-      delivery_status: formData.deliveryStatus,
-      warehouse_location: formData.warehouseLocation,
-      location: formData.location,
-
-      payment_type: formData.paymentType,
-      payment_terms: formData.paymentTerms,
-
-      advance_amount: Number(formData.advanceAmount || 0),
-      balance_amount: totalSummary.total - Number(formData.advanceAmount || 0),
-
-      invoice_required: formData.invoiceRequired,
-      status,
-    };
-
-    try {
-      const res = await axios.post("/api/orders", newOrder);
-
-      setOrders((prev) => [...prev, res.data]);
-
-      if (status !== "Draft") {
-        await allocateInventoryForOrder(items);
-      }
+    // ✅ CREATE MODE
+    else {
+      res = await axios.post("/api/orders", payload);
 
       toast({
         title: "Order created",
-        description: `${newOrder.id} saved successfully.`,
-      });
-
-      resetComposer();
-      await fetchOrders();
-      setWorkspaceView("orders");
-    } catch (error: any) {
-      console.error(error?.response?.data || error);
-
-      toast({
-        title: "Error",
-        description:
-          error?.response?.data?.message || "Failed to create order",
-        variant: "destructive",
+        description: `${payload.id} saved successfully.`,
       });
     }
-  };
 
+    setOrders((prev) => {
+      if (isEditing) {
+        return prev.map((o) =>
+          o.id === editingOrderId ? res.data : o
+        );
+      }
+      return [...prev, res.data];
+    });
+
+    if (status !== "Draft") {
+      await allocateInventoryForOrder(items);
+    }
+
+    resetComposer();
+    setIsEditing(false);
+    setEditingOrderId(null);
+
+    await fetchOrders();
+    setWorkspaceView("orders");
+  } catch (error: any) {
+    console.error(error?.response?.data || error);
+
+    toast({
+      title: "Error",
+      description: error?.response?.data?.message || "Failed to save order",
+      variant: "destructive",
+    });
+  }
+};
 
   const fetchOrders = async () => {
     try {
@@ -2614,17 +2787,33 @@ const closeOrderSheet = () => setViewOrder(null);
                   <span className="font-mono">{money(totalSummary.total)}</span>
                 </div>
               </div>
-              <div className="mt-4 flex flex-wrap justify-end gap-2">
-                <Button variant="outline" onClick={resetComposer}>Reset</Button>
-                <Button variant="outline" onClick={() => createOrderFromComposer("Draft")}>
-                  <Save className="mr-2 h-4 w-4" />
-                  Save Draft
-                </Button>
-                <Button onClick={() => createOrderFromComposer("Awaiting Confirmation")}>
-                  <Send className="mr-2 h-4 w-4" />
-                  Submit Order
-                </Button>
-              </div>
+             <div className="mt-4 flex flex-wrap justify-end gap-2">
+  <Button variant="outline" onClick={resetComposer}>
+    Reset
+  </Button>
+
+  {/* ❌ Hide Draft in edit mode */}
+  {!isEditing && (
+    <Button
+      variant="outline"
+      onClick={() => createOrderFromComposer("Draft")}
+    >
+      <Save className="mr-2 h-4 w-4" />
+      Save Draft
+    </Button>
+  )}
+
+  <Button
+    onClick={() =>
+      createOrderFromComposer(
+        isEditing ? "Updated" : "Awaiting Confirmation"
+      )
+    }
+  >
+    <Send className="mr-2 h-4 w-4" />
+    {isEditing ? "Update Order" : "Submit Order"}
+  </Button>
+</div>
             </div>
           </div>
         </section>
@@ -2919,6 +3108,35 @@ const closeOrderSheet = () => setViewOrder(null);
                           <Button variant="ghost" size="icon" onClick={() => setViewOrder(order)}>
                             <Eye className="h-4 w-4" />
                           </Button>
+                          <Button
+  variant="ghost"
+  size="icon"
+  onClick={() => {
+    const blockedStatuses = [
+      "Confirmed",
+      "Not Shipped",
+      "Processing",
+      "Shipped",
+      "Delivered",
+      "Partially Fulfilled",
+    ];
+
+    const status = order.status || order.delivery_status;
+
+    if (blockedStatuses.includes(status)) {
+      toast({
+        title: "Editing blocked",
+        description: `Order is already ${status}. You cannot edit it.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    handleEditOrder(order);
+  }}
+>
+  <Edit className="h-4 w-4" />
+</Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -3743,6 +3961,35 @@ const closeOrderSheet = () => setViewOrder(null);
                 {/*      <Button variant="outline" onClick={() => { setRefundOrder(viewOrder); setRefundDialogOpen(true); }}>
                   <RotateCcw className="mr-2 h-4 w-4" />Refund
                 </Button>  */}
+
+                  <Button
+  variant="outline"
+  onClick={() => {
+    const blockedStatuses = [
+      "Confirmed",
+      "Processing",
+      "Not Shipped",
+      "Shipped",
+      "Delivered",
+      "Partially Fulfilled",
+    ];
+
+    if (blockedStatuses.includes(viewOrder.status || viewOrder.delivery_status)) {
+      toast({
+        title: "Editing blocked",
+        description: `Order is already ${viewOrder.status || viewOrder.delivery_status}. You cannot edit it.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    handleEditOrder(viewOrder);
+    closeOrderSheet();
+  }}
+>
+  <Edit className="mr-2 h-4 w-4" />
+  Edit
+</Button>
                <Button
   variant="outline"
   disabled={

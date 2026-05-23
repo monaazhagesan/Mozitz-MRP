@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\OrderItem;
-use App\Models\InventoryItem; // Assuming you have inventory table
 use App\Models\InventoryStock;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -121,10 +120,109 @@ class OrderController extends Controller
         ], 500);
     }
 }
+
+
+public function update(Request $request, $id)
+{
+    DB::beginTransaction();
+
+    try {
+
+        $order = Order::where('id', $id)
+            ->where('user_id', Auth::id())
+            ->firstOrFail();
+
+        // =========================
+        // 1. UPDATE ORDER HEADER
+        // =========================
+        $order->update([
+            'order_no' => $request->id ?? $order->order_no,
+            'customer_id' => $request->customer_id,
+            'customer' => $request->customer,
+
+            'order_date' => $request->order_date,
+            'order_type' => $request->order_type,
+
+            'contact_person' => $request->contact_person,
+            'contact_number' => $request->contact_number,
+            'email' => $request->email,
+
+            'billing_address' => $request->billing_address,
+            'shipping_address' => $request->shipping_address,
+
+            'reference_no' => $request->reference_no,
+            'priority' => $request->priority,
+            'remarks' => $request->remarks,
+
+            'dispatch_mode' => $request->dispatch_mode,
+            'transporter_name' => $request->transporter_name,
+            'vehicle_no' => $request->vehicle_no,
+
+            'expected_dispatch_date' => $request->expected_dispatch_date,
+            'expected_delivery_date' => $request->expected_delivery_date,
+
+            'delivery_status' => $request->delivery_status,
+            'warehouse_location' => $request->warehouse_location,
+            'location' => $request->location,
+
+            'payment_type' => $request->payment_type,
+            'payment_terms' => $request->payment_terms,
+
+            'advance_amount' => $request->advance_amount,
+            'balance_amount' => $request->balance_amount,
+
+            'invoice_required' => $request->invoice_required,
+            'status' => $request->status,
+        ]);
+
+        // =========================
+        // 2. DELETE OLD ITEMS
+        // =========================
+        OrderItem::where('order_id', $order->id)->delete();
+
+        // =========================
+        // 3. INSERT NEW ITEMS
+        // =========================
+        foreach ($request->items as $item) {
+
+            OrderItem::create([
+                'order_id' => $order->id,
+                'item_code' => $item['item_code'],
+                'item_name' => $item['item_name'],
+                'item_type' => $item['item_type'],
+                'uom' => $item['uom'] ?? 'pcs',
+                'quantity' => $item['quantity'],
+                'rate' => $item['rate'] ?? 0,
+                'tax' => $item['tax'] ?? 0,
+                'total_amount' => $item['total_amount'] ?? 0,
+                'available_stock' => $item['available_stock'] ?? 0,
+            ]);
+        }
+
+        DB::commit();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Order updated successfully',
+            'data' => $order->fresh('items')
+        ]);
+
+    } catch (\Exception $e) {
+
+        DB::rollBack();
+
+        return response()->json([
+            'success' => false,
+            'message' => $e->getMessage()
+        ], 500);
+    }
+}
+
     // Fetch all orders
    public function index(Request $request)
 {
     try {
+
         $customerId = $request->query('customer_id');
 
         $query = Order::with('items')
@@ -137,56 +235,72 @@ class OrderController extends Controller
 
         $orders = $query->get();
 
-foreach ($orders as $order) {
+        foreach ($orders as $order) {
 
-    // get all packages for this order
-  $packages = \App\Models\OrderPackage::where('order_number', $order->order_no)
-    ->where('user_id', Auth::id())
-    ->where('status', 'Delivered')
-    ->get();
+            // ==================================================
+            // GET PACKAGES FOR THIS ORDER
+            // ==================================================
+            $packages = \App\Models\OrderPackage::where('order_number', $order->order_no)
+                ->where('user_id', Auth::id())
+                ->where('status', 'delivered')
+                ->get();
 
-    $packedMap = [];
+            // ==================================================
+            // BUILD LINE-BASED PACKED MAP (IMPORTANT FIX)
+            // key = order_id + line_id
+            // ==================================================
+            $packedMap = [];
 
-    foreach ($packages as $pkg) {
+            foreach ($packages as $pkg) {
 
-        $items = $pkg->items;
+                $items = $pkg->items;
 
-        // decode JSON if needed
-        if (is_string($items)) {
-            $items = json_decode($items, true);
-        }
+                if (is_string($items)) {
+                    $items = json_decode($items, true);
+                }
 
-        if (!is_array($items)) {
-            $items = [];
-        }
+                if (!is_array($items)) {
+                    $items = [];
+                }
 
-        foreach ($items as $pkgItem) {
+                foreach ($items as $pkgItem) {
 
-            $code = strtolower(trim($pkgItem['item_code'] ?? ''));
+                    $lineId = $pkgItem['line_id'] ?? null;
 
-            if (!$code) {
-                continue;
+                    if ($lineId === null) {
+                        continue;
+                    }
+
+                    $key = $order->id . '_' . $lineId;
+
+                    $qty = (float) (
+                        $pkgItem['packed_quantity']
+                        ?? $pkgItem['quantity_to_pack']
+                        ?? 0
+                    );
+
+                    $packedMap[$key] = ($packedMap[$key] ?? 0) + $qty;
+                }
             }
 
-            $packedQty = (int) (
-                $pkgItem['packed_quantity']
-                ?? 0
-            );
+            // ==================================================
+            // ASSIGN DELIVERED QTY PER ORDER LINE
+            // ==================================================
+            foreach ($order->items as $index => $item) {
 
-            $packedMap[$code] =
-                ($packedMap[$code] ?? 0) + $packedQty;
+                $lineId = $item->line_id ?? $index;
+
+                $key = $order->id . '_' . $lineId;
+
+                $orderedQty = (float) $item->quantity;
+
+                $deliveredQty = $packedMap[$key] ?? 0;
+
+                $item->delivered_qty = $deliveredQty;
+
+                $item->balance_qty = max(0, $orderedQty - $deliveredQty);
+            }
         }
-    }
-
-    // attach delivered_qty into order items
-    foreach ($order->items as $item) {
-
-        $code = strtolower(trim($item->item_code));
-
-        $item->delivered_qty =
-            $packedMap[$code] ?? 0;
-    }
-}
 
         return response()->json([
             'success' => true,
@@ -194,6 +308,10 @@ foreach ($orders as $order) {
         ]);
 
     } catch (\Exception $e) {
+
+        Log::error('Order fetch failed', [
+            'error' => $e->getMessage()
+        ]);
 
         return response()->json([
             'success' => false,
