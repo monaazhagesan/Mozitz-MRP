@@ -120,7 +120,7 @@ const [insights, setInsights] = useState<any[]>([]);
     onHand: 100,
     expected: 100,
     committed: 100,
-    
+
     reorderPoint: 120,
     warehouse: 100,
     location: 120,
@@ -214,7 +214,7 @@ const [insights, setInsights] = useState<any[]>([]);
      const [loading, setLoading] = useState<boolean>(false);
 
 
-     
+
  const loadCategories = async () => {
   try {
     const response = await axios.get("/api/categories"); // adjust base URL if needed
@@ -298,43 +298,43 @@ const [insights, setInsights] = useState<any[]>([]);
 const handleCreateItem = async () => {
   // 1️⃣ Frontend validation
   if (!itemType || !itemName || !sku || !location || !initialStockQty) {
-    toast({ 
-      title: "Validation Error", 
-      description: "Please fill in all required fields", 
-      variant: "destructive" 
+    toast({
+      title: "Validation Error",
+      description: "Please fill in all required fields",
+      variant: "destructive"
     });
     return;
   }
 
   if (itemType === "Component" && (!purchasePrice || !defaultSupplier)) {
-    toast({ 
-      title: "Validation Error", 
-      description: "Purchase price and default supplier are required for Component", 
-      variant: "destructive" 
+    toast({
+      title: "Validation Error",
+      description: "Purchase price and default supplier are required for Component",
+      variant: "destructive"
     });
     return;
   }
 
   if (itemType === "Component" && parseFloat(purchasePrice) < 0) {
-    toast({ 
-      title: "Validation Error", 
-      description: "Purchase price cannot be negative", 
-      variant: "destructive" 
+    toast({
+      title: "Validation Error",
+      description: "Purchase price cannot be negative",
+      variant: "destructive"
     });
     return;
   }
 
   if (parseFloat(initialStockQty) < 0) {
-    toast({ 
-      title: "Validation Error", 
-      description: "Initial stock quantity cannot be negative", 
-      variant: "destructive" 
+    toast({
+      title: "Validation Error",
+      description: "Initial stock quantity cannot be negative",
+      variant: "destructive"
     });
     return;
   }
 
   try {
-    
+
     // 2️⃣ Payload matching DB
    const payload: any = {
   item_code: itemCode?.trim() || null,
@@ -343,7 +343,7 @@ const handleCreateItem = async () => {
   sku: sku?.trim() || 'AUTO-SKU',
   description: itemDescription?.trim() || null,
   quantity_on_hand: initialStockQty ? parseFloat(initialStockQty) : 0,
-  available_quantity: initialStockQty ? parseFloat(initialStockQty) : 0, 
+  available_quantity: initialStockQty ? parseFloat(initialStockQty) : 0,
   allocated_quantity: 0,
   committed_quantity: 0,
   unit_cost: purchasePrice ? parseFloat(purchasePrice) : 0,
@@ -396,10 +396,10 @@ const handleCreateItem = async () => {
       const errorMessages = Object.values(error.response.data.errors).flat().join(" | ");
       toast({ title: "Validation Error", description: errorMessages, variant: "destructive" });
     } else {
-      toast({ 
-        title: "Error", 
-        description: error.response?.data?.message || `Failed to ${editMode ? "update" : "create"} item`, 
-        variant: "destructive" 
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || `Failed to ${editMode ? "update" : "create"} item`,
+        variant: "destructive"
       });
     }
   }
@@ -427,7 +427,7 @@ const fetchInventory = async () => {
     }
   };
 
- 
+
 useEffect(() => {
   loadInventory();
 }, []);
@@ -533,7 +533,7 @@ const loadInventory = async () => {
     setLoading(false);
   }
 };
- 
+
   // Migrate existing items to set usability based on item type
 
 
@@ -1499,7 +1499,7 @@ const handleBulkDeallocate = async () => {
   const isAllSelected = paginatedItems.length > 0 && paginatedItems.every((item) => selectedItems.has(item.id));
   const isSomeSelected = selectedItems.size > 0 && !isAllSelected;
 
- 
+
 
   return (
     <Layout>

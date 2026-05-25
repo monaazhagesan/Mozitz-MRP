@@ -53,6 +53,16 @@ class CustomerController extends Controller
             'postal_code' => 'nullable|string',
             'country' => 'nullable|string',
             'currency' => 'nullable|string',
+
+             'shipping_address_line1' => 'nullable|string',
+        'shipping_address_line2' => 'nullable|string',
+        'shipping_city' => 'nullable|string',
+        'shipping_state' => 'nullable|string',
+        'shipping_country' => 'nullable|string',
+        'shipping_postal_code' => 'nullable|string',
+
+        'same_as_billing' => 'nullable|boolean',
+
             'gst_number' => 'nullable|string',
             'tax_id' => 'nullable|string',
             'tier' => 'nullable|string',
@@ -95,6 +105,16 @@ class CustomerController extends Controller
             'state' => 'nullable|string',
             'postal_code' => 'nullable|string',
             'country' => 'nullable|string',
+
+             'shipping_address_line1' => 'nullable|string',
+        'shipping_address_line2' => 'nullable|string',
+        'shipping_city' => 'nullable|string',
+        'shipping_state' => 'nullable|string',
+        'shipping_country' => 'nullable|string',
+        'shipping_postal_code' => 'nullable|string',
+
+        'same_as_billing' => 'nullable|boolean',
+
             'currency' => 'nullable|string',
             'gst_number' => 'nullable|string',
             'tax_id' => 'nullable|string',
@@ -118,7 +138,7 @@ class CustomerController extends Controller
         $customer = Customer::where('id', $id)
         ->where('user_id', Auth::id())
         ->firstOrFail();
-        
+
         $customer->delete();
 
         return response()->json(['message' => 'Customer deleted successfully']);

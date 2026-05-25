@@ -28,6 +28,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
@@ -49,12 +50,9 @@ import {
 
   Info,
 } from "lucide-react";
-
+import ItemTransactionsTab from "@/components/inventory/ItemTransactionsTab";
 import { ClipboardList } from "lucide-react";
 
-// ─────────────────────────────────────────────
-// TYPES
-// ─────────────────────────────────────────────
 
 type MRPItem = {
   id: string;
@@ -71,6 +69,7 @@ type MRPItem = {
   reorder_point: number | null;
   lead_time_days: number | null;
   unit_cost: number | null;
+  uom: string | null;
 };
 
 type Suggestion = "Sufficient" | "Below Reorder" | "Deficit";
@@ -200,18 +199,27 @@ function SuggestionBadge({ s }: { s: Suggestion }) {
 
 // Live preview pill used in the modal
 function LivePill({ oh, ss }: { oh: number; ss: number }) {
+  if (oh < 0)
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-red-100 text-red-800">
+        <X className="h-2.5 w-2.5" /> Deficit
+      </span>
+    );
+
   if (oh === 0)
     return (
       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-red-100 text-red-800">
         <X className="h-2.5 w-2.5" /> Out of stock
       </span>
     );
+
   if (ss > 0 && oh <= ss)
     return (
       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800">
         <AlertTriangle className="h-2.5 w-2.5" /> Low stock
       </span>
     );
+
   return (
     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-green-100 text-green-800">
       <Check className="h-2.5 w-2.5" /> Sufficient
@@ -299,6 +307,7 @@ const emptyItem: Omit<MRPItem, "id"> = {
   unit_cost: null,
   location: null,
   location_id: null,
+  uom: "Nos",
 };
 
 type AddItemDialogProps = {
@@ -309,6 +318,20 @@ type AddItemDialogProps = {
   setEditing: React.Dispatch<React.SetStateAction<MRPItem | null>>;
   items: MRPItem[];
   locations: { id: string; location_name: string }[];
+  receiptType: string;
+setReceiptType: React.Dispatch<React.SetStateAction<string>>;
+
+receiptDate: string;
+setReceiptDate: React.Dispatch<React.SetStateAction<string>>;
+
+poGrnRef: string;
+setPoGrnRef: React.Dispatch<React.SetStateAction<string>>;
+
+stockUom: string;
+setStockUom: React.Dispatch<React.SetStateAction<string>>;
+
+addQty: number;
+setAddQty: React.Dispatch<React.SetStateAction<number>>;
   onSave: () => Promise<void>;
 };
 
@@ -320,6 +343,20 @@ function AddItemDialog({
   setEditing,
   items,
   locations,
+  receiptType,
+setReceiptType,
+
+receiptDate,
+setReceiptDate,
+
+poGrnRef,
+setPoGrnRef,
+
+stockUom,
+setStockUom,
+
+addQty,
+setAddQty,
   onSave,
 }: AddItemDialogProps) {
   // Which top-level tab: "new" | "stock"
@@ -331,8 +368,6 @@ function AddItemDialog({
   const [simQty, setSimQty] = useState(1);
   // Add-stock panel state
   const [stockItem, setStockItem] = useState<{ cur: number; uom: string } | null>(null);
-  const [addQty, setAddQty] = useState(0);
-
   const isProduct = editing?.item_type === "Product";
 
   // Reset when dialog opens/closes
@@ -348,10 +383,23 @@ function AddItemDialog({
   }, [open]);
 
   // Live preview calculations
-  const oh = Number(editing?.on_hand ?? 0);
-  const ss = Number(editing?.safety_stock ?? 0);
-  const available = Math.max(0, oh - ss);
+  const onHand = Number(editing?.on_hand ?? 0);
+const allocated = Number(editing?.allocated ?? 0);
+const openPo = Number(editing?.open_po ?? 0);
+const bomReq = Number(editing?.bom_req ?? 0);
+const safety = Number(editing?.safety_stock ?? 0);
 
+// MRP available stock
+const available = onHand - allocated;
+
+// projected stock after supply/demand
+const projectedAvailable = onHand + openPo - allocated;
+
+// MRP net requirement (same logic as table)
+const netRequirement = Math.max(
+  0,
+  bomReq + safety - projectedAvailable
+);
   // ── helpers ──────────────────────────────────
 
   const addBomRow = () => {
@@ -373,9 +421,9 @@ function AddItemDialog({
 
   const handleSubmit = async () => {
     if (mainTab === "stock") {
-      onOpenChange(false);
-      return;
-    }
+  await onSave();
+  return;
+}
     if (isProduct && step === 1) {
       setStep(2);
       return;
@@ -416,7 +464,6 @@ function AddItemDialog({
   };
 
   const dialogSub = () => {
-    if (mainTab === "stock") return "Record a stock receipt for an existing item";
     if (step === 2)
       return `Step 2 of 2 — Mapping for: ${editing?.item_name || "Product"}`;
     if (isProduct) return "Step 1 of 2 — Item details";
@@ -453,30 +500,6 @@ function AddItemDialog({
 
           {/* Main tabs */}
           <div className="flex border-b border-border -mx-0">
-            {(["new", "stock"] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => {
-                  setMainTab(t);
-                  setStep(1);
-                }}
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-[13px] font-medium border-b-2 -mb-px transition-all ${
-                  mainTab === t
-                    ? "border-green-600 text-green-700"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {t === "new" ? (
-                  <>
-                    <Plus className="h-3.5 w-3.5" /> New item
-                  </>
-                ) : (
-                  <>
-                    <ArrowRight className="h-3.5 w-3.5" /> Add stock
-                  </>
-                )}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -497,7 +520,7 @@ function AddItemDialog({
                   Available:{" "}
                   <span className="font-semibold">{available}</span>
                 </span>
-                <LivePill oh={oh} ss={ss} />
+               <LivePill oh={available} ss={safety} />
               </div>
 
               {/* Section: Basic info */}
@@ -547,12 +570,29 @@ function AddItemDialog({
                     <SelectContent>
                       <SelectItem value="Material">Material</SelectItem>
                       <SelectItem value="Product">Product (manufactured)</SelectItem>
-                      <SelectItem value="Component">Component</SelectItem>
-                      <SelectItem value="N/A">N/A</SelectItem>
+
                     </SelectContent>
                   </Select>
                 </div>
 
+                <div className="flex flex-col gap-1">
+  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+    Unit of measure <span className="text-destructive">*</span>
+  </Label>
+
+   <Select value={stockUom} onValueChange={setStockUom}>
+    <SelectTrigger>
+      <SelectValue placeholder="Select UOM" />
+    </SelectTrigger>
+    <SelectContent>
+      {["Nos", "Kg", "Ltr", "Mtr", "Set", "Box", "Pcs"].map((u) => (
+        <SelectItem key={u} value={u}>
+          {u}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+</div>
                 {/* On hand */}
                 <div className="flex flex-col gap-1">
                   <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -692,26 +732,6 @@ function AddItemDialog({
                     Days from order placed to stock arriving
                   </span>
                 </div>
-
-                {/* Remaining numeric fields (allocated, bom_req, open_po) */}
-                {(["allocated", "bom_req", "open_po"] as Array<keyof MRPItem>).map(
-                  (f) => (
-                    <div key={f} className="flex flex-col gap-1">
-                      <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground capitalize">
-                        {String(f).replace(/_/g, " ")}
-                      </Label>
-                      <Input
-                        type="number"
-                        value={editing[f] == null ? "" : String(editing[f])}
-                        onChange={(e) => {
-                          const v =
-                            e.target.value === "" ? null : Number(e.target.value);
-                          setEditing({ ...editing, [f]: v as number });
-                        }}
-                      />
-                    </div>
-                  )
-                )}
               </div>
             </div>
           )}
@@ -946,12 +966,16 @@ function AddItemDialog({
                     <SelectTrigger>
                       <SelectValue placeholder="Search or select…" />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="128|Nos">MAT-0001 — SKF Bearing 6205</SelectItem>
-                      <SelectItem value="120|Ltr">MAT-0045 — Hydraulic Oil VG46</SelectItem>
-                      <SelectItem value="0|Kg">MAT-0078 — SS Sheet 304 2mm</SelectItem>
-                      <SelectItem value="450|Kg">MAT-0091 — Copper Wire 1.2mm</SelectItem>
-                    </SelectContent>
+                   <SelectContent>
+  {items.map((item) => (
+    <SelectItem
+      key={item.id}
+      value={`${item.on_hand}|${item.uom ?? "Nos"}`}
+    >
+      {item.item_code} — {item.item_name}
+    </SelectItem>
+  ))}
+</SelectContent>
                   </Select>
                 </div>
                 <div className="flex flex-col gap-1">
@@ -1014,7 +1038,7 @@ function AddItemDialog({
                   <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                     Receipt type <span className="text-destructive">*</span>
                   </Label>
-                  <Select>
+                  <Select onValueChange={setReceiptType}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
@@ -1031,36 +1055,21 @@ function AddItemDialog({
                   <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                     Receipt date <span className="text-destructive">*</span>
                   </Label>
-                  <Input type="date" />
+                  <Input
+  type="date"
+  value={receiptDate}
+  onChange={(e) => setReceiptDate(e.target.value)}
+/>
                 </div>
                 <div className="flex flex-col gap-1">
                   <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                     PO / GRN reference
                   </Label>
-                  <Input placeholder="e.g. PO-2024-0156" />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                    Unit cost (₹)
-                  </Label>
-                  <Input type="number" placeholder="0.00" min={0} />
-                </div>
-                <div className="flex flex-col gap-1 col-span-2">
-                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                    Location <span className="text-destructive">*</span>
-                  </Label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select location" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {locations.map((loc) => (
-                        <SelectItem key={loc.id} value={loc.id}>
-                          {loc.location_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                 <Input
+  placeholder="e.g. PO-2024-0156"
+  value={poGrnRef}
+  onChange={(e) => setPoGrnRef(e.target.value)}
+/>
                 </div>
               </div>
             </div>
@@ -1126,6 +1135,15 @@ export default function MRPPlannerTab() {
   const [isNew, setIsNew] = useState(false);
 
   const [locations, setLocations] = useState<{ id: string; location_name: string }[]>([]);
+
+  const [receiptType, setReceiptType] = useState("");
+const [receiptDate, setReceiptDate] = useState("");
+const [poGrnRef, setPoGrnRef] = useState("");
+const [stockUom, setStockUom] = useState("Nos");
+const [addQty, setAddQty] = useState(0);
+
+const [viewDetailsOpen, setViewDetailsOpen] = useState(false);
+const [selectedItem, setSelectedItem] = useState<any | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -1239,6 +1257,7 @@ export default function MRPPlannerTab() {
       unit_cost: row.unit_cost,
       location: row.location,
       location_id: row.location_id ? String(row.location_id) : null,
+       uom: (row as any).uom ?? "Nos",
     });
     setIsNew(false);
     setEditOpen(true);
@@ -1262,14 +1281,39 @@ export default function MRPPlannerTab() {
       toast.error("Item code and name are required");
       return;
     }
+
+     // ✅ ADD THIS BLOCK HERE (BEFORE try)
+  if (addQty > 0) {
+    if (!stockUom) {
+      toast.error("UOM is required");
+      return;
+    }
+
+    if (!receiptType) {
+      toast.error("Receipt type is required");
+      return;
+    }
+
+    if (!receiptDate) {
+      toast.error("Receipt date is required");
+      return;
+    }
+
+    if (Number(addQty) <= 0) {
+      toast.error("Quantity added must be greater than 0");
+      return;
+    }
+  }
     const payload = {
       item_code: editing.item_code?.trim() || null,
       item_name: editing.item_name?.trim(),
       item_type: editing.item_type || "Product",
       location: editing.location?.trim() || "Default",
       location_id: editing.location_id,
+       uom: stockUom || editing.uom || "Nos",
+       qty_to_add: Number(addQty ?? 0),
       open_po: Number(editing.open_po ?? 0),
-      quantity_on_hand: Number(editing.on_hand ?? 0),
+   quantity_on_hand: Number(editing.on_hand ?? 0),
       allocated_quantity: Number(editing.allocated ?? 0),
       available_quantity: Number(editing.on_hand ?? 0) - Number(editing.allocated ?? 0),
       committed_quantity: Number(editing.bom_req ?? 0),
@@ -1286,6 +1330,16 @@ export default function MRPPlannerTab() {
         await axios.put(`/api/inventory-stock/${editing.id}`, payload);
         toast.success("Item updated successfully");
       }
+       if (addQty > 0) {
+    await axios.post("/api/stock-receipts", {
+      item_id: editing.id,
+      qty_added: Number(addQty),
+      uom: stockUom || "Nos",
+      receipt_type: receiptType,
+      receipt_date: receiptDate,
+      po_grn_reference: poGrnRef,
+    });
+  }
       setEditOpen(false);
       fetchData();
     } catch (error: any) {
@@ -1296,6 +1350,34 @@ export default function MRPPlannerTab() {
       );
     }
   };
+
+  const openItemDetails = (row: ComputedRow) => {
+  setSelectedItem({
+    code: row.item_code,
+    name: row.item_name,
+    type: row.item_type,
+    sku: row.item_code,
+    location: row.location,
+    locationTracking: false,
+    grnRequired: false,
+
+    quantityOnHand: row.on_hand,
+    availableQuantity: row.available,
+    expectedQuantity: row.open_po,
+
+    reorderPoint: row.reorder_point,
+    reorderQty: null,
+
+    purchasePrice: row.unit_cost,
+    sellingPrice: row.unit_cost,
+
+    hsnCode: "",
+    taxRate: null,
+    description: "",
+  });
+
+  setViewDetailsOpen(true);
+};
 
   const deleteItem = async (id: string) => {
     if (!confirm("Delete this item?")) return;
@@ -1453,9 +1535,14 @@ export default function MRPPlannerTab() {
                     }}
                   />
                 </TableCell>
-                <TableCell className="font-medium text-muted-foreground">
-                  <span className="select-none opacity-80">{r.item_code}</span>
-                </TableCell>
+               <TableCell className="font-medium text-muted-foreground">
+  <button
+    className="select-none opacity-80 hover:underline hover:text-primary"
+    onClick={() => openItemDetails(r)}
+  >
+    {r.item_code}
+  </button>
+</TableCell>
                 <TableCell>{r.item_name}</TableCell>
                 <TableCell><Badge variant="outline">{r.item_type ?? "N/A"}</Badge></TableCell>
                 <TableCell className="text-right"><InlineNumber row={r} field="on_hand" /></TableCell>
@@ -1647,7 +1734,100 @@ export default function MRPPlannerTab() {
         items={items}
         locations={locations}
         onSave={saveEdit}
+        receiptType={receiptType}
+  setReceiptType={setReceiptType}
+
+  receiptDate={receiptDate}
+  setReceiptDate={setReceiptDate}
+
+  poGrnRef={poGrnRef}
+  setPoGrnRef={setPoGrnRef}
+
+  stockUom={stockUom}
+  setStockUom={setStockUom}
+
+  addQty={addQty}
+  setAddQty={setAddQty}
       />
+
+      <Dialog open={viewDetailsOpen} onOpenChange={setViewDetailsOpen}>
+  <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+    <DialogHeader>
+      <DialogTitle>
+        Item Details - {selectedItem?.code}
+      </DialogTitle>
+      <DialogDescription>
+        {selectedItem?.name}
+      </DialogDescription>
+    </DialogHeader>
+
+    {selectedItem && (
+      <Tabs defaultValue="overview" className="w-full">
+        <TabsList className="mb-4">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="transactions">Transactions</TabsTrigger>
+          <TabsTrigger value="history">History</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-6">
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm text-muted-foreground">Item Code</label>
+                <p className="font-mono">{selectedItem.code}</p>
+              </div>
+
+              <div>
+                <label className="text-sm text-muted-foreground">Item Type</label>
+                <Badge variant="outline">{selectedItem.type}</Badge>
+              </div>
+
+              <div>
+                <label className="text-sm text-muted-foreground">Location</label>
+                <p>{selectedItem.location}</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm text-muted-foreground">On Hand</label>
+                <p className="text-2xl font-bold">
+                  {selectedItem.quantityOnHand}
+                </p>
+              </div>
+
+              <div>
+                <label className="text-sm text-muted-foreground">Available</label>
+                <p className="font-semibold">
+                  {selectedItem.availableQuantity}
+                </p>
+              </div>
+
+              <div>
+                <label className="text-sm text-muted-foreground">Reorder Point</label>
+                <p>{selectedItem.reorderPoint || "Not set"}</p>
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="transactions">
+          <ItemTransactionsTab itemCode={selectedItem.code} />
+        </TabsContent>
+
+        <TabsContent value="history" className="text-center text-muted-foreground py-8">
+          Item history coming soon...
+        </TabsContent>
+
+        <div className="flex justify-end pt-4 border-t mt-4">
+          <Button onClick={() => setViewDetailsOpen(false)}>
+            Close
+          </Button>
+        </div>
+      </Tabs>
+    )}
+  </DialogContent>
+</Dialog>
     </div>
   );
 }

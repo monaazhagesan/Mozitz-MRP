@@ -67,6 +67,13 @@ interface Customer {
   postal_code?: string;
   sameAsBilling?: boolean;
   separateShipping?: boolean;
+
+  shipping_address_line1?: string;
+shipping_address_line2?: string;
+shipping_city?: string;
+shipping_state?: string;
+shipping_country?: string;
+shipping_postal_code?: string;
 }
 
 interface CustomerDetailDialogProps {
@@ -118,6 +125,13 @@ const Customers = () => {
   website: "",
   sameAsBilling: false,
   separateShipping: false,
+
+  shipping_address_line1: "",
+shipping_address_line2: "",
+shipping_city: "",
+shipping_state: "",
+shipping_country: "",
+shipping_postal_code: "",
 });
 
 
@@ -213,7 +227,7 @@ const Customers = () => {
       if (saved) {
         const refunds = JSON.parse(saved);
         const refundMap: Record<string, { count: number; total: number }> = {};
-        
+
         refunds.forEach((refund: any) => {
           if (refund.status === "processed") {
             const customerName = refund.customerName;
@@ -224,7 +238,7 @@ const Customers = () => {
             refundMap[customerName].total += refund.refundAmount || 0;
           }
         });
-        
+
         setRefundsByCustomer(refundMap);
       }
     } catch (e) {
@@ -295,6 +309,20 @@ const Customers = () => {
   if (!(newCustomer.country ?? "").trim()) missingFields.push("Country");
   if (!(newCustomer.postal_code ?? "").trim()) missingFields.push("Postal Code");
 
+    if (!(newCustomer.shipping_address_line1 ?? "").trim())
+    missingFields.push("Shipping Address Line 1");
+
+  if (!(newCustomer.shipping_city ?? "").trim())
+    missingFields.push("Shipping City");
+
+  if (!(newCustomer.shipping_state ?? "").trim())
+    missingFields.push("Shipping State");
+
+  if (!(newCustomer.shipping_country ?? "").trim())
+    missingFields.push("Shipping Country");
+
+  if (!(newCustomer.shipping_postal_code ?? "").trim())
+    missingFields.push("Shipping Postal Code");
 
   const phoneRegex = /^\d{10}$/;
 if (newCustomer.mobile && !phoneRegex.test(newCustomer.mobile)) {
@@ -331,7 +359,20 @@ if (newCustomer.gst_number && newCustomer.gst_number.trim() !== "") {
     });
     return;
   }
-  
+
+   const shippingPostalRegex = /^\d{5,6}$/;
+  if (
+    newCustomer.shipping_postal_code &&
+    !shippingPostalRegex.test(newCustomer.shipping_postal_code)
+  ) {
+    toast({
+      title: "Invalid Shipping Postal Code",
+      description: "Postal code must be 5 or 6 digits",
+      variant: "destructive",
+    });
+    return;
+  }
+
   // Email format validation
 if (newCustomer.email) {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -413,6 +454,7 @@ if (newCustomer.company_name?.trim()) {
     await axios.post("/api/customers", {
       ...newCustomer,
       customer_code: generateCustomerCode(),
+      same_as_billing: newCustomer.sameAsBilling,
     });
 
     toast({
@@ -440,8 +482,15 @@ if (newCustomer.company_name?.trim()) {
   cin: "",
   industry_type: "",
   website: "",
-  sameAsBilling: false,
+  same_as_billing: "",
   separateShipping: false,
+
+  shipping_address_line1: "",
+shipping_address_line2: "",
+shipping_city: "",
+shipping_state: "",
+shipping_country: "",
+shipping_postal_code: "",
 });
 
 
@@ -475,6 +524,21 @@ if (newCustomer.company_name?.trim()) {
   if (!(selectedCustomer.state ?? "").trim()) missingFields.push("State");
   if (!(selectedCustomer.country ?? "").trim()) missingFields.push("Country");
   if (!(selectedCustomer.postal_code ?? "").trim()) missingFields.push("Postal Code");
+
+    if (!(selectedCustomer.shipping_address_line1 ?? "").trim())
+      missingFields.push("Shipping Address Line 1");
+
+    if (!(selectedCustomer.shipping_city ?? "").trim())
+      missingFields.push("Shipping City");
+
+    if (!(selectedCustomer.shipping_state ?? "").trim())
+      missingFields.push("Shipping State");
+
+    if (!(selectedCustomer.shipping_country ?? "").trim())
+      missingFields.push("Shipping Country");
+
+    if (!(selectedCustomer.shipping_postal_code ?? "").trim())
+      missingFields.push("Shipping Postal Code");
 
   // Phone validation
   const phoneRegex = /^\d{10}$/;
@@ -513,6 +577,19 @@ if (newCustomer.company_name?.trim()) {
     });
     return;
   }
+
+  const shippingPostalRegex = /^\d{5,6}$/;
+    if (
+      selectedCustomer.shipping_postal_code &&
+      !shippingPostalRegex.test(selectedCustomer.shipping_postal_code)
+    ) {
+      toast({
+        title: "Invalid Shipping Postal Code",
+        description: "Postal code must be 5 or 6 digits",
+        variant: "destructive",
+      });
+      return;
+    }
 
   // Email validation
   if (selectedCustomer.email) {
@@ -593,9 +670,12 @@ if (newCustomer.company_name?.trim()) {
       email: selectedCustomer.email || "",
       mobile: selectedCustomer.mobile || "",
       billing_address: selectedCustomer.billing_address || "",
-      shipping_address: selectedCustomer.sameAsBilling
-        ? selectedCustomer.billing_address || ""
-        : selectedCustomer.shipping_address || "",
+      shipping_address_line1: selectedCustomer.shipping_address_line1 || "",
+shipping_address_line2: selectedCustomer.shipping_address_line2 || "",
+shipping_city: selectedCustomer.shipping_city || "",
+shipping_state: selectedCustomer.shipping_state || "",
+shipping_country: selectedCustomer.shipping_country || "",
+shipping_postal_code: selectedCustomer.shipping_postal_code || "",
       address_line1: selectedCustomer.address_line1 || "",
       address_line2: selectedCustomer.address_line2 || "",
       city: selectedCustomer.city || "",
@@ -610,6 +690,8 @@ if (newCustomer.company_name?.trim()) {
       cin: selectedCustomer.cin || "",
       industry_type: selectedCustomer.industry_type || "",
       website: selectedCustomer.website || "",
+
+       same_as_billing: Boolean(selectedCustomer.sameAsBilling),
     });
 
     toast({
@@ -811,120 +893,43 @@ if (newCustomer.company_name?.trim()) {
         </div>
       </TabsContent>
 
-      <TabsContent value="address" className="space-y-6 mt-4">
-  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+  <TabsContent value="address" className="space-y-6 mt-4">
 
-    {/* Address Lines */}
-    <div className="space-y-2">
-      <Label htmlFor="address_line1">Address Line 1 *</Label>
-      <Input
-        id="address_line1"
-        value={newCustomer.address_line1 || ""}
-        onChange={(e) =>
-          setNewCustomer({ ...newCustomer, address_line1: e.target.value })
-        }
-        placeholder="Enter address line 1"
-      />
-    </div>
+  {/* BILLING ADDRESS */}
+  <div className="border rounded-lg p-4 space-y-4">
+    <h3 className="text-lg font-semibold">Billing Address</h3>
 
-    <div className="space-y-2">
-      <Label htmlFor="address_line2">Address Line 2 (Optional)</Label>
-      <Input
-        id="address_line2"
-        value={newCustomer.address_line2 || ""}
-        onChange={(e) =>
-          setNewCustomer({ ...newCustomer, address_line2: e.target.value })
-        }
-        placeholder="Enter address line 2"
-      />
-    </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-    {/* Billing Address */}
-    <div className="space-y-2 md:col-span-2">
-      <Label htmlFor="billing_address">Billing Address</Label>
-      <Textarea
-        id="billing_address"
-        value={newCustomer.billing_address || ""}
-        onChange={(e) =>
-          setNewCustomer({ ...newCustomer, billing_address: e.target.value })
-        }
-        placeholder="Enter billing address"
-        rows={3}
-      />
-    </div>
-
-    {/* Shipping Address with checkboxes */}
-    <div className="space-y-2 md:col-span-2">
-      <Label htmlFor="shipping_address">Shipping Address</Label>
-
-      <div className="flex flex-col md:flex-row md:items-center gap-4">
-        <label className="inline-flex items-center space-x-2">
-           <input
-      type="checkbox"
-      checked={newCustomer.sameAsBilling || false}
-      onChange={(e) => {
-        const isChecked = e.target.checked;
-        setNewCustomer({
-          ...newCustomer,
-          sameAsBilling: isChecked,
-          separateShipping: !isChecked, // hide separate shipping if same as billing
-          shipping_address: isChecked ? newCustomer.billing_address || "" : "",
-        });
-      }}
-    />
-          <span>Same as Billing</span>
-        </label>
-
-        <label className="inline-flex items-center space-x-2">
-          <input
-            type="checkbox"
-            checked={newCustomer.separateShipping}
-            onChange={(e) => {
-              const isChecked = e.target.checked;
-              setNewCustomer({
-                ...newCustomer,
-                separateShipping: isChecked,
-                sameAsBilling: !isChecked,
-                shipping_address: isChecked ? "" : newCustomer.billing_address,
-              });
-            }}
-          />
-          <span>Separate Shipping Address (Optional)</span>
-        </label>
+      <div className="space-y-2">
+        <Label>Address Line 1 *</Label>
+        <Input
+          value={newCustomer.address_line1 || ""}
+          onChange={(e) =>
+            setNewCustomer({
+              ...newCustomer,
+              address_line1: e.target.value,
+            })
+          }
+           placeholder="Enter address line 1"
+        />
       </div>
 
-      {(newCustomer.sameAsBilling || newCustomer.separateShipping) && (
-  <div className="space-y-2">
-   
-    <Textarea
-      id="shipping_address"
-      value={
-        newCustomer.sameAsBilling
-          ? newCustomer.billing_address || ""
-          : newCustomer.shipping_address || ""
-      }
-      onChange={(e) =>
-        setNewCustomer({
-          ...newCustomer,
-          shipping_address: e.target.value,
-        })
-      }
-      placeholder="Enter shipping address"
-      rows={3}
-      disabled={newCustomer.sameAsBilling} // 👈 important
-    />
+      <div className="space-y-2">
+        <Label>Address Line 2 (Optional)</Label>
+        <Input
+          value={newCustomer.address_line2 || ""}
+          onChange={(e) =>
+            setNewCustomer({
+              ...newCustomer,
+              address_line2: e.target.value,
+            })
+          }
+           placeholder="Enter address line 2"
+        />
+      </div>
 
-    {newCustomer.sameAsBilling && (
-      <p className="text-xs text-muted-foreground">
-        Shipping address is same as billing (auto-updated)
-      </p>
-    )}
-  </div>
-)}
-    </div>
-
-    {/* City, State, Country, Postal Code */}
-    <div className="space-y-2">
+      <div className="space-y-2">
       <Label htmlFor="city">City *</Label>
       <Input
         id="city"
@@ -932,23 +937,26 @@ if (newCustomer.company_name?.trim()) {
         onChange={(e) =>
           setNewCustomer({ ...newCustomer, city: e.target.value })
         }
-        placeholder="Enter city"
+        placeholder="Enter City"
       />
     </div>
 
-    <div className="space-y-2">
-      <Label htmlFor="state">State *</Label>
-      <Input
-        id="state"
-        value={newCustomer.state}
-        onChange={(e) =>
-          setNewCustomer({ ...newCustomer, state: e.target.value })
-        }
-        placeholder="Enter state"
-      />
-    </div>
 
-    <div className="space-y-2">
+      <div className="space-y-2">
+        <Label>State *</Label>
+        <Input
+          value={newCustomer.state || ""}
+          onChange={(e) =>
+            setNewCustomer({
+              ...newCustomer,
+              state: e.target.value,
+            })
+          }
+          placeholder="Enter State"
+        />
+      </div>
+
+       <div className="space-y-2">
       <Label htmlFor="country">Country *</Label>
       <Input
         id="country"
@@ -956,7 +964,7 @@ if (newCustomer.company_name?.trim()) {
         onChange={(e) =>
           setNewCustomer({ ...newCustomer, country: e.target.value })
         }
-        placeholder="Enter country"
+        placeholder="Enter Country"
         list="countries-list"
       />
       <datalist id="countries-list">
@@ -973,20 +981,180 @@ if (newCustomer.company_name?.trim()) {
       </datalist>
     </div>
 
-    <div className="space-y-2">
-      <Label htmlFor="postal_code">Postal Code *</Label>
-      <Input
-        id="postal_code"
-        value={newCustomer.postal_code}
-        onChange={(e) =>
-          setNewCustomer({ ...newCustomer, postal_code: e.target.value })
-        }
-        placeholder="Enter postal code"
-      />
+
+      <div className="space-y-2">
+        <Label>Postal Code *</Label>
+        <Input
+          value={newCustomer.postal_code || ""}
+          onChange={(e) =>
+            setNewCustomer({
+              ...newCustomer,
+              postal_code: e.target.value,
+            })
+          }
+           placeholder="Enter Postal Code"
+        />
+      </div>
     </div>
   </div>
-</TabsContent>
 
+  {/* SHIPPING ADDRESS */}
+  <div className="border rounded-lg p-4 space-y-4">
+
+    <div className="flex items-center justify-between">
+      <h3 className="text-lg font-semibold">Shipping Address</h3>
+
+      <label className="inline-flex items-center space-x-2">
+        <input
+          type="checkbox"
+          checked={newCustomer.sameAsBilling || false}
+          onChange={(e) => {
+            const checked = e.target.checked;
+
+            setNewCustomer({
+              ...newCustomer,
+              sameAsBilling: checked,
+
+              shipping_address_line1: checked
+                ? newCustomer.address_line1
+                : "",
+
+              shipping_address_line2: checked
+                ? newCustomer.address_line2
+                : "",
+
+              shipping_city: checked
+                ? newCustomer.city
+                : "",
+
+              shipping_state: checked
+                ? newCustomer.state
+                : "",
+
+              shipping_country: checked
+                ? newCustomer.country
+                : "",
+
+              shipping_postal_code: checked
+                ? newCustomer.postal_code
+                : "",
+            });
+          }}
+        />
+
+        <span>Same as Billing</span>
+      </label>
+    </div>
+
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+      <div className="space-y-2">
+        <Label>Address Line 1 *</Label>
+        <Input
+          disabled={newCustomer.sameAsBilling}
+          value={newCustomer.shipping_address_line1 || ""}
+          onChange={(e) =>
+            setNewCustomer({
+              ...newCustomer,
+              shipping_address_line1: e.target.value,
+            })
+          }
+           placeholder="Enter Address Line 1"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Address Line 2</Label>
+        <Input
+          disabled={newCustomer.sameAsBilling}
+          value={newCustomer.shipping_address_line2 || ""}
+          onChange={(e) =>
+            setNewCustomer({
+              ...newCustomer,
+              shipping_address_line2: e.target.value,
+            })
+          }
+           placeholder="Enter Address Line 2"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>City *</Label>
+        <Input
+          disabled={newCustomer.sameAsBilling}
+          value={newCustomer.shipping_city || ""}
+          onChange={(e) =>
+            setNewCustomer({
+              ...newCustomer,
+              shipping_city: e.target.value,
+            })
+          }
+           placeholder="Enter City"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>State *</Label>
+        <Input
+          disabled={newCustomer.sameAsBilling}
+          value={newCustomer.shipping_state || ""}
+          onChange={(e) =>
+            setNewCustomer({
+              ...newCustomer,
+              shipping_state: e.target.value,
+            })
+          }
+           placeholder="Enter State"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Country *</Label>
+        <Input
+          disabled={newCustomer.sameAsBilling}
+          value={newCustomer.shipping_country || ""}
+          onChange={(e) =>
+            setNewCustomer({
+              ...newCustomer,
+              shipping_country: e.target.value,
+            })
+          }
+           placeholder="Enter Country"
+        list="countries-list"
+      />
+      <datalist id="countries-list">
+        <option value="India" />
+        <option value="United States" />
+        <option value="United Kingdom" />
+        <option value="Canada" />
+        <option value="Australia" />
+        <option value="Germany" />
+        <option value="France" />
+        <option value="China" />
+        <option value="Japan" />
+        <option value="Singapore" />
+      </datalist>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Postal Code *</Label>
+        <Input
+          disabled={newCustomer.sameAsBilling}
+          value={newCustomer.shipping_postal_code || ""}
+          onChange={(e) =>
+            setNewCustomer({
+              ...newCustomer,
+              shipping_postal_code: e.target.value,
+            })
+          }
+           placeholder="Enter Postal Code"
+        />
+      </div>
+
+    </div>
+  </div>
+
+</TabsContent>
 
       {/* ================= BUSINESS DETAILS ================= */}
       <TabsContent value="business" className="space-y-4 mt-4">
@@ -1222,17 +1390,19 @@ if (newCustomer.company_name?.trim()) {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => {
-                              setSelectedCustomer(customer);
-                               setSelectedCustomer({
-                                    ...customer,
-                                    sameAsBilling:
-                                      customer.shipping_address === customer.billing_address,
-                                    separateShipping:
-                                      customer.shipping_address !== customer.billing_address,
-                                  });
-                              setIsEditDialogOpen(true);
-                            }}
+                           onClick={() => {
+  setSelectedCustomer({
+    ...customer,
+    sameAsBilling:
+      customer.address_line1 === customer.shipping_address_line1 &&
+      customer.city === customer.shipping_city &&
+      customer.state === customer.shipping_state &&
+      customer.country === customer.shipping_country &&
+      customer.postal_code === customer.shipping_postal_code,
+  });
+
+  setIsEditDialogOpen(true);
+}}
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
@@ -1252,7 +1422,7 @@ if (newCustomer.company_name?.trim()) {
             </Table>
           </CardContent>
         </Card>
-        
+
 
         {/* ================= EDIT CUSTOMER DIALOG ================= */}
 <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
@@ -1384,165 +1554,254 @@ if (newCustomer.company_name?.trim()) {
         </TabsContent>
 
         {/* ================= ADDRESS INFO ================= */}
-        <TabsContent value="address" className="space-y-4 mt-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Address Line 1 *</Label>
-              <Input
-                value={selectedCustomer.address_line1 || ""}
-                onChange={(e) =>
-                  setSelectedCustomer({ ...selectedCustomer, address_line1: e.target.value })
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Address Line 2 (Optional)</Label>
-              <Input
-                value={selectedCustomer.address_line2 || ""}
-                onChange={(e) =>
-                  setSelectedCustomer({ ...selectedCustomer, address_line2: e.target.value })
-                }
-              />
-            </div>
+        {/* ================= ADDRESS INFO ================= */}
+<TabsContent value="address" className="space-y-6 mt-4">
 
-            <div className="space-y-2 md:col-span-2">
-              <Label>Billing Address</Label>
-              <Textarea
-                value={selectedCustomer.billing_address || ""}
-                onChange={(e) =>
-                  setSelectedCustomer({
-                    ...selectedCustomer,
-                    billing_address: e.target.value,
-                    shipping_address: selectedCustomer.sameAsBilling
-                      ? e.target.value
-                      : selectedCustomer.shipping_address || "",
-                  })
-                }
-                rows={3}
-                placeholder="Enter billing address"
-              />
-            </div>
+  {/* BILLING ADDRESS */}
+  <div className="border rounded-lg p-4 space-y-4">
+    <h3 className="text-lg font-semibold">Billing Address</h3>
 
-          <div className="space-y-2 md:col-span-2">
-  <Label>Shipping Address</Label>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-  <div className="flex flex-col md:flex-row md:items-center gap-4">
-    
-    {/* SAME AS BILLING */}
-    <label className="inline-flex items-center space-x-2">
-      <input
-        type="checkbox"
-        checked={selectedCustomer.sameAsBilling || false}
-        onChange={(e) => {
-          const isChecked = e.target.checked;
+      <div className="space-y-2">
+        <Label>Address Line 1 *</Label>
+        <Input
+          value={selectedCustomer.address_line1 || ""}
+          onChange={(e) =>
+            setSelectedCustomer({
+              ...selectedCustomer,
+              address_line1: e.target.value,
+            })
+          }
+          placeholder="Enter address line 1"
+        />
+      </div>
 
-          setSelectedCustomer({
-            ...selectedCustomer,
-            sameAsBilling: isChecked,
-            separateShipping: !isChecked,
-            shipping_address: isChecked
-              ? selectedCustomer.billing_address || ""
-              : "",
-          });
-        }}
+      <div className="space-y-2">
+        <Label>Address Line 2</Label>
+        <Input
+          value={selectedCustomer.address_line2 || ""}
+          onChange={(e) =>
+            setSelectedCustomer({
+              ...selectedCustomer,
+              address_line2: e.target.value,
+            })
+          }
+          placeholder="Enter address line 2"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>City *</Label>
+        <Input
+          value={selectedCustomer.city || ""}
+          onChange={(e) =>
+            setSelectedCustomer({
+              ...selectedCustomer,
+              city: e.target.value,
+            })
+          }
+          placeholder="Enter city"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>State *</Label>
+        <Input
+          value={selectedCustomer.state || ""}
+          onChange={(e) =>
+            setSelectedCustomer({
+              ...selectedCustomer,
+              state: e.target.value,
+            })
+          }
+          placeholder="Enter state"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Country *</Label>
+        <Input
+          value={selectedCustomer.country || ""}
+          onChange={(e) =>
+            setSelectedCustomer({
+              ...selectedCustomer,
+              country: e.target.value,
+            })
+          }
+          placeholder="Enter Country"
+        list="countries-list"
       />
-      <span>Same as Billing</span>
-    </label>
+      <datalist id="countries-list">
+        <option value="India" />
+        <option value="United States" />
+        <option value="United Kingdom" />
+        <option value="Canada" />
+        <option value="Australia" />
+        <option value="Germany" />
+        <option value="France" />
+        <option value="China" />
+        <option value="Japan" />
+        <option value="Singapore" />
+      </datalist>
+      </div>
 
-    {/* SEPARATE SHIPPING */}
-    <label className="inline-flex items-center space-x-2">
-      <input
-        type="checkbox"
-        checked={selectedCustomer.separateShipping || false}
-        onChange={(e) => {
-          const isChecked = e.target.checked;
+      <div className="space-y-2">
+        <Label>Postal Code *</Label>
+        <Input
+          value={selectedCustomer.postal_code || ""}
+          onChange={(e) =>
+            setSelectedCustomer({
+              ...selectedCustomer,
+              postal_code: e.target.value,
+            })
+          }
+          placeholder="Enter postal code"
+        />
+      </div>
 
-          setSelectedCustomer({
-            ...selectedCustomer,
-            separateShipping: isChecked,
-            sameAsBilling: !isChecked,
-            shipping_address: isChecked
-              ? selectedCustomer.shipping_address || ""
-              : selectedCustomer.billing_address || "",
-          });
-        }}
-      />
-      <span>Separate Shipping Address</span>
-    </label>
+    </div>
   </div>
 
-  {(selectedCustomer.sameAsBilling || selectedCustomer.separateShipping) && (
-    <Textarea
-      value={
-        selectedCustomer.sameAsBilling
-          ? selectedCustomer.billing_address || ""
-          : selectedCustomer.shipping_address || ""
-      }
-      onChange={(e) =>
-        setSelectedCustomer({
-          ...selectedCustomer,
-          shipping_address: e.target.value,
-        })
-      }
-      placeholder="Enter shipping address"
-      rows={3}
-      disabled={selectedCustomer.sameAsBilling}
-    />
-  )}
-</div>
-            <div className="grid grid-cols-2 gap-4 md:col-span-2">
-              <div className="space-y-2">
-                <Label>City *</Label>
-                <Input
-                  value={selectedCustomer.city || ""}
-                  onChange={(e) =>
-                    setSelectedCustomer({ ...selectedCustomer, city: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>State *</Label>
-                <Input
-                  value={selectedCustomer.state || ""}
-                  onChange={(e) =>
-                    setSelectedCustomer({ ...selectedCustomer, state: e.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Country *</Label>
-                <Input
-                  value={selectedCustomer.country || ""}
-                  onChange={(e) =>
-                    setSelectedCustomer({ ...selectedCustomer, country: e.target.value })
-                  }
-                  list="edit-countries-list"
-                />
-                <datalist id="edit-countries-list">
-                  <option value="India" />
-                  <option value="United States" />
-                  <option value="United Kingdom" />
-                  <option value="Canada" />
-                  <option value="Australia" />
-                  <option value="Germany" />
-                  <option value="France" />
-                  <option value="China" />
-                  <option value="Japan" />
-                  <option value="Singapore" />
-                </datalist>
-              </div>
-              <div className="space-y-2">
-                <Label>Postal Code *</Label>
-                <Input
-                  value={selectedCustomer.postal_code || ""}
-                  onChange={(e) =>
-                    setSelectedCustomer({ ...selectedCustomer, postal_code: e.target.value })
-                  }
-                />
-              </div>
-            </div>
-          </div>
-        </TabsContent>
+  {/* SHIPPING ADDRESS */}
+  <div className="border rounded-lg p-4 space-y-4">
+
+    <div className="flex items-center justify-between">
+      <h3 className="text-lg font-semibold">Shipping Address</h3>
+
+      <label className="inline-flex items-center space-x-2">
+        <input
+          type="checkbox"
+          checked={selectedCustomer.sameAsBilling || false}
+          onChange={(e) => {
+            const checked = e.target.checked;
+
+            setSelectedCustomer({
+              ...selectedCustomer,
+              sameAsBilling: checked,
+
+              shipping_address_line1: checked ? selectedCustomer.address_line1 : "",
+              shipping_address_line2: checked ? selectedCustomer.address_line2 : "",
+              shipping_city: checked ? selectedCustomer.city : "",
+              shipping_state: checked ? selectedCustomer.state : "",
+              shipping_country: checked ? selectedCustomer.country : "",
+              shipping_postal_code: checked ? selectedCustomer.postal_code : "",
+            });
+          }}
+        />
+        <span>Same as Billing</span>
+      </label>
+    </div>
+
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+      <div className="space-y-2">
+        <Label>Address Line 1 *</Label>
+        <Input
+          disabled={selectedCustomer.sameAsBilling}
+          value={selectedCustomer.shipping_address_line1 || ""}
+          onChange={(e) =>
+            setSelectedCustomer({
+              ...selectedCustomer,
+              shipping_address_line1: e.target.value,
+            })
+          }
+          placeholder="Enter address line 1"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Address Line 2</Label>
+        <Input
+          disabled={selectedCustomer.sameAsBilling}
+          value={selectedCustomer.shipping_address_line2 || ""}
+          onChange={(e) =>
+            setSelectedCustomer({
+              ...selectedCustomer,
+              shipping_address_line2: e.target.value,
+            })
+          }
+          placeholder="Enter address line 2"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>City *</Label>
+        <Input
+          disabled={selectedCustomer.sameAsBilling}
+          value={selectedCustomer.shipping_city || ""}
+          onChange={(e) =>
+            setSelectedCustomer({
+              ...selectedCustomer,
+              shipping_city: e.target.value,
+            })
+          }
+          placeholder="Enter city"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>State *</Label>
+        <Input
+          disabled={selectedCustomer.sameAsBilling}
+          value={selectedCustomer.shipping_state || ""}
+          onChange={(e) =>
+            setSelectedCustomer({
+              ...selectedCustomer,
+              shipping_state: e.target.value,
+            })
+          }
+          placeholder="Enter state"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Country *</Label>
+        <Input
+          disabled={selectedCustomer.sameAsBilling}
+          value={selectedCustomer.shipping_country || ""}
+          onChange={(e) =>
+            setSelectedCustomer({
+              ...selectedCustomer,
+              shipping_country: e.target.value,
+            })
+          }
+          placeholder="Enter Country"
+        list="countries-list"
+      />
+      <datalist id="countries-list">
+        <option value="India" />
+        <option value="United States" />
+        <option value="United Kingdom" />
+        <option value="Canada" />
+        <option value="Australia" />
+        <option value="Germany" />
+        <option value="France" />
+        <option value="China" />
+        <option value="Japan" />
+        <option value="Singapore" />
+      </datalist>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Postal Code *</Label>
+        <Input
+          disabled={selectedCustomer.sameAsBilling}
+          value={selectedCustomer.shipping_postal_code || ""}
+          onChange={(e) =>
+            setSelectedCustomer({
+              ...selectedCustomer,
+              shipping_postal_code: e.target.value,
+            })
+          }
+          placeholder="Enter postal code"
+        />
+      </div>
+
+    </div>
+  </div>
+
+</TabsContent>
 
         {/* ================= BUSINESS DETAILS ================= */}
         <TabsContent value="business" className="space-y-4 mt-4">

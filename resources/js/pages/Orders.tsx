@@ -3713,7 +3713,7 @@ const createOrderFromComposer = async (status: string) => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {recentOrders.map((order) => (
+                {orders.map((order) => (
                   <TableRow key={order.id}>
                     <TableCell className="font-mono text-xs text-primary">{order.order_no}</TableCell>
                     <TableCell>{order.customer}</TableCell>

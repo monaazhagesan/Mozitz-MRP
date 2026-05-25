@@ -40,13 +40,21 @@ class Customer extends Model
         'cin',
         'industry_type',
         'website',
+
+        'shipping_address_line1',
+        'shipping_address_line2',
+        'shipping_city',
+        'shipping_state',
+        'shipping_country',
+        'shipping_postal_code',
+        'same_as_billing',
     ];
 
       public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
     }
-    
+
     // Relationship: Customer has many credit notes
     public function creditNotes()
     {

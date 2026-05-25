@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Auth;
 
 class InventoryStockController extends Controller
 {
-    
+
 
     public function __construct()
     {
@@ -20,7 +20,7 @@ class InventoryStockController extends Controller
     }
    public function index(Request $request)
 {
-    $query = InventoryStock::where('user_id', auth()->id()); 
+    $query = InventoryStock::where('user_id', auth()->id());
 
     // ✅ FIX: proper grouped search
     if ($request->has('search')) {
@@ -130,6 +130,10 @@ class InventoryStockController extends Controller
         $data['available_quantity'] = $data['quantity_on_hand'] - $data['allocated_quantity'];
         $data['open_po'] = (float) ($data['open_po'] ?? 0);
 
+        // ✅ STOCK RECEIPT
+$data['uom'] = $data['uom'] ?? 'Nos';
+
+
         $data['user_id'] = auth()->id();
 
         // ✅ AUTO ITEM CODE
@@ -178,7 +182,7 @@ if (!empty($data['location_id'])) {
             $data[$field] = filter_var($request->input($field), FILTER_VALIDATE_BOOLEAN);
         }
 
-    
+
         $item = InventoryStock::create($data);
 
         return response()->json($item, 201);
@@ -213,12 +217,17 @@ if (!empty($data['location_id'])) {
             'open_po',
             'committed_quantity',
             'unit_cost',
-            'selling_price'
+            'selling_price',
+
         ] as $field) {
             $data[$field] = isset($data[$field])
                 ? (float) $data[$field]
                 : (float) $item->$field;
         }
+
+        $data['uom'] =
+    $data['uom'] ?? $item->uom;
+
 
         $data['unit_cost'] = isset($data['unit_cost'])
     ? (float) $data['unit_cost']
@@ -299,7 +308,7 @@ if (!empty($data['location_id'])) {
      private function validateData(Request $request)
     {
         return $request->validate([
-            'location_id' => 'nullable|uuid', 
+            'location_id' => 'nullable|uuid',
             'item_code' => 'nullable|string|max:50',
             'item_name' => 'nullable|string|max:100',
             'sku' => 'nullable|string|max:50',
@@ -308,7 +317,7 @@ if (!empty($data['location_id'])) {
             'quantity_on_hand' => 'nullable|numeric|min:0',
             'allocated_quantity' => 'nullable|numeric|min:0',
             'open_po' => 'nullable|numeric|min:0',
-            
+            'uom' => 'nullable|string|max:50',
             'unit_cost' => 'nullable|numeric|min:0',
             'selling_price' => 'nullable|numeric|min:0',
             'hsn_code' => 'nullable|string|max:20',
@@ -339,7 +348,7 @@ if (!empty($data['location_id'])) {
 {
     return filter_var($request->input($field), FILTER_VALIDATE_BOOLEAN);
 }
-    
+
 
 public function allocate(Request $request)
 {

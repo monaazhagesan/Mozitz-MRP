@@ -26,6 +26,12 @@ class InventoryStock extends Model
         'lead_time_days',
         'safety_stock',
         'open_po',
+        'uom',
+'qty_to_add',
+
+'receipt_type',
+'receipt_date',
+'po_grn_reference',
         'last_transaction_date',
         'barcode',
         'location',
@@ -43,15 +49,22 @@ class InventoryStock extends Model
         'last_transaction_date' => 'datetime',
         'categories' => 'array',
         'variant_attributes' => 'array',
+        'qty_to_add' => 'integer',
+'receipt_date' => 'date',
     ];
 
     public function location()
 {
     return $this->belongsTo(Location::class, 'location_id');
 }
-    
+
  public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
     }
+
+    public function receipts()
+{
+    return $this->hasMany(StockReceipt::class, 'item_id');
+}
 }
