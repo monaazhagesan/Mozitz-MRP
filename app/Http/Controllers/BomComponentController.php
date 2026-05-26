@@ -78,6 +78,8 @@ class BomComponentController extends Controller
             'type' => 'nullable|string',
             'item_seq' => 'nullable|integer',
             'operation_seq' => 'nullable|integer',
+             'production_qty' => 'nullable|integer',
+             'total_quantity' => 'nullable|integer',
         ]);
 
         if ($validator->fails()) {
@@ -103,6 +105,11 @@ class BomComponentController extends Controller
 
         $valid['unit_cost'] = $valid['unit_cost'] ?? 0;
         $valid['total_cost'] = $valid['total_cost'] ?? 0;
+        // ✅ NEW FIELDS
+$valid['production_qty'] = $valid['production_qty'] ?? 1;
+
+// 🔥 AUTO CALC TOTAL
+$valid['total_quantity'] = $valid['quantity'] * $valid['production_qty'];
 
         $created = BomComponent::create($valid);
 
@@ -157,6 +164,8 @@ public function update(Request $request, $id)
             'include_in_cost_rollup' => 'nullable|boolean',
             'unit_cost' => 'nullable|numeric',
             'total_cost' => 'nullable|numeric',
+            'production_qty' => 'nullable|integer',
+'total_quantity' => 'nullable|integer',
         ]);
 
         if ($validator->fails()) {
@@ -190,7 +199,7 @@ public function destroy($id)
 {
      $component = BomComponent::where('user_id', auth()->id())
             ->findOrFail($id);
-            
+
     $component->delete();
 
     return response()->json([

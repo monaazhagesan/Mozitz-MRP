@@ -31,6 +31,8 @@ class BomComponent extends Model
         'include_in_cost_rollup',
         'unit_cost',
         'total_cost',
+        'production_qty',
+    'total_quantity',
         'created_at'
     ];
 
@@ -38,4 +40,9 @@ class BomComponent extends Model
     {
         return $this->belongsTo(User::class, 'user_id');
     }
+
+    public function header()
+{
+    return $this->belongsTo(BomHeader::class, 'bom_id', 'id');
+}
 }

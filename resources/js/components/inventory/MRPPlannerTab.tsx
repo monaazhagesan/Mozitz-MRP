@@ -38,6 +38,7 @@ import {
   Search,
   Trash2,
   Edit,
+  Eye,
   Calculator,
   TrendingDown,
   Package,
@@ -52,6 +53,22 @@ import {
 } from "lucide-react";
 import ItemTransactionsTab from "@/components/inventory/ItemTransactionsTab";
 import { ClipboardList } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+
+import { ChevronsUpDown } from "lucide-react";
 
 
 type MRPItem = {
@@ -84,8 +101,12 @@ interface ComputedRow extends MRPItem {
 
 type BomRow = {
   id: number;
-  component: string;
-  qty: number;
+  component: string;   // item_code
+  item_name: string;   // NEW
+  description?: string; // optional editable
+   qty: number;              // unit per assembly
+  production_qty: number;   // NEW
+  total_qty?: number;
   uom: string;
 };
 
@@ -312,6 +333,7 @@ const emptyItem: Omit<MRPItem, "id"> = {
 
 type AddItemDialogProps = {
   open: boolean;
+  saving: boolean;
   onOpenChange: (v: boolean) => void;
   isNew: boolean;
   editing: MRPItem | null;
@@ -319,6 +341,13 @@ type AddItemDialogProps = {
   items: MRPItem[];
   locations: { id: string; location_name: string }[];
   receiptType: string;
+
+  simQty: number;
+setSimQty: React.Dispatch<React.SetStateAction<number>>;
+
+  bomRows: BomRow[];
+setBomRows: React.Dispatch<React.SetStateAction<BomRow[]>>;
+
 setReceiptType: React.Dispatch<React.SetStateAction<string>>;
 
 receiptDate: string;
@@ -340,10 +369,14 @@ function AddItemDialog({
   onOpenChange,
   isNew,
   editing,
+   saving,
+  onSave,
   setEditing,
   items,
   locations,
   receiptType,
+  bomRows,
+setBomRows,
 setReceiptType,
 
 receiptDate,
@@ -357,30 +390,45 @@ setStockUom,
 
 addQty,
 setAddQty,
-  onSave,
+simQty,        // ✅ ADD THIS
+  setSimQty,
+
 }: AddItemDialogProps) {
   // Which top-level tab: "new" | "stock"
   const [mainTab, setMainTab] = useState<"new" | "stock">("new");
   // Which step (only relevant for Product new items)
   const [step, setStep] = useState<1 | 2>(1);
   // BOM rows
-  const [bomRows, setBomRows] = useState<BomRow[]>([]);
-  const [simQty, setSimQty] = useState(1);
   // Add-stock panel state
   const [stockItem, setStockItem] = useState<{ cur: number; uom: string } | null>(null);
   const isProduct = editing?.item_type === "Product";
 
+  const [componentOpen, setComponentOpen] = useState<number | null>(null);
+
+
   // Reset when dialog opens/closes
-  useEffect(() => {
-    if (open) {
-      setMainTab("new");
-      setStep(1);
+ useEffect(() => {
+  if (open) {
+    setMainTab("new");
+    setStep(1);
+    setStockItem(null);
+    setAddQty(0);
+
+    if (isNew) {
       setBomRows([]);
-      setSimQty(1);
-      setStockItem(null);
-      setAddQty(0);
+      setSimQty(1); // ✅ reset for new items
     }
-  }, [open]);
+  }
+}, [open, isNew]);
+
+useEffect(() => {
+  setBomRows((prev) =>
+    prev.map((r) => ({
+      ...r,
+      production_qty: simQty,
+    }))
+  );
+}, [simQty, setBomRows]);
 
   // Live preview calculations
   const onHand = Number(editing?.on_hand ?? 0);
@@ -405,7 +453,7 @@ const netRequirement = Math.max(
   const addBomRow = () => {
     setBomRows((prev) => [
       ...prev,
-      { id: Date.now(), component: "", qty: 1, uom: "Nos" },
+      { id: Date.now(), component: "", item_name: "",  description: "", qty: 1, production_qty: simQty, uom: "Nos" },
     ]);
   };
 
@@ -809,7 +857,9 @@ const netRequirement = Math.max(
                   </div>
                 ) : (
                   bomRows.map((row) => {
-                    const total = row.qty * simQty;
+                   const qty = Number(row.qty ?? 0);
+const productionQty = Number(row.production_qty || simQty || 1);
+const total = Number(row.qty || 0) * productionQty;
                     const fmt = Number.isInteger(total)
                       ? String(total)
                       : total.toFixed(3).replace(/\.?0+$/, "");
@@ -820,21 +870,68 @@ const netRequirement = Math.max(
                         style={{ gridTemplateColumns: "1fr 96px 70px 88px 34px" }}
                       >
                         {/* Component select */}
-                        <Select
-                          value={row.component}
-                          onValueChange={(v) => updateBomRow(row.id, "component", v)}
-                        >
-                          <SelectTrigger className="h-8 text-sm">
-                            <SelectValue placeholder="Select component…" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {SAMPLE_COMPONENTS.map((c) => (
-                              <SelectItem key={c} value={c}>
-                                {c}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                      <Popover
+  open={componentOpen === row.id}
+  onOpenChange={(open) =>
+    setComponentOpen(open ? row.id : null)
+  }
+>
+  <PopoverTrigger asChild>
+    <Button
+      variant="outline"
+      role="combobox"
+      className="h-8 w-full justify-between text-sm font-normal"
+    >
+      {row.component
+        ? (() => {
+            const selected = items.find(
+              (i) => i.item_code === row.component
+            );
+
+            return selected
+              ? `${selected.item_code} — ${selected.item_name}`
+              : row.component;
+          })()
+        : "Select component..."}
+
+      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+    </Button>
+  </PopoverTrigger>
+
+  <PopoverContent className="w-[350px] p-0">
+    <Command>
+      <CommandInput placeholder="Search item code or item name..." />
+
+      <CommandList>
+        <CommandEmpty>
+          No material found.
+        </CommandEmpty>
+
+        <CommandGroup>
+          {items
+            .filter((i) => i.item_type === "Material")
+            .map((m) => (
+              <CommandItem
+                key={m.id}
+                value={`${m.item_code} ${m.item_name}`}
+               onSelect={() => {
+  const selectedItem = items.find((i) => i.item_code === m.item_code);
+
+  updateBomRow(row.id, "component", m.item_code);
+  updateBomRow(row.id, "item_name", selectedItem?.item_name || "");
+  updateBomRow(row.id, "description", selectedItem?.item_name || "");
+
+  setComponentOpen(null);
+}}
+              >
+                {m.item_code} — {m.item_name}
+              </CommandItem>
+            ))}
+        </CommandGroup>
+      </CommandList>
+    </Command>
+  </PopoverContent>
+</Popover>
 
                         {/* Qty per assy */}
                         <Input
@@ -855,7 +952,31 @@ const netRequirement = Math.max(
                         {/* UOM */}
                         <Select
                           value={row.uom}
-                          onValueChange={(v) => updateBomRow(row.id, "uom", v)}
+                          onValueChange={(v) => {
+  updateBomRow(row.id, "component", v);
+
+  // AUTO FILL ITEM NAME + CODE
+  const selectedItem = items.find(
+    (i) =>
+      i.item_code === v ||
+      i.item_name === v
+  );
+
+  if (selectedItem) {
+    setEditing((prev) =>
+      prev
+        ? {
+            ...prev,
+            item_code:
+              prev.item_code || selectedItem.item_code,
+
+            item_name:
+              prev.item_name || selectedItem.item_name,
+          }
+        : prev
+    );
+  }
+}}
                         >
                           <SelectTrigger className="h-8 text-sm">
                             <SelectValue />
@@ -1103,14 +1224,27 @@ const netRequirement = Math.max(
             <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button
-              size="sm"
-              className="bg-green-700 hover:bg-green-800 text-white"
-              onClick={handleSubmit}
-            >
-              {submitIcon()}
-              <span className="ml-1.5">{submitLabel()}</span>
-            </Button>
+           <Button
+  size="sm"
+  className="bg-green-700 hover:bg-green-800 text-white"
+  onClick={handleSubmit}
+  disabled={saving} // ✅ ADD THIS
+>
+  {saving ? (
+    <>
+      <svg className="animate-spin h-4 w-4 mr-1.5" viewBox="0 0 24 24" fill="none">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+      </svg>
+      Saving...
+    </>
+  ) : (
+    <>
+      {submitIcon()}
+      <span className="ml-1.5">{submitLabel()}</span>
+    </>
+  )}
+</Button>
           </div>
         </div>
       </DialogContent>
@@ -1145,6 +1279,12 @@ const [addQty, setAddQty] = useState(0);
 const [viewDetailsOpen, setViewDetailsOpen] = useState(false);
 const [selectedItem, setSelectedItem] = useState<any | null>(null);
 
+const [bomRows, setBomRows] = useState<BomRow[]>([]);
+
+const [simQty, setSimQty] = useState<number>(1);
+
+const [saving, setSaving] = useState(false);
+
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -1165,6 +1305,7 @@ const [selectedItem, setSelectedItem] = useState<any | null>(null);
         reorder_point: Number(r.reorderPoint ?? r.reorder_point ?? 0),
         lead_time_days: Number(r.leadTimeDays ?? r.lead_time_days ?? 0),
         unit_cost: Number(r.unit_cost ?? r.unitCost ?? 0),
+        uom: r.uom ?? r.unitOfMeasure ?? r.unit_of_measure ?? "Nos", // ✅ ADD THIS
       }));
       setItems(mapped);
     } catch (error) {
@@ -1177,6 +1318,7 @@ const [selectedItem, setSelectedItem] = useState<any | null>(null);
   useEffect(() => {
     fetchData();
   }, []);
+
 
   useEffect(() => {
     const fetchLocations = async () => {
@@ -1241,29 +1383,149 @@ const [selectedItem, setSelectedItem] = useState<any | null>(null);
     await persistField(id, dbField, val);
   };
 
-  const openEdit = (row: ComputedRow) => {
-    setEditing({
-      id: row.id,
-      item_code: row.item_code,
-      item_name: row.item_name,
-      item_type: row.item_type,
-      on_hand: row.on_hand,
-      allocated: row.allocated,
-      bom_req: row.bom_req,
-      open_po: row.open_po,
-      safety_stock: row.safety_stock,
-      reorder_point: row.reorder_point,
-      lead_time_days: row.lead_time_days,
-      unit_cost: row.unit_cost,
-      location: row.location,
-      location_id: row.location_id ? String(row.location_id) : null,
-       uom: (row as any).uom ?? "Nos",
-    });
-    setIsNew(false);
+const openEdit = async (row: ComputedRow) => {
+  setIsNew(false);
+  setBomRows([]);
+  setEditOpen(false); // prevent UI glitch
+
+  setEditing({
+    id: row.id,
+    item_code: row.item_code,
+    item_name: row.item_name,
+    item_type: row.item_type,
+    on_hand: row.on_hand,
+    allocated: row.allocated,
+    bom_req: row.bom_req,
+    open_po: row.open_po,
+    safety_stock: row.safety_stock,
+    reorder_point: row.reorder_point,
+    lead_time_days: row.lead_time_days,
+    unit_cost: row.unit_cost,
+    location: row.location,
+    location_id: row.location_id ? String(row.location_id) : null,
+    uom: (row as any).uom ?? "Nos",
+  });
+
+  try {
+    const headerRes = await axios.get(
+      `/api/bom-headers/by-item-code`,
+      {
+        params: { item_code: row.item_code },
+        validateStatus: () => true, // 🔥 IMPORTANT: stop Axios throwing 500
+      }
+    );
+
+    if (headerRes.status !== 200) {
+      console.error("HEADER API FAILED:", headerRes.data);
+      setEditOpen(true);
+      return;
+    }
+
+    const headers = headerRes.data?.data || [];
+
+    if (!headers.length) {
+      setEditOpen(true);
+      return;
+    }
+
+    const bomHeader = headers[0];
+
+    const compRes = await axios.get(
+      `/api/bom-components`,
+      {
+        params: { bom_id: bomHeader.id },
+        validateStatus: () => true,
+      }
+    );
+
+    const rows = (compRes.data || []).map((c: any) => ({
+  id: c.id,
+  component: c.component,
+  production_qty: Number(
+    c.production_qty ??
+    c.productionQty ??
+    c.production_quantity ??
+    1
+  ) || 1,
+  qty: Number(c.quantity ?? 0),
+  uom: c.uom ?? "Nos",
+}));
+
+setBomRows(rows);
+
+// 🔥 THIS IS WHAT YOU NEED
+const defaultProductionQty =
+  rows.find(r => r.production_qty != null && r.production_qty > 0)?.production_qty || 1;
+
+setSimQty(defaultProductionQty);
+
+console.log("🔥 SET simQty TO11:", defaultProductionQty);
+
+  } catch (err) {
+    console.error("BOM load error:", err);
+    setBomRows([]);
+  } finally {
     setEditOpen(true);
-  };
+  }
+};
+
+const ensureBomAndUpdate = async (itemCode: string, rows: any[]) => {
+  // 1. Check BOM header exists
+  const headerRes = await axios.get("/api/bom-headers/by-item-code", {
+    params: { item_code: itemCode },
+  });
+
+  let bomHeader = headerRes.data?.data?.[0];
+
+  // 2. If NOT exists → create it
+  if (!bomHeader) {
+    const createRes = await axios.post("/api/bom-headers", {
+      item_type: "Product",
+      item_code: itemCode,
+      item_name: itemCode,
+      description: itemCode,
+      uom: "Nos",
+      revision: "A",
+    });
+
+    bomHeader = createRes.data?.data || createRes.data;
+  }
+
+  if (!bomHeader?.id) return;
+
+  // 3. delete old components
+ await axios.post("/api/bom-components/delete-by-bom", {
+  bom_id: bomHeader.id,
+});
+
+  // 4. create new components
+  await Promise.all(
+    rows.map((row, index) =>
+      axios.post("/api/bom-components", {
+        bom_id: bomHeader.id,
+        item_seq: index + 1,
+        component: row.component,
+        item_name: row.item_name,
+        quantity: Number(row.qty ?? 0),
+        production_qty: Number(row.production_qty ?? 1),
+        total_quantity:
+          Number(row.qty ?? 0) * Number(row.production_qty ?? 1),
+        uom: row.uom,
+        type: "Material",
+        basis: "Standard",
+        operation_seq: 10,
+        description:
+          row.description ||
+          row.item_name ||
+          row.component ||
+          "No description",
+      })
+    )
+  );
+};
 
   const openAdd = () => {
+     setBomRows([]);
     const defaultType = "Material";
     setEditing({
       id: "",
@@ -1275,107 +1537,208 @@ const [selectedItem, setSelectedItem] = useState<any | null>(null);
     setEditOpen(true);
   };
 
-  const saveEdit = async () => {
-    if (!editing) return;
-    if (!editing.item_code || !editing.item_name) {
-      toast.error("Item code and name are required");
-      return;
-    }
+ const saveEdit = async () => {
+  if (saving) return; // ✅ prevent double click
+  setSaving(true);    // ✅ lock
 
-     // ✅ ADD THIS BLOCK HERE (BEFORE try)
+
+  if (!editing) return;
+
+  // ✅ REQUIRED FIELD CHECK (ONLY FOR NEW)
+  if (
+    isNew &&
+    (!editing.item_code?.trim() || !editing.item_name?.trim())
+  ) {
+    toast.error("Item code and name are required");
+    return;
+  }
+
+  // ✅ RECEIPT VALIDATION
   if (addQty > 0) {
-    if (!stockUom) {
-      toast.error("UOM is required");
-      return;
-    }
-
-    if (!receiptType) {
-      toast.error("Receipt type is required");
-      return;
-    }
-
-    if (!receiptDate) {
-      toast.error("Receipt date is required");
-      return;
-    }
-
-    if (Number(addQty) <= 0) {
-      toast.error("Quantity added must be greater than 0");
-      return;
-    }
+    if (!stockUom) return toast.error("UOM is required");
+    if (!receiptType) return toast.error("Receipt type is required");
+    if (!receiptDate) return toast.error("Receipt date is required");
+    if (Number(addQty) <= 0)
+      return toast.error("Quantity added must be greater than 0");
   }
-    const payload = {
-      item_code: editing.item_code?.trim() || null,
-      item_name: editing.item_name?.trim(),
-      item_type: editing.item_type || "Product",
-      location: editing.location?.trim() || "Default",
-      location_id: editing.location_id,
-       uom: stockUom || editing.uom || "Nos",
-       qty_to_add: Number(addQty ?? 0),
-      open_po: Number(editing.open_po ?? 0),
-   quantity_on_hand: Number(editing.on_hand ?? 0),
-      allocated_quantity: Number(editing.allocated ?? 0),
-      available_quantity: Number(editing.on_hand ?? 0) - Number(editing.allocated ?? 0),
-      committed_quantity: Number(editing.bom_req ?? 0),
-      safety_stock: Number(editing.safety_stock ?? 0),
-      reorder_point: Number(editing.reorder_point ?? 0),
-      lead_time_days: Number(editing.lead_time_days ?? 0),
-      unit_cost: Number(editing.unit_cost ?? 0),
-    };
-    try {
-      if (isNew) {
-        await axios.post("/api/inventory-stock", payload);
-        toast.success("Item added successfully");
-      } else {
-        await axios.put(`/api/inventory-stock/${editing.id}`, payload);
-        toast.success("Item updated successfully");
-      }
-       if (addQty > 0) {
-    await axios.post("/api/stock-receipts", {
-      item_id: editing.id,
-      qty_added: Number(addQty),
-      uom: stockUom || "Nos",
-      receipt_type: receiptType,
-      receipt_date: receiptDate,
-      po_grn_reference: poGrnRef,
-    });
-  }
-      setEditOpen(false);
-      fetchData();
-    } catch (error: any) {
-      toast.error(
-        error?.response?.data?.message ||
-        JSON.stringify(error?.response?.data?.errors) ||
-        "Save failed"
-      );
-    }
+
+  const payload = {
+    item_code: editing.item_code?.trim() || null,
+    item_name: editing.item_name?.trim(),
+    item_type: editing.item_type || "Product",
+    location: editing.location?.trim() || "Default",
+    location_id: editing.location_id,
+
+    uom: stockUom || editing.uom || "Nos",
+    qty_to_add: Number(addQty ?? 0),
+
+    open_po: Number(editing.open_po ?? 0),
+    quantity_on_hand: Number(editing.on_hand ?? 0),
+    allocated_quantity: Number(editing.allocated ?? 0),
+    available_quantity:
+      Number(editing.on_hand ?? 0) - Number(editing.allocated ?? 0),
+
+    committed_quantity: Number(editing.bom_req ?? 0),
+    safety_stock: Number(editing.safety_stock ?? 0),
+    reorder_point: Number(editing.reorder_point ?? 0),
+    lead_time_days: Number(editing.lead_time_days ?? 0),
+    unit_cost: Number(editing.unit_cost ?? 0),
   };
 
-  const openItemDetails = (row: ComputedRow) => {
+  try {
+    // =========================
+    // CREATE NEW ITEM FLOW
+    // =========================
+    if (isNew) {
+       console.log("🔥 ENTERED CREATE NEW ITEM FLOW");
+      const itemRes = await axios.post("/api/inventory-stock", payload);
+      const createdItem = itemRes.data?.data || itemRes.data;
+
+      console.log("STEP 2 - createdItem:", createdItem);
+
+      let bomHeaderId: string | null = null;
+
+      const itemType = editing.item_type || payload.item_type;
+
+      console.log("STEP 1 - itemType:", itemType);
+console.log("STEP 1 - bomRows:", bomRows);
+
+      // =========================
+      // CREATE BOM HEADER
+      // =========================
+      if (itemType === "Product" && bomRows.length > 0) {
+        const bomHeaderRes = await axios.post("/api/bom-headers", {
+           item_type: "Product",
+          item_code: createdItem.item_code,
+          item_name: createdItem.item_name,
+          description: createdItem.item_name,
+           uom: stockUom || editing.uom || "Nos",  // ✅ PRODUCT UOM
+  revision: "A",
+        });
+
+        bomHeaderId =
+          bomHeaderRes.data?.id ||
+          bomHeaderRes.data?.data?.id;
+
+          console.log("STEP 3 - BOM HEADER RESPONSE:", bomHeaderRes.data);
+console.log("STEP 3 - BOM HEADER ID:", bomHeaderId);
+
+        if (!bomHeaderId) {
+          toast.error("BOM Header creation failed");
+          return;
+        }
+
+        console.log("STEP 4 - sending components");
+console.log("STEP 4 - bomHeaderId:", bomHeaderId);
+console.log("STEP 4 - bomRows:", bomRows);
+
+        // =========================
+        // CREATE BOM COMPONENTS
+        // =========================
+        await Promise.all(
+          bomRows.map((row, index) =>
+            axios.post("/api/bom-components", {
+              bom_id: String(bomHeaderId),
+
+              item_seq: index + 1,
+              component: row.component,
+                item_name: row.item_name,        // ✅ ADD THIS
+              quantity: Number(row.qty ?? 0),
+               production_qty: Number(row.production_qty),
+                total_quantity: Number(row.qty * row.production_qty),
+              uom: row.uom,
+
+              type: "Material",
+              basis: "Standard",
+              operation_seq: 10,
+                description: row.description || row.item_name, // ✅ FIXED
+
+            })
+          )
+        );
+      }
+
+      toast.success("Item added successfully");
+    }
+
+    // =========================
+    // UPDATE ITEM FLOW
+    // =========================
+   else {
+  await axios.put(
+    `/api/inventory-stock/${editing.id}`,
+    payload
+  );
+
+  toast.success("Item updated successfully");
+
+  // 🔥 ADD THIS (BOM UPDATE ON EDIT)
+ if (editing.item_type === "Product") {
+  await ensureBomAndUpdate(editing.item_code, bomRows);
+}
+}
+
+    // =========================
+    // STOCK RECEIPT
+    // =========================
+    if (addQty > 0) {
+      await axios.post("/api/stock-receipts", {
+        item_id: editing.id,
+        qty_added: Number(addQty),
+        uom: stockUom || "Nos",
+        receipt_type: receiptType,
+        receipt_date: receiptDate,
+        po_grn_reference: poGrnRef,
+      });
+    }
+
+    // =========================
+    // CLEANUP
+    // =========================
+    setBomRows([]);
+    setEditOpen(false);
+    fetchData();
+  }
+  catch (error: any) {
+    console.error("SAVE ERROR:", error?.response?.data || error);
+
+    toast.error(
+      error?.response?.data?.message ||
+        JSON.stringify(error?.response?.data?.errors) ||
+        "Save failed"
+    );
+  }finally {
+    setSaving(false); // ✅ always unlock
+  }
+};
+
+ const openItemDetails = (row: ComputedRow) => {
   setSelectedItem({
+    // Basic
     code: row.item_code,
     name: row.item_name,
     type: row.item_type,
-    sku: row.item_code,
     location: row.location,
-    locationTracking: false,
-    grnRequired: false,
+    uom: row.uom,
+    unit_cost: row.unit_cost,
 
+    // Stock
     quantityOnHand: row.on_hand,
+    allocated: row.allocated,
     availableQuantity: row.available,
-    expectedQuantity: row.open_po,
+    open_po: row.open_po,
+    bom_req: row.bom_req,
 
+    // Reorder
     reorderPoint: row.reorder_point,
-    reorderQty: null,
+    safety_stock: row.safety_stock,
+    lead_time_days: row.lead_time_days,
 
-    purchasePrice: row.unit_cost,
-    sellingPrice: row.unit_cost,
-
-    hsnCode: "",
-    taxRate: null,
-    description: "",
+    // Computed MRP
+    net_requirement: row.net_requirement,
+    suggestion: row.suggestion,
+    flags: row.flags,
   });
-
   setViewDetailsOpen(true);
 };
 
@@ -1573,6 +1936,9 @@ const [selectedItem, setSelectedItem] = useState<any | null>(null);
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
+                   <Button size="icon" variant="ghost" onClick={() => openItemDetails(r)} title="View details">
+      <Eye className="h-4 w-4" />
+    </Button>
                     <Button size="icon" variant="ghost" onClick={() => openEdit(r)} title="Edit">
                       <Edit className="h-4 w-4" />
                     </Button>
@@ -1748,6 +2114,12 @@ const [selectedItem, setSelectedItem] = useState<any | null>(null);
 
   addQty={addQty}
   setAddQty={setAddQty}
+
+  bomRows={bomRows}
+setBomRows={setBomRows}
+saving={saving}
+simQty={simQty}
+  setSimQty={setSimQty}
       />
 
       <Dialog open={viewDetailsOpen} onOpenChange={setViewDetailsOpen}>
@@ -1769,47 +2141,100 @@ const [selectedItem, setSelectedItem] = useState<any | null>(null);
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-6">
-          <div className="grid grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm text-muted-foreground">Item Code</label>
-                <p className="font-mono">{selectedItem.code}</p>
-              </div>
+       <TabsContent value="overview" className="space-y-5">
 
-              <div>
-                <label className="text-sm text-muted-foreground">Item Type</label>
-                <Badge variant="outline">{selectedItem.type}</Badge>
-              </div>
+  {/* ── Basic Info ── */}
+  <div>
+    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+      Basic Info
+    </p>
+    <div className="grid grid-cols-2 gap-3 border border-border rounded-lg overflow-hidden">
+      {[
+        { label: "Item Code",  value: <span className="font-mono">{selectedItem.code}</span> },
+        { label: "Item Name",  value: selectedItem.name },
+        { label: "Item Type",  value: <Badge variant="outline">{selectedItem.type}</Badge> },
+        { label: "UOM",        value: selectedItem.uom ?? "—" },
+        { label: "Location",   value: selectedItem.location ?? "—" },
+        { label: "Unit Cost",  value: selectedItem.unit_cost != null ? `₹${Number(selectedItem.unit_cost).toLocaleString()}` : "—" },
+      ].map(({ label, value }) => (
+        <div key={label} className="flex flex-col gap-0.5 px-4 py-2.5 border-b border-border last:border-b-0">
+          <span className="text-[11px] text-muted-foreground">{label}</span>
+          <span className="text-sm font-medium">{value}</span>
+        </div>
+      ))}
+    </div>
+  </div>
 
-              <div>
-                <label className="text-sm text-muted-foreground">Location</label>
-                <p>{selectedItem.location}</p>
-              </div>
-            </div>
+  {/* ── Stock Levels ── */}
+  <div>
+    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+      Stock Levels
+    </p>
+    <div className="grid grid-cols-3 gap-3">
+      {[
+        { label: "On Hand",    value: selectedItem.quantityOnHand, color: "" },
+        { label: "Allocated",  value: selectedItem.allocated,      color: "text-amber-600" },
+        { label: "Available",  value: selectedItem.availableQuantity,
+          color: selectedItem.availableQuantity < 0 ? "text-destructive" : "text-green-700" },
+        { label: "Open PO",    value: selectedItem.open_po,        color: "text-blue-600" },
+        { label: "BOM Req",    value: selectedItem.bom_req,        color: "" },
+        { label: "Net Req",    value: selectedItem.net_requirement,
+          color: selectedItem.net_requirement > 0 ? "text-amber-600 font-bold" : "" },
+      ].map(({ label, value, color }) => (
+        <div key={label} className="flex flex-col gap-0.5 border border-border rounded-lg px-3 py-2.5 bg-muted/20">
+          <span className="text-[11px] text-muted-foreground">{label}</span>
+          <span className={`text-xl font-bold ${color}`}>{value ?? 0}</span>
+        </div>
+      ))}
+    </div>
+  </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm text-muted-foreground">On Hand</label>
-                <p className="text-2xl font-bold">
-                  {selectedItem.quantityOnHand}
-                </p>
-              </div>
+  {/* ── Reorder Settings ── */}
+  <div>
+    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+      Reorder Settings
+    </p>
+    <div className="grid grid-cols-3 gap-3">
+      {[
+        { label: "Safety Stock",   value: selectedItem.safety_stock ?? "Not set" },
+        { label: "Reorder Point",  value: selectedItem.reorderPoint ?? "Not set" },
+        { label: "Lead Time (d)",  value: selectedItem.lead_time_days ?? "Not set" },
+      ].map(({ label, value }) => (
+        <div key={label} className="flex flex-col gap-0.5 border border-border rounded-lg px-3 py-2.5 bg-muted/20">
+          <span className="text-[11px] text-muted-foreground">{label}</span>
+          <span className="text-sm font-semibold">{value}</span>
+        </div>
+      ))}
+    </div>
+  </div>
 
-              <div>
-                <label className="text-sm text-muted-foreground">Available</label>
-                <p className="font-semibold">
-                  {selectedItem.availableQuantity}
-                </p>
-              </div>
-
-              <div>
-                <label className="text-sm text-muted-foreground">Reorder Point</label>
-                <p>{selectedItem.reorderPoint || "Not set"}</p>
-              </div>
-            </div>
+  {/* ── MRP Status ── */}
+  <div>
+    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+      MRP Status
+    </p>
+    <div className="flex flex-wrap items-center gap-3 border border-border rounded-lg px-4 py-3 bg-muted/20">
+      <div className="flex flex-col gap-0.5">
+        <span className="text-[11px] text-muted-foreground">Suggestion</span>
+        <SuggestionBadge s={selectedItem.suggestion} />
+      </div>
+      <div className="w-px h-8 bg-border" />
+      <div className="flex flex-col gap-1 flex-1">
+        <span className="text-[11px] text-muted-foreground">Flags</span>
+        {selectedItem.flags?.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {selectedItem.flags.map((f: string) => (
+              <Badge key={f} variant="secondary" className="text-[10px]">{f}</Badge>
+            ))}
           </div>
-        </TabsContent>
+        ) : (
+          <span className="text-xs text-green-700 font-medium">No issues</span>
+        )}
+      </div>
+    </div>
+  </div>
+
+</TabsContent>
 
         <TabsContent value="transactions">
           <ItemTransactionsTab itemCode={selectedItem.code} />

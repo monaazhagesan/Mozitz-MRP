@@ -120,11 +120,14 @@ Route::get('/bom-deletion-logs', [BomDeletionLogController::class, 'index']);
 Route::get('/bom-deletion-logs/{id}', [BomDeletionLogController::class, 'show']);
 Route::post('/bom-deletion-logs', [BomDeletionLogController::class, 'store']);
 
+Route::post('/bom-components/delete-by-bom', [BomComponentController::class, 'deleteByBomId']);
 Route::get('/bom-headers', [BomHeaderController::class, 'index']);
+Route::get('/bom-headers/by-item-code', [BomHeaderController::class, 'getByItemCode']);
 Route::get('/bom-headers/{id}', [BomHeaderController::class, 'show']);
 Route::post('/bom-headers', [BomHeaderController::class, 'store']);
 Route::delete('/bom-headers/{id}', [BomHeaderController::class, 'destroy']); // Delete BOM header by ID
 Route::put('/bom-headers/{id}', [BomHeaderController::class, 'update']);
+
 
 Route::get('/bom-operations', [BomOperationController::class, 'index']);
 Route::get('/bom-operations/{id}', [BomOperationController::class, 'show']);

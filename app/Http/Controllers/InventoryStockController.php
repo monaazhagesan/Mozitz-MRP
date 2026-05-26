@@ -8,7 +8,10 @@ use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
-
+use App\Models\BomHeader;
+use App\Models\BomComponent;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class InventoryStockController extends Controller
 {
@@ -208,7 +211,7 @@ if (!empty($data['location_id'])) {
 
     try {
 
-        $data = $this->validateData($request);
+        $data = $this->validateData($request, $id);
 
         // fallback values
         foreach ([
@@ -292,24 +295,66 @@ if (!empty($data['location_id'])) {
     }
 }
     // Delete inventory item
-    public function destroy($id)
-    {
-       $item = InventoryStock::where('user_id', auth()->id())
-        ->findOrFail($id);
+   public function destroy($id)
+{
+    DB::beginTransaction();
 
-        $item->delete();
+    try {
+
+        $stock = InventoryStock::where('user_id', auth()->id())
+            ->findOrFail($id);
+
+        $itemCode = $stock->item_code;
+
+        // get BOMs
+        $boms = BomHeader::where('user_id', auth()->id())
+            ->where('item_code', $itemCode)
+            ->get();
+
+        foreach ($boms as $bom) {
+
+            // delete components first
+            BomComponent::where('user_id', auth()->id())
+                ->where('bom_id', $bom->id)
+                ->delete();
+
+            // delete header
+            $bom->delete();
+        }
+
+        // delete stock
+        $stock->delete();
+
+        DB::commit();
 
         return response()->json([
-            'message' => 'Inventory item deleted successfully'
-        ], 200);
+            'message' => 'Stock + BOM + Components deleted successfully'
+        ]);
+
+    } catch (\Exception $e) {
+
+        DB::rollBack();
+
+        return response()->json([
+            'message' => 'Delete failed',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
 
     // Centralized validation
-     private function validateData(Request $request)
+     private function validateData(Request $request, $id = null)
     {
         return $request->validate([
             'location_id' => 'nullable|uuid',
-            'item_code' => 'nullable|string|max:50',
+            'item_code' => [
+    'nullable',
+    'string',
+    'max:50',
+    Rule::unique('inventory_stock', 'item_code')
+        ->ignore($id)
+        ->where('user_id', auth()->id()),
+],
             'item_name' => 'nullable|string|max:100',
             'sku' => 'nullable|string|max:50',
             'description' => 'nullable|string|max:500',

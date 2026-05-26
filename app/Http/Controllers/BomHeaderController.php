@@ -45,7 +45,7 @@ class BomHeaderController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-           
+
             'item_type' => 'nullable|string',
             'item_code' => 'required|string',
             'item_name' => 'required|string',
@@ -160,9 +160,33 @@ public function update(Request $request, $id)
 
 public function getByItemCode(Request $request)
 {
-    return BomHeader::where('user_id', auth()->id())
-            ->where('item_code', $request->item_code)
-            ->orderByDesc('revision_number')
+    try {
+        $itemCode = $request->query('item_code');
+
+        if (!$itemCode) {
+            return response()->json(['data' => []]);
+        }
+
+        $userId = auth()->id();
+
+        if (!$userId) {
+            return response()->json(['data' => []]);
+        }
+
+        $data = BomHeader::where('user_id', $userId)
+            ->where('item_code', $itemCode)
+            ->latest('revision_number')
             ->get();
+
+        return response()->json(['data' => $data]);
+
+    } catch (\Throwable $e) {
+        Log::error($e->getMessage());
+
+        return response()->json([
+            'data' => [],
+            'error' => $e->getMessage()
+        ], 500);
+    }
 }
 }

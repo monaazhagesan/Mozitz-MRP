@@ -67,4 +67,9 @@ class InventoryStock extends Model
 {
     return $this->hasMany(StockReceipt::class, 'item_id');
 }
+
+public function boms()
+{
+    return $this->hasMany(BomHeader::class, 'item_code', 'item_code');
+}
 }
