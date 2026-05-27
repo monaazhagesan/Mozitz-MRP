@@ -611,6 +611,7 @@ const netRequirement = Math.max(
                   <Select
                     value={editing.item_type ?? "Material"}
                     onValueChange={handleTypeChange}
+                     disabled={!isNew}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -1365,23 +1366,6 @@ const [saving, setSaving] = useState(false);
     }
   };
 
-  const handleInlineEdit = async (id: string, field: keyof MRPItem, raw: string) => {
-    const val = raw.trim() === "" ? null : Number(raw);
-    if (val != null && Number.isNaN(val)) { toast.error("Invalid number"); return; }
-    const dbMap: Record<string, string> = {
-      on_hand: "quantity_on_hand",
-      allocated: "allocated_quantity",
-      bom_req: "committed_quantity",
-      safety_stock: "safety_stock",
-      reorder_point: "reorder_point",
-      lead_time_days: "lead_time_days",
-      unit_cost: "unit_cost",
-    };
-    const dbField = dbMap[field as string];
-    if (!dbField) return;
-    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, [field]: val ?? 0 } : it)));
-    await persistField(id, dbField, val);
-  };
 
 const openEdit = async (row: ComputedRow) => {
   setIsNew(false);
@@ -1797,51 +1781,6 @@ console.log("STEP 4 - bomRows:", bomRows);
     else setSelected(new Set(filtered.map((r) => r.id)));
   };
 
-  const InlineNumber = ({
-    row,
-    field,
-  }: {
-    row: ComputedRow;
-    field: keyof MRPItem;
-    nullable?: boolean;
-  }) => {
-    const [editing, setEditing] = useState(false);
-    const initial = (row[field] as number | null) ?? "";
-    const [value, setValue] = useState(String(initial));
-
-    if (!editing) {
-      return (
-        <button
-          onDoubleClick={() => {
-            setValue(String((row[field] as number | null) ?? ""));
-            setEditing(true);
-          }}
-          className="w-full text-left px-1 py-0.5 rounded hover:bg-muted/60 transition"
-          title="Double-click to edit"
-        >
-          {row[field] == null ? (
-            <span className="text-muted-foreground">—</span>
-          ) : (
-            String(row[field])
-          )}
-        </button>
-      );
-    }
-    return (
-      <Input
-        autoFocus
-        type="number"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={() => { setEditing(false); handleInlineEdit(row.id, field, value); }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-          if (e.key === "Escape") setEditing(false);
-        }}
-        className="h-7 w-20 text-sm"
-      />
-    );
-  };
 
   const types = useMemo(() => {
     const set = new Set<string>();
@@ -1908,16 +1847,28 @@ console.log("STEP 4 - bomRows:", bomRows);
 </TableCell>
                 <TableCell>{r.item_name}</TableCell>
                 <TableCell><Badge variant="outline">{r.item_type ?? "N/A"}</Badge></TableCell>
-                <TableCell className="text-right"><InlineNumber row={r} field="on_hand" /></TableCell>
-                <TableCell className="text-right"><InlineNumber row={r} field="allocated" /></TableCell>
+               <TableCell className="text-right">
+  {r.on_hand}
+</TableCell>
+
+<TableCell className="text-right">
+  {r.allocated}
+</TableCell>
                 <TableCell className={`text-right font-semibold ${r.available < 0 ? "text-destructive" : ""}`}>
                   {r.available}
                 </TableCell>
-                <TableCell className="text-right"><InlineNumber row={r} field="bom_req" /></TableCell>
+               <TableCell className="text-right">
+  {r.bom_req}
+</TableCell>
                 <TableCell className="text-right">{r.open_po}</TableCell>
                 <TableCell className="text-right">{r.safety_stock ?? 0}</TableCell>
-                <TableCell className="text-right"><InlineNumber row={r} field="reorder_point" nullable /></TableCell>
-                <TableCell className="text-right"><InlineNumber row={r} field="lead_time_days" nullable /></TableCell>
+                <TableCell className="text-right">
+  {r.reorder_point ?? "—"}
+</TableCell>
+
+<TableCell className="text-right">
+  {r.lead_time_days ?? "—"}
+</TableCell>
                 <TableCell className={`text-right font-semibold ${r.net_requirement > 0 ? "text-amber-600" : ""}`}>
                   {r.net_requirement}
                 </TableCell>
@@ -2058,9 +2009,6 @@ console.log("STEP 4 - bomRows:", bomRows);
 
         <TabsContent value="inventory" className="mt-4">
           {renderTable(filtered)}
-          <p className="text-xs text-muted-foreground mt-2">
-            💡 Double-click any numeric cell to edit inline.
-          </p>
         </TabsContent>
 
         <TabsContent value="mrp" className="mt-4 space-y-4">

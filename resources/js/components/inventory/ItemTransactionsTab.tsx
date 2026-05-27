@@ -127,7 +127,7 @@ const ItemTransactionsTab = ({ itemCode }: ItemTransactionsTabProps) => {
     if (referenceType === 'BOM') return 'BOM Consumption';
     if (referenceType === 'Sales Order') return 'Sales Order';
     if (referenceType === 'GRN') return 'Purchase Receipt';
-    
+
     switch (transactionType?.toLowerCase()) {
       case 'consumption':
         return 'BOM Consumption';
@@ -184,7 +184,7 @@ const ItemTransactionsTab = ({ itemCode }: ItemTransactionsTabProps) => {
     if (deliveryStatus === 'Delivered') return 'Closed';
     if (deliveryStatus === 'Shipped') return 'Invoiced';
     if (deliveryStatus === 'Partial') return 'PartiallyInvoiced';
-    
+
     switch (status?.toLowerCase()) {
       case 'completed':
       case 'done':
@@ -280,7 +280,7 @@ const ItemTransactionsTab = ({ itemCode }: ItemTransactionsTabProps) => {
             <TableRow className="bg-muted/50">
               <TableHead className="font-semibold text-foreground">DATE</TableHead>
               <TableHead className="font-semibold text-foreground">REFERENCE#</TableHead>
-              <TableHead className="font-semibold text-foreground">CUSTOMER/VENDOR</TableHead>
+              <TableHead className="font-semibold text-foreground">TRANSACTION NOTES</TableHead>
               <TableHead className="font-semibold text-foreground text-right">QUANTITY</TableHead>
               <TableHead className="font-semibold text-foreground text-right">PRICE</TableHead>
               <TableHead className="font-semibold text-foreground text-right">TOTAL</TableHead>

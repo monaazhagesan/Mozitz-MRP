@@ -335,6 +335,7 @@ const Orders = () => {
 
   const [isEditing, setIsEditing] = useState(false);
 const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [regularForm, setRegularForm] = useState({
     customer: "",
@@ -1079,112 +1080,91 @@ const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
 
 const closeOrderSheet = () => setViewOrder(null);
 
-  const allocateInventoryForOrder = async (items: LineItem[]) => {
-    try {
-      for (const item of items) {
-        if (!item.itemCode || item.quantityOrdered <= 0) continue;
-
-        await axios.post("/api/inventory/allocate", {
-          itemCode: item.itemCode,
-          quantity: item.quantityOrdered,
-        });
-      }
-    } catch (error) {
-      console.error("Error allocating inventory:", error);
-    }
-  };
-
 const createOrderFromComposer = async (status: string) => {
-  if (!validateComposer()) return;
+  if (isSubmitting) return;
 
-  const phoneRegex = /^[0-9]{10}$/;
-  if (!phoneRegex.test(formData.contactNumber)) {
-    toast({
-      title: "Invalid phone number",
-      description: "Phone number must be exactly 10 digits.",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (formData.email && !emailRegex.test(formData.email)) {
-    toast({
-      title: "Invalid email",
-      description: "Please enter a valid email address.",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  const items = lineItems
-    .filter((item) => item.itemCode && item.quantityOrdered > 0)
-    .map((item) => ({
-      item_code: item.itemCode,
-      item_name: item.itemName,
-      item_type: item.itemType,
-      available_stock: Number(item.availableStock || 0),
-      uom: item.uom,
-      quantity: Number(item.quantityOrdered),
-      rate: Number(item.rate || 0),
-      tax: Number(item.tax || 0),
-      total_amount: Number(item.totalAmount || 0),
-    }));
-
-  if (!formData.customerId || items.length === 0) {
-    toast({
-      title: "Missing data",
-      description: "Customer and items are required.",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  const payload = {
-    id: formData.orderNo || generateSONumber(),
-    customer_id: Number(formData.customerId),
-    order_date: formData.orderDate,
-    order_type: formData.orderType,
-    customer: formData.customerName,
-
-    contact_person: formData.contactPerson,
-    contact_number: formData.contactNumber,
-    email: formData.email,
-
-    billing_address: formData.billingAddress,
-    shipping_address: formData.shippingAddress || null,
-
-    reference_no: formData.referenceNo || null,
-    priority: formData.priority,
-    remarks: formData.remarks,
-
-    items,
-
-    dispatch_mode: formData.dispatchMode,
-    transporter_name: formData.transporterName,
-    vehicle_no: formData.vehicleNo,
-
-    expected_dispatch_date: formData.expectedDispatchDate,
-    expected_delivery_date: formData.expectedDeliveryDate,
-
-    delivery_status: formData.deliveryStatus,
-    warehouse_location: formData.warehouseLocation,
-    location: formData.location,
-
-    payment_type: formData.paymentType,
-    payment_terms: formData.paymentTerms,
-
-    advance_amount: Number(formData.advanceAmount || 0),
-    balance_amount: totalSummary.total - Number(formData.advanceAmount || 0),
-
-    invoice_required: formData.invoiceRequired,
-   status: isEditing ? formData.status : status,
-  };
+  setIsSubmitting(true); 
 
   try {
+    if (!validateComposer()) return;
+
+    const phoneRegex = /^[0-9]{10}$/;
+    if (!phoneRegex.test(formData.contactNumber)) {
+      toast({
+        title: "Invalid phone number",
+        description: "Phone number must be exactly 10 digits.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (formData.email && !emailRegex.test(formData.email)) {
+      toast({
+        title: "Invalid email",
+        description: "Please enter a valid email address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const items = lineItems
+      .filter((item) => item.itemCode && item.quantityOrdered > 0)
+      .map((item) => ({
+        item_code: item.itemCode,
+        item_name: item.itemName,
+        item_type: item.itemType,
+        available_stock: Number(item.availableStock || 0),
+        uom: item.uom,
+        quantity: Number(item.quantityOrdered),
+        rate: Number(item.rate || 0),
+        tax: Number(item.tax || 0),
+        total_amount: Number(item.totalAmount || 0),
+      }));
+
+    if (!formData.customerId || items.length === 0) {
+      toast({
+        title: "Missing data",
+        description: "Customer and items are required.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const payload = {
+      id: formData.orderNo || generateSONumber(),
+      customer_id: Number(formData.customerId),
+      order_date: formData.orderDate,
+      order_type: formData.orderType,
+      customer: formData.customerName,
+      contact_person: formData.contactPerson,
+      contact_number: formData.contactNumber,
+      email: formData.email,
+      billing_address: formData.billingAddress,
+      shipping_address: formData.shippingAddress || null,
+      reference_no: formData.referenceNo || null,
+      priority: formData.priority,
+      remarks: formData.remarks,
+      items,
+      dispatch_mode: formData.dispatchMode,
+      transporter_name: formData.transporterName,
+      vehicle_no: formData.vehicleNo,
+      expected_dispatch_date: formData.expectedDispatchDate,
+      expected_delivery_date: formData.expectedDeliveryDate,
+      delivery_status: formData.deliveryStatus,
+      warehouse_location: formData.warehouseLocation,
+      location: formData.location,
+      payment_type: formData.paymentType,
+      payment_terms: formData.paymentTerms,
+      advance_amount: Number(formData.advanceAmount || 0),
+      balance_amount:
+        totalSummary.total - Number(formData.advanceAmount || 0),
+      invoice_required: formData.invoiceRequired,
+      status: isEditing ? formData.status : status,
+    };
+
     let res;
 
-    // ✅ EDIT MODE → UPDATE
     if (isEditing && editingOrderId) {
       res = await axios.put(`/api/orders/${editingOrderId}`, payload);
 
@@ -1192,10 +1172,7 @@ const createOrderFromComposer = async (status: string) => {
         title: "Order updated",
         description: `${payload.id} updated successfully.`,
       });
-    }
-
-    // ✅ CREATE MODE
-    else {
+    } else {
       res = await axios.post("/api/orders", payload);
 
       toast({
@@ -1204,18 +1181,11 @@ const createOrderFromComposer = async (status: string) => {
       });
     }
 
-    setOrders((prev) => {
-      if (isEditing) {
-        return prev.map((o) =>
-          o.id === editingOrderId ? res.data : o
-        );
-      }
-      return [...prev, res.data];
-    });
-
-    if (status !== "Draft") {
-      await allocateInventoryForOrder(items);
-    }
+    setOrders((prev) =>
+      isEditing
+        ? prev.map((o) => (o.id === editingOrderId ? res.data : o))
+        : [...prev, res.data]
+    );
 
     resetComposer();
     setIsEditing(false);
@@ -1228,11 +1198,15 @@ const createOrderFromComposer = async (status: string) => {
 
     toast({
       title: "Error",
-      description: error?.response?.data?.message || "Failed to save order",
+      description:
+        error?.response?.data?.message || "Failed to save order",
       variant: "destructive",
     });
+  } finally {
+    setIsSubmitting(false);
   }
 };
+
 
   const fetchOrders = async () => {
     try {
@@ -1409,7 +1383,7 @@ const createOrderFromComposer = async (status: string) => {
   );
 
   const pendingOrders = useMemo(
-    () => orders.filter((order) => ["Awaiting Confirmation", "Confirmed", "Processing"].includes(order.status)),
+    () => orders.filter((order) => [ "Confirmed", "Processing"].includes(order.status)),
     [orders],
   );
 
@@ -1808,7 +1782,7 @@ const createOrderFromComposer = async (status: string) => {
     printWindow.document.close();
   };
 
-  const handleOrderStatusChange = async (
+ const handleOrderStatusChange = async (
   orderId: string,
   nextStatus: string
 ) => {
@@ -1816,36 +1790,76 @@ const createOrderFromComposer = async (status: string) => {
   if (!current) return;
 
   try {
-    // 1️⃣ stock update logic
-    if (
-      current.status === "Awaiting Confirmation" &&
-      nextStatus === "Processing"
-    ) {
+    /**
+     * =========================
+     * 1️⃣ CONFIRM ORDER → ALLOCATE STOCK
+     * =========================
+     */
+    if (current.status !== "Confirmed" && nextStatus === "Confirmed") {
       for (const item of current.items) {
-        const stockRes = await axios.get(
-          `/api/inventory-stock/${item.itemCode}`
-        );
+        const itemCode = item.itemCode || item.item_code;
 
-        const currentStock = stockRes.data;
+        if (!itemCode) {
+          console.warn("Skipping item (missing itemCode):", item);
+          continue;
+        }
 
-        const allocated = Number(currentStock?.allocated_quantity || 0);
-        const committed = Number(currentStock?.committed_quantity || 0);
-        const qty = Number(item.quantityOrdered);
+        const qty = Number(item.quantity || item.quantityOrdered || 0);
+        if (qty <= 0) continue;
 
-        await axios.put("/api/inventory-stock/update", {
-          itemCode: item.itemCode,
-          allocated_quantity: Math.max(0, allocated - qty),
-          committed_quantity: committed + qty,
+         const unitCost = Number(
+      item.unitCost || item.unit_cost || item.rate || 0
+    );
+        // ✅ Allocate stock (CORRECT API YOU ALREADY HAVE)
+        await axios.post("/api/inventory-stock/allocate", {
+          itemCode: itemCode,
+          quantity: qty,
+        });
+
+        // ✅ Stock transaction log
+        await axios.post("/api/stock-transactions", {
+          item_code: itemCode,
+          transaction_type: "Order Allocation",
+          quantity: qty,
+           unit_cost: unitCost,
+          reference_type: "Order",
+          reference_number: current.order_no,
+          notes: `Stock allocated for order ${current.order_no}`,
         });
       }
     }
 
-    // 2️⃣ UPDATE BACKEND ORDER STATUS (UNCHANGED)
+    /**
+     * =========================
+     * 2️⃣ CONFIRMED → PROCESSING
+     * =========================
+     */
+    if (current.status === "Confirmed" && nextStatus === "Processing") {
+      for (const item of current.items) {
+        const itemCode = item.itemCode || item.item_code;
+
+        if (!itemCode) continue;
+
+        const qty = Number(item.quantity || item.quantityOrdered || 0);
+
+        console.log("Processing stage reached for:", itemCode, qty);
+      }
+    }
+
+    /**
+     * =========================
+     * 3️⃣ UPDATE ORDER STATUS
+     * =========================
+     */
     await axios.put(`/api/orders/${orderId}/status`, {
       status: nextStatus,
     });
 
-    // 3️⃣ update UI
+    /**
+     * =========================
+     * 4️⃣ UI UPDATE
+     * =========================
+     */
     setOrders((prev) =>
       prev.map((order) =>
         order.id === orderId
@@ -1862,10 +1876,13 @@ const createOrderFromComposer = async (status: string) => {
   } catch (error: any) {
     console.error("Error updating order status:", error);
 
-    // 🔥 ADDED LOGIC: fallback retry (ONLY EXTRA LOGIC)
+    /**
+     * =========================
+     * 5️⃣ FALLBACK
+     * =========================
+     */
     if (error?.response?.status === 405) {
       try {
-        // fallback attempt (sometimes backend expects different format)
         await axios.post(`/api/orders/update-status`, {
           orderId,
           status: nextStatus,
@@ -2562,6 +2579,7 @@ const createOrderFromComposer = async (status: string) => {
               itemName: "",
               rate: 0,
               available: 0,
+               quantityOrdered: 1,
               bomComponents: [],
               noBOM: false,
               bomLoading: false,
@@ -2578,7 +2596,6 @@ const createOrderFromComposer = async (status: string) => {
   <SelectContent>
     <SelectItem value="Material">Material</SelectItem>
     <SelectItem value="Product">Product</SelectItem>
-    <SelectItem value="Component">Component</SelectItem>
   </SelectContent>
 </Select>
                       </TableCell>
@@ -2797,6 +2814,7 @@ const createOrderFromComposer = async (status: string) => {
     <Button
       variant="outline"
       onClick={() => createOrderFromComposer("Draft")}
+       disabled={isSubmitting}
     >
       <Save className="mr-2 h-4 w-4" />
       Save Draft
@@ -2809,6 +2827,7 @@ const createOrderFromComposer = async (status: string) => {
         isEditing ? "Updated" : "Awaiting Confirmation"
       )
     }
+     disabled={isSubmitting}
   >
     <Send className="mr-2 h-4 w-4" />
     {isEditing ? "Update Order" : "Submit Order"}
@@ -3540,37 +3559,109 @@ const createOrderFromComposer = async (status: string) => {
                 <TableHead>Action Required</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              {validationRows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">No pending orders to validate.</TableCell>
-                </TableRow>
-              ) : (
-                [...validationRows]
-  .sort((a, b) =>
-    String(b.order.order_no).localeCompare(String(a.order.order_no))
-  )
-  .map(({ order, item, assessment }) => (
-                  <TableRow key={`${order.id || "o"}-${item.id || item.item_code}`}>
-                    <TableCell className="font-mono text-xs text-primary">{order.order_no}</TableCell>
-                    <TableCell>{order.customer}</TableCell>
-                    <TableCell>{item.item_name || item.item_code}</TableCell>
-                    <TableCell className="text-right">{assessment.quantity}</TableCell>
-                    <TableCell className="text-right">{assessment.available}</TableCell>
-                    <TableCell className="text-right">{assessment.openPO ?? assessment.open_po ?? 0}</TableCell>
-                    <TableCell className="text-right font-medium">{assessment.gap || "—"}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {renderValidationBadge(assessment.state, assessment.label)}
-                        {assessment.state === "purchase" && assessment.gap > 0 && (
-                          <Button variant="outline" size="sm" onClick={() => openRFQ(item, assessment.gap)}>Buy</Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
+           <TableBody>
+  {validationRows.length === 0 ? (
+    <TableRow>
+      <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
+        No pending orders to validate.
+      </TableCell>
+    </TableRow>
+  ) : (
+    (() => {
+      const runningStock: Record<string, number> = {};
+
+      return [...validationRows]
+        .sort((a, b) =>
+          new Date(a.order.orderDate).getTime() -
+          new Date(b.order.orderDate).getTime()
+        )
+        .map(({ order, item, assessment }) => {
+          const itemCode = item.item_code;
+
+          const initialStock = Number(
+            item.available_stock ??
+            item.quantity_on_hand ??
+            assessment.inventory?.quantity_on_hand ??
+            assessment.available ??
+            0
+          );
+
+          if (runningStock[itemCode] === undefined) {
+            runningStock[itemCode] = initialStock;
+          }
+
+          const stockBefore = runningStock[itemCode];
+          const orderedQty = Number(assessment.quantity || 0);
+
+          // ❗ GAP = how much CANNOT be fulfilled
+          const gap =
+            stockBefore >= orderedQty
+              ? 0
+              : orderedQty - stockBefore;
+
+          // ❗ stock becomes zero if insufficient
+          // otherwise reduce normally
+          const stockAfter =
+            stockBefore >= orderedQty
+              ? stockBefore - orderedQty
+              : 0;
+
+          runningStock[itemCode] = stockAfter;
+
+          return (
+            <TableRow key={`${order.id}-${item.item_code}`}>
+              <TableCell className="font-mono text-xs text-primary">
+                {order.order_no}
+              </TableCell>
+
+              <TableCell>{order.customer}</TableCell>
+
+              <TableCell>
+                {item.item_name || item.item_code}
+              </TableCell>
+
+              <TableCell className="text-right">
+                {orderedQty}
+              </TableCell>
+
+              {/* AVAILABLE AFTER ALLOCATION */}
+              <TableCell className="text-right">
+                {stockAfter}
+              </TableCell>
+
+              <TableCell className="text-right">
+                {assessment.openPO ?? assessment.open_po ?? 0}
+              </TableCell>
+
+              {/* GAP */}
+              <TableCell className="text-right font-medium">
+                {gap > 0 ? gap : "—"}
+              </TableCell>
+
+              <TableCell>
+                <div className="flex items-center gap-2">
+                  {renderValidationBadge(
+                    gap > 0 ? "purchase" : "available",
+                    gap > 0 ? "Need Purchase" : "Available"
+                  )}
+
+                  {gap > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openRFQ(item, gap)}
+                    >
+                      Buy
+                    </Button>
+                  )}
+                </div>
+              </TableCell>
+            </TableRow>
+          );
+        });
+    })()
+  )}
+</TableBody>
           </Table>
         </div>
       </div>
@@ -3621,7 +3712,29 @@ const createOrderFromComposer = async (status: string) => {
                     <TableCell className="font-mono text-xs">{order.order_no}</TableCell>
                     <TableCell className="text-right">{assessment.quantity}</TableCell>
                     <TableCell className="text-right">{assessment.available}</TableCell>
-                    <TableCell className="text-right font-medium text-primary">{assessment.gap}</TableCell>
+                    <TableCell className="text-right font-medium text-primary">
+  {(() => {
+    const itemCode = item.item_code;
+
+    const initialStock = Number(
+      item.available_stock ??
+      item.quantity_on_hand ??
+      assessment.inventory?.quantity_on_hand ??
+      assessment.available ??
+      0
+    );
+
+    const requiredQty = Number(assessment.quantity || 0);
+
+    // simple single-line calculation (purchase view only)
+    const gap =
+      initialStock >= requiredQty
+        ? 0
+        : requiredQty - initialStock;
+
+    return gap > 0 ? gap : "—";
+  })()}
+</TableCell>
                     <TableCell className="text-right">{money(assessment.gap * Number(assessment.inventory?.unit_cost || item.rate || 0))}</TableCell>
                     <TableCell>{renderValidationBadge(order.priority === "Critical" ? "missing" : order.priority === "High" ? "partial" : "available", order.priority)}</TableCell>
 
@@ -3713,7 +3826,11 @@ const createOrderFromComposer = async (status: string) => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {orders.map((order) => (
+               {[...orders]
+  .sort((a, b) =>
+    String(b.order_no || "").localeCompare(String(a.order_no || ""))
+  )
+  .map((order) => (
                   <TableRow key={order.id}>
                     <TableCell className="font-mono text-xs text-primary">{order.order_no}</TableCell>
                     <TableCell>{order.customer}</TableCell>
@@ -3828,41 +3945,8 @@ const createOrderFromComposer = async (status: string) => {
                       )
                         continue;
 
-                      // 1. Fetch stock
-                      const stockRes = await axios.get(
-                        `/api/inventory-stock/${item.itemCode}`
-                      );
 
-                      const currentStock = stockRes.data;
 
-                      const currentQty = Number(
-                        currentStock?.quantity_on_hand || 0
-                      );
-                      const currentAllocated = Number(
-                        currentStock?.allocated_quantity || 0
-                      );
-
-                      const qty = Number(item.quantityRefunded);
-
-                      // 2. Update stock
-                      await axios.put("/api/inventory-stock/update", {
-                        itemCode: item.itemCode,
-                        quantity_on_hand: currentQty + qty,
-                        allocated_quantity: Math.max(
-                          0,
-                          currentAllocated - qty
-                        ),
-                      });
-
-                      // 3. Insert stock transaction
-                      await axios.post("/api/stock-transactions", {
-                        item_code: item.itemCode,
-                        transaction_type: "Refund Return",
-                        quantity: qty,
-                        reference_type: "Refund",
-                        reference_number: refund.refundNumber,
-                        notes: `Refund from order ${refund.orderId}`,
-                      });
                     }
                   } catch (error) {
                     console.error("Error restoring inventory:", error);
@@ -3991,9 +4075,8 @@ const createOrderFromComposer = async (status: string) => {
   Edit
 </Button>
                <Button
-  variant="outline"
   disabled={
-    viewOrder.status === "Delivered" ||
+    ["Confirmed", "Delivered"].includes(viewOrder.status) ||
     viewOrder.delivery_status === "Delivered" ||
     viewOrder.delivery_status === "Shipped" ||
      viewOrder.delivery_status === "Not Shipped" ||
@@ -4006,21 +4089,6 @@ const createOrderFromComposer = async (status: string) => {
 >
   <Check className="mr-2 h-4 w-4" />
   Confirm
-</Button>
-                <Button
-  disabled={
-    viewOrder.status === "Delivered" ||
-    viewOrder.delivery_status === "Delivered" ||
-    viewOrder.delivery_status === "Shipped" ||
-     viewOrder.delivery_status === "Not Shipped" ||
-    viewOrder.delivery_status === "Partially Fulfilled"
-  }
-  onClick={() => {
-  handleOrderStatusChange(viewOrder.id, "Processing");
-  closeOrderSheet();
-}}
->
-  Move to Processing
 </Button>
               </div>
             </div>

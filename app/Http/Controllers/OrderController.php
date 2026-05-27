@@ -82,19 +82,6 @@ class OrderController extends Controller
                 'tax' => $item['tax'] ?? 0,
                 'total_amount' => $item['total_amount'] ?? 0,
             ]);
-
-            // Inventory update
-            if (!empty($item['item_code'])) {
-
-                $stock = InventoryStock::where('item_code', $item['item_code'])->first();
-
-                if ($stock) {
-                    $stock->allocated_quantity =
-                        ($stock->allocated_quantity ?? 0) + $item['quantity'];
-
-                    $stock->save();
-                }
-            }
         }
 
         DB::commit();

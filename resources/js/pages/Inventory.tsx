@@ -428,7 +428,7 @@ const fetchInventory = async () => {
   };
 
 
-useEffect(() => {
+{/*useEffect(() => {
   loadInventory();
 }, []);
 
@@ -532,7 +532,7 @@ const loadInventory = async () => {
   } finally {
     setLoading(false);
   }
-};
+}; */}
 
   // Migrate existing items to set usability based on item type
 
