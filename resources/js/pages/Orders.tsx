@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Edit } from "lucide-react";
+import { Edit, XCircle } from "lucide-react";
 import axios from "axios";
 import {
   Dialog,
@@ -58,7 +58,7 @@ import {
   Truck,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 interface BOMComponent {
@@ -282,14 +282,8 @@ const Orders = () => {
   const [mainTab, setMainTab] = useState<MainTab>("orders");
   const [workspaceView, setWorkspaceView] = useState<OrderWorkspaceView>("new");
   const [orders, setOrders] = useState<any[]>([]);
-  const [refunds, setRefunds] = useState<RefundRecord[]>(() => {
-    const saved = localStorage.getItem("orderRefunds");
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [regularOrders, setRegularOrders] = useState<RegularOrderTemplate[]>(() => {
-    const saved = localStorage.getItem("regularOrderTemplates");
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [refunds, setRefunds] = useState<RefundRecord[]>([]);
+  const [regularOrders, setRegularOrders] = useState<RegularOrderTemplate[]>([]);
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [formData, setFormData] = useState<FormDataState>({
@@ -334,8 +328,13 @@ const Orders = () => {
   const [regularDialogOpen, setRegularDialogOpen] = useState(false);
 
   const [isEditing, setIsEditing] = useState(false);
-const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
-const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+  const submittingRef = useRef(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [cancelOrder, setCancelOrder] = useState<any>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   const [regularForm, setRegularForm] = useState({
     customer: "",
@@ -370,14 +369,6 @@ const [isSubmitting, setIsSubmitting] = useState(false);
   };
 
   useEffect(() => {
-    localStorage.setItem("orders", JSON.stringify(orders));
-  }, [orders]);
-
-  useEffect(() => {
-    localStorage.setItem("orderRefunds", JSON.stringify(refunds));
-  }, [refunds]);
-
-  useEffect(() => {
     fetchRegularOrders();
   }, []);
 
@@ -406,22 +397,22 @@ const [isSubmitting, setIsSubmitting] = useState(false);
   };
 
   const generateRegularNumber = () => {
-  const year = new Date().getFullYear();
+    const year = new Date().getFullYear();
 
-  const prefix = `REG-${year}-`;
+    const prefix = `REG-${year}-`;
 
-  const numbers = regularOrders
-    .map((o) => o.template_number || o.order_number)
-    .filter(Boolean)
-    .filter((n) => n.startsWith(prefix))
-    .map((n) => parseInt(n.split("-").pop() || "0", 10));
+    const numbers = regularOrders
+      .map((o) => o.template_number || o.order_number)
+      .filter(Boolean)
+      .filter((n) => n.startsWith(prefix))
+      .map((n) => parseInt(n.split("-").pop() || "0", 10));
 
-  const lastNumber = numbers.length > 0 ? Math.max(...numbers) : 0;
+    const lastNumber = numbers.length > 0 ? Math.max(...numbers) : 0;
 
-  const nextNumber = lastNumber + 1;
+    const nextNumber = lastNumber + 1;
 
-  return `${prefix}${String(nextNumber).padStart(4, "0")}`;
-};
+    return `${prefix}${String(nextNumber).padStart(4, "0")}`;
+  };
 
 
   const calculateOrderValue = (order: any) =>
@@ -496,63 +487,63 @@ const [isSubmitting, setIsSubmitting] = useState(false);
     return Math.max(0, Math.round(computed));
   };
 
- const handleEditOrder = async (order: any) => {
-  const orderData = order?.items ? order : order?.data ? order.data[0] : order;
+  const handleEditOrder = async (order: any) => {
+    const orderData = order?.items ? order : order?.data ? order.data[0] : order;
 
-  setIsEditing(true);              // ✅ ADD THIS
-  setEditingOrderId(orderData.id); // ✅ ADD THIS
-  console.log("EDITING ORDER:", orderData);
+    setIsEditing(true);              // ✅ ADD THIS
+    setEditingOrderId(orderData.id); // ✅ ADD THIS
+    console.log("EDITING ORDER:", orderData);
 
-  // DO NOT CHANGE ORDER NO
-  const existingSONumber = orderData.order_no;
+    // DO NOT CHANGE ORDER NO
+    const existingSONumber = orderData.order_no;
 
-  // 1. SET FORM DATA (same structure as cloneIntoComposer)
-  setFormData({
-    customerId: orderData.customer_id ?? "",
-    customerName: orderData.customer ?? orderData.customer_name ?? "",
+    // 1. SET FORM DATA (same structure as cloneIntoComposer)
+    setFormData({
+      customerId: orderData.customer_id ?? "",
+      customerName: orderData.customer ?? orderData.customer_name ?? "",
 
-    customerCode: "",
-    contactPerson: orderData.contact_person ?? "",
-    contactNumber: orderData.contact_number ?? "",
-    email: orderData.email ?? "",
+      customerCode: "",
+      contactPerson: orderData.contact_person ?? "",
+      contactNumber: orderData.contact_number ?? "",
+      email: orderData.email ?? "",
 
-    billingAddress: orderData.billing_address ?? "",
-    shippingAddress: orderData.shipping_address ?? "",
+      billingAddress: orderData.address_line1 ?? "",
+      shippingAddress: orderData.shipping_address_line1 ?? "",
 
-    orderNo: existingSONumber, // ✅ IMPORTANT: KEEP SAME
-    orderDate: orderData.order_date ?? todayISO(),
+      orderNo: existingSONumber, // ✅ IMPORTANT: KEEP SAME
+      orderDate: orderData.order_date ?? todayISO(),
 
-    expectedDeliveryDate:
-      orderData.expected_delivery_date || orderData.order_date,
+      expectedDeliveryDate:
+        orderData.expected_delivery_date || orderData.order_date,
 
-    orderType: orderData.order_type ?? "",
-    referenceNo: orderData.reference_no ?? "",
-    priority: orderData.priority ?? "Normal",
-    remarks: orderData.remarks ?? "",
-    status: orderData.status ?? "Awaiting Confirmation",
+      orderType: orderData.order_type ?? "",
+      referenceNo: orderData.reference_no ?? "",
+      priority: orderData.priority ?? "Normal",
+      remarks: orderData.remarks ?? "",
+      status: orderData.status ?? "Awaiting Confirmation",
 
-    dispatchMode: orderData.dispatch_mode ?? "",
-    transporterName: orderData.transporter_name ?? "",
-    vehicleNo: orderData.vehicle_no ?? "",
-    expectedDispatchDate: orderData.expected_dispatch_date ?? "",
+      dispatchMode: orderData.dispatch_mode ?? "",
+      transporterName: orderData.transporter_name ?? "",
+      vehicleNo: orderData.vehicle_no ?? "",
+      expectedDispatchDate: orderData.expected_dispatch_date ?? "",
 
-    deliveryStatus: orderData.delivery_status ?? "Awaiting",
-    warehouseLocation: orderData.warehouse_location ?? "",
-    location: orderData.location ?? "",
+      deliveryStatus: orderData.delivery_status ?? "Awaiting",
+      warehouseLocation: orderData.warehouse_location ?? "",
+      location: orderData.location ?? "",
 
-    paymentType: orderData.payment_type ?? "",
-    paymentTerms: orderData.payment_terms ?? "",
+      paymentType: orderData.payment_type ?? "",
+      paymentTerms: orderData.payment_terms ?? "",
 
-    advanceAmount: Number(orderData.advance_amount ?? 0),
-    balanceAmount: Number(orderData.balance_amount ?? 0),
-    invoiceRequired: orderData.invoice_required ?? 0,
-  });
+      advanceAmount: Number(orderData.advance_amount ?? 0),
+      balanceAmount: Number(orderData.balance_amount ?? 0),
+      invoiceRequired: orderData.invoice_required ?? 0,
+    });
 
-  // 2. ITEMS SAME AS CLONE
-  const items =
-    orderData.items && orderData.items.length > 0
-      ? orderData.items
-      : [
+    // 2. ITEMS SAME AS CLONE
+    const items =
+      orderData.items && orderData.items.length > 0
+        ? orderData.items
+        : [
           {
             item_code: orderData.item_code,
             item_name: orderData.item_name,
@@ -566,74 +557,74 @@ const [isSubmitting, setIsSubmitting] = useState(false);
           },
         ];
 
-  const fetchBomByItemCode = async (itemCode: string) => {
-    try {
-      const res = await axios.get(`/api/bom-component`, {
-        params: { item_code: itemCode },
-      });
+    const fetchBomByItemCode = async (itemCode: string) => {
+      try {
+        const res = await axios.get(`/api/bom-component`, {
+          params: { item_code: itemCode },
+        });
 
-      const data = res.data;
+        const data = res.data;
 
-      if (Array.isArray(data)) return data;
-      if (data && typeof data === "object") return Object.values(data).flat();
+        if (Array.isArray(data)) return data;
+        if (data && typeof data === "object") return Object.values(data).flat();
 
-      return [];
-    } catch (err) {
-      console.error("BOM API ERROR:", err);
-      return [];
-    }
-  };
+        return [];
+      } catch (err) {
+        console.error("BOM API ERROR:", err);
+        return [];
+      }
+    };
 
-  const itemsWithBom = await Promise.all(
-    items.map(async (item: any) => {
-      const bomComponents = item.item_code
-        ? await fetchBomByItemCode(item.item_code)
-        : [];
+    const itemsWithBom = await Promise.all(
+      items.map(async (item: any) => {
+        const bomComponents = item.item_code
+          ? await fetchBomByItemCode(item.item_code)
+          : [];
 
-      return {
-        id: crypto.randomUUID(),
-        itemCode: item.item_code,
-        itemName: item.item_name,
-        itemType: item.item_type,
-        quantityOrdered: Number(item.quantity ?? 0),
-        uom: item.uom ?? "",
-        rate: Number(item.rate ?? 0),
-        tax: Number(item.tax ?? 0),
-        totalAmount: Number(item.total_amount ?? 0),
-        availableStock: Number(item.available_stock ?? 0),
+        return {
+          id: crypto.randomUUID(),
+          itemCode: item.item_code,
+          itemName: item.item_name,
+          itemType: item.item_type,
+          quantityOrdered: Number(item.quantity ?? 0),
+          uom: item.uom ?? "",
+          rate: Number(item.rate ?? 0),
+          tax: Number(item.tax ?? 0),
+          totalAmount: Number(item.total_amount ?? 0),
+          availableStock: Number(item.available_stock ?? 0),
 
-        bomComponents: Array.isArray(bomComponents)
-          ? bomComponents.map((c: any) => ({
+          bomComponents: Array.isArray(bomComponents)
+            ? bomComponents.map((c: any) => ({
               component: c.component,
               description: c.description,
               type: c.type,
               requiredQty: Number(
                 c.requiredQty ??
-                  c.required_qty ??
-                  c.qty_required ??
-                  c.quantity ??
-                  0
+                c.required_qty ??
+                c.qty_required ??
+                c.quantity ??
+                0
               ),
             }))
-          : [],
+            : [],
 
-        discount: Number(item.discount ?? 0),
-      };
-    })
-  );
+          discount: Number(item.discount ?? 0),
+        };
+      })
+    );
 
-  setLineItems(itemsWithBom);
+    setLineItems(itemsWithBom);
 
-  // 3. OPEN AFTER STATE READY (important fix)
-  requestAnimationFrame(() => {
-    setWorkspaceView("new");
-  });
+    // 3. OPEN AFTER STATE READY (important fix)
+    requestAnimationFrame(() => {
+      setWorkspaceView("new");
+    });
 
-  toast({
-    title: "Order loaded for editing",
-    description: `${existingSONumber} loaded into composer.`,
-  });
-};
+    toast({
+      title: "Order loaded for editing",
+      description: `${existingSONumber} loaded into composer.`,
+    });
+  };
 
   const fetchInventory = async () => {
     try {
@@ -954,7 +945,7 @@ const [isSubmitting, setIsSubmitting] = useState(false);
           billingAddress: customer.billing_address || "",
 
           shippingAddress:
-            customer.shipping_address || customer.billing_address || "",
+            customer.shipping_address_line1 || customer.billing_address || "",
 
           location: customer.city || prev.location,
         };
@@ -1078,135 +1069,206 @@ const [isSubmitting, setIsSubmitting] = useState(false);
     return true;
   };
 
-const closeOrderSheet = () => setViewOrder(null);
+  const closeOrderSheet = () => setViewOrder(null);
 
-const createOrderFromComposer = async (status: string) => {
-  if (isSubmitting) return;
+  const createOrderFromComposer = async (status: string) => {
+    if (isSubmitting) return;
 
-  setIsSubmitting(true); 
+    setIsSubmitting(true);
+
+    try {
+      if (!validateComposer()) return;
+
+      const phoneRegex = /^[0-9]{10}$/;
+      if (!phoneRegex.test(formData.contactNumber)) {
+        toast({
+          title: "Invalid phone number",
+          description: "Phone number must be exactly 10 digits.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (formData.email && !emailRegex.test(formData.email)) {
+        toast({
+          title: "Invalid email",
+          description: "Please enter a valid email address.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const items = lineItems
+        .filter((item) => item.itemCode && item.quantityOrdered > 0)
+        .map((item) => ({
+          item_code: item.itemCode,
+          item_name: item.itemName,
+          item_type: item.itemType,
+          available_stock: Number(item.availableStock || 0),
+          uom: item.uom,
+          quantity: Number(item.quantityOrdered),
+          rate: Number(item.rate || 0),
+          tax: Number(item.tax || 0),
+          total_amount: Number(item.totalAmount || 0),
+        }));
+
+      if (!formData.customerId || items.length === 0) {
+        toast({
+          title: "Missing data",
+          description: "Customer and items are required.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const payload = {
+        id: formData.orderNo || generateSONumber(),
+        customer_id: Number(formData.customerId),
+        order_date: formData.orderDate,
+        order_type: formData.orderType,
+        customer: formData.customerName,
+        contact_person: formData.contactPerson,
+        contact_number: formData.contactNumber,
+        email: formData.email,
+        billing_address: formData.billingAddress,
+        shipping_address: formData.shippingAddress || null,
+        reference_no: formData.referenceNo || null,
+        priority: formData.priority,
+        remarks: formData.remarks,
+        items,
+        dispatch_mode: formData.dispatchMode,
+        transporter_name: formData.transporterName,
+        vehicle_no: formData.vehicleNo,
+        expected_dispatch_date: formData.expectedDispatchDate,
+        expected_delivery_date: formData.expectedDeliveryDate,
+        delivery_status: formData.deliveryStatus,
+        warehouse_location: formData.warehouseLocation,
+        location: formData.location,
+        payment_type: formData.paymentType,
+        payment_terms: formData.paymentTerms,
+        advance_amount: Number(formData.advanceAmount || 0),
+        balance_amount:
+          totalSummary.total - Number(formData.advanceAmount || 0),
+        invoice_required: formData.invoiceRequired,
+        status: isEditing ? formData.status : status,
+      };
+
+      let res;
+
+      if (isEditing && editingOrderId) {
+        res = await axios.put(`/api/orders/${editingOrderId}`, payload);
+
+        toast({
+          title: "Order updated",
+          description: `${payload.id} updated successfully.`,
+        });
+      } else {
+        res = await axios.post("/api/orders", payload);
+
+        toast({
+          title: "Order created",
+          description: `${payload.id} saved successfully.`,
+        });
+      }
+
+      setOrders((prev) =>
+        isEditing
+          ? prev.map((o) => (o.id === editingOrderId ? res.data : o))
+          : [...prev, res.data]
+      );
+
+      resetComposer();
+      setIsEditing(false);
+      setEditingOrderId(null);
+
+      await fetchOrders();
+      setWorkspaceView("orders");
+    } catch (error: any) {
+      console.error(error?.response?.data || error);
+
+      toast({
+        title: "Error",
+        description:
+          error?.response?.data?.message || "Failed to save order",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+
+  const confirmCancelOrder = async () => {
+  if (!cancelOrder) return;
 
   try {
-    if (!validateComposer()) return;
+    setCancelling(true);
 
-    const phoneRegex = /^[0-9]{10}$/;
-    if (!phoneRegex.test(formData.contactNumber)) {
-      toast({
-        title: "Invalid phone number",
-        description: "Phone number must be exactly 10 digits.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (formData.email && !emailRegex.test(formData.email)) {
-      toast({
-        title: "Invalid email",
-        description: "Please enter a valid email address.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const items = lineItems
-      .filter((item) => item.itemCode && item.quantityOrdered > 0)
-      .map((item) => ({
-        item_code: item.itemCode,
-        item_name: item.itemName,
-        item_type: item.itemType,
-        available_stock: Number(item.availableStock || 0),
-        uom: item.uom,
-        quantity: Number(item.quantityOrdered),
-        rate: Number(item.rate || 0),
-        tax: Number(item.tax || 0),
-        total_amount: Number(item.totalAmount || 0),
-      }));
-
-    if (!formData.customerId || items.length === 0) {
-      toast({
-        title: "Missing data",
-        description: "Customer and items are required.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const payload = {
-      id: formData.orderNo || generateSONumber(),
-      customer_id: Number(formData.customerId),
-      order_date: formData.orderDate,
-      order_type: formData.orderType,
-      customer: formData.customerName,
-      contact_person: formData.contactPerson,
-      contact_number: formData.contactNumber,
-      email: formData.email,
-      billing_address: formData.billingAddress,
-      shipping_address: formData.shippingAddress || null,
-      reference_no: formData.referenceNo || null,
-      priority: formData.priority,
-      remarks: formData.remarks,
-      items,
-      dispatch_mode: formData.dispatchMode,
-      transporter_name: formData.transporterName,
-      vehicle_no: formData.vehicleNo,
-      expected_dispatch_date: formData.expectedDispatchDate,
-      expected_delivery_date: formData.expectedDeliveryDate,
-      delivery_status: formData.deliveryStatus,
-      warehouse_location: formData.warehouseLocation,
-      location: formData.location,
-      payment_type: formData.paymentType,
-      payment_terms: formData.paymentTerms,
-      advance_amount: Number(formData.advanceAmount || 0),
-      balance_amount:
-        totalSummary.total - Number(formData.advanceAmount || 0),
-      invoice_required: formData.invoiceRequired,
-      status: isEditing ? formData.status : status,
-    };
-
-    let res;
-
-    if (isEditing && editingOrderId) {
-      res = await axios.put(`/api/orders/${editingOrderId}`, payload);
-
-      toast({
-        title: "Order updated",
-        description: `${payload.id} updated successfully.`,
-      });
-    } else {
-      res = await axios.post("/api/orders", payload);
-
-      toast({
-        title: "Order created",
-        description: `${payload.id} saved successfully.`,
-      });
-    }
-
-    setOrders((prev) =>
-      isEditing
-        ? prev.map((o) => (o.id === editingOrderId ? res.data : o))
-        : [...prev, res.data]
+    // 1. CANCEL ORDER
+    const cancelRes = await axios.post(
+      `/api/orders/${cancelOrder.id}/cancel`
     );
 
-    resetComposer();
-    setIsEditing(false);
-    setEditingOrderId(null);
+    if (!cancelRes.data.success) {
+      throw new Error(cancelRes.data.message || "Cancel failed");
+    }
 
-    await fetchOrders();
-    setWorkspaceView("orders");
-  } catch (error: any) {
-    console.error(error?.response?.data || error);
+    // 2. ONLY CREATE STOCK TRANSACTIONS IF ORDER WAS CONFIRMED
+    const shouldReturnStock =
+      ["Confirmed"].includes(cancelOrder.status);
+
+    if (shouldReturnStock) {
+      for (const item of cancelOrder.items || []) {
+        const unitCost = Number(
+          item.unitCost || item.unit_cost || item.rate || 0
+        );
+
+        await axios.post("/api/stock-transactions", {
+          item_code: item.item_code,
+          transaction_type: "ORDER_CANCELLED",
+          quantity: item.quantity,
+          unit_cost: unitCost,
+          reference_number: cancelOrder.order_no,
+          notes: "Returned from cancelled order",
+        });
+      }
+    }
+
+    // 3. UPDATE UI
+    setOrders((prev) =>
+      prev.map((order) =>
+        order.id === cancelOrder.id
+          ? {
+              ...order,
+              status: "Cancelled",
+              delivery_status: "Cancelled",
+            }
+          : order
+      )
+    );
 
     toast({
-      title: "Error",
-      description:
-        error?.response?.data?.message || "Failed to save order",
+      title: "Order Cancelled",
+      description: shouldReturnStock
+        ? "Stock returned successfully."
+        : "Order cancelled (no stock return).",
+    });
+
+    setCancelDialogOpen(false);
+    setCancelOrder(null);
+    closeOrderSheet();
+
+  } catch (error) {
+    toast({
+      title: "Cancel failed",
+      description: error.message,
       variant: "destructive",
     });
   } finally {
-    setIsSubmitting(false);
+    setCancelling(false);
   }
 };
-
 
   const fetchOrders = async () => {
     try {
@@ -1231,10 +1293,10 @@ const createOrderFromComposer = async (status: string) => {
         deliveryStatus: order.deliveryStatus || order.delivery_status || "Awaiting",
         // Add more if needed
         shippingAddress:
-    order.shippingAddress ||
-    order.shipping_address ||
-    order.shipping_address1 ||
-    "",
+          order.shippingAddress ||
+          order.shipping_address ||
+          order.shipping_address_line1 ||
+          "",
       }));
 
       console.log("🟣 FINAL NORMALIZED ORDERS ARRAY:", data);
@@ -1330,11 +1392,11 @@ const createOrderFromComposer = async (status: string) => {
     });
   }, [orders, searchTerm, statusFilter, typeFilter]);
 
- useEffect(() => {
-  if (mainTab === "orders") {
-    fetchOrders();
-  }
-}, [mainTab]);
+  useEffect(() => {
+    if (mainTab === "orders") {
+      fetchOrders();
+    }
+  }, [mainTab]);
 
   const sortedOrders = useMemo(() => {
     const data = [...filteredOrders];
@@ -1383,7 +1445,7 @@ const createOrderFromComposer = async (status: string) => {
   );
 
   const pendingOrders = useMemo(
-    () => orders.filter((order) => [ "Confirmed", "Processing"].includes(order.status)),
+    () => orders.filter((order) => ["Confirmed", "Processing"].includes(order.status)),
     [orders],
   );
 
@@ -1782,137 +1844,137 @@ const createOrderFromComposer = async (status: string) => {
     printWindow.document.close();
   };
 
- const handleOrderStatusChange = async (
-  orderId: string,
-  nextStatus: string
-) => {
-  const current = orders.find((order) => order.id === orderId);
-  if (!current) return;
+  const handleOrderStatusChange = async (
+    orderId: string,
+    nextStatus: string
+  ) => {
+    const current = orders.find((order) => order.id === orderId);
+    if (!current) return;
 
-  try {
-    /**
-     * =========================
-     * 1️⃣ CONFIRM ORDER → ALLOCATE STOCK
-     * =========================
-     */
-    if (current.status !== "Confirmed" && nextStatus === "Confirmed") {
-      for (const item of current.items) {
-        const itemCode = item.itemCode || item.item_code;
+    try {
+      /**
+       * =========================
+       * 1️⃣ CONFIRM ORDER → ALLOCATE STOCK
+       * =========================
+       */
+      if (current.status !== "Confirmed" && nextStatus === "Confirmed") {
+        for (const item of current.items) {
+          const itemCode = item.itemCode || item.item_code;
 
-        if (!itemCode) {
-          console.warn("Skipping item (missing itemCode):", item);
-          continue;
+          if (!itemCode) {
+            console.warn("Skipping item (missing itemCode):", item);
+            continue;
+          }
+
+          const qty = Number(item.quantity || item.quantityOrdered || 0);
+          if (qty <= 0) continue;
+
+          const unitCost = Number(
+            item.unitCost || item.unit_cost || item.rate || 0
+          );
+          // ✅ Allocate stock (CORRECT API YOU ALREADY HAVE)
+          await axios.post("/api/inventory-stock/allocate", {
+            itemCode: itemCode,
+            quantity: qty,
+          });
+
+          // ✅ Stock transaction log
+          await axios.post("/api/stock-transactions", {
+            item_code: itemCode,
+            transaction_type: "Order Allocation",
+            quantity: qty,
+            unit_cost: unitCost,
+            reference_type: "Order",
+            reference_number: current.order_no,
+            notes: `Stock allocated for order ${current.order_no}`,
+          });
         }
-
-        const qty = Number(item.quantity || item.quantityOrdered || 0);
-        if (qty <= 0) continue;
-
-         const unitCost = Number(
-      item.unitCost || item.unit_cost || item.rate || 0
-    );
-        // ✅ Allocate stock (CORRECT API YOU ALREADY HAVE)
-        await axios.post("/api/inventory-stock/allocate", {
-          itemCode: itemCode,
-          quantity: qty,
-        });
-
-        // ✅ Stock transaction log
-        await axios.post("/api/stock-transactions", {
-          item_code: itemCode,
-          transaction_type: "Order Allocation",
-          quantity: qty,
-           unit_cost: unitCost,
-          reference_type: "Order",
-          reference_number: current.order_no,
-          notes: `Stock allocated for order ${current.order_no}`,
-        });
       }
-    }
 
-    /**
-     * =========================
-     * 2️⃣ CONFIRMED → PROCESSING
-     * =========================
-     */
-    if (current.status === "Confirmed" && nextStatus === "Processing") {
-      for (const item of current.items) {
-        const itemCode = item.itemCode || item.item_code;
+      /**
+       * =========================
+       * 2️⃣ CONFIRMED → PROCESSING
+       * =========================
+       */
+      if (current.status === "Confirmed" && nextStatus === "Processing") {
+        for (const item of current.items) {
+          const itemCode = item.itemCode || item.item_code;
 
-        if (!itemCode) continue;
+          if (!itemCode) continue;
 
-        const qty = Number(item.quantity || item.quantityOrdered || 0);
+          const qty = Number(item.quantity || item.quantityOrdered || 0);
 
-        console.log("Processing stage reached for:", itemCode, qty);
+          console.log("Processing stage reached for:", itemCode, qty);
+        }
       }
-    }
 
-    /**
-     * =========================
-     * 3️⃣ UPDATE ORDER STATUS
-     * =========================
-     */
-    await axios.put(`/api/orders/${orderId}/status`, {
-      status: nextStatus,
-    });
+      /**
+       * =========================
+       * 3️⃣ UPDATE ORDER STATUS
+       * =========================
+       */
+      await axios.put(`/api/orders/${orderId}/status`, {
+        status: nextStatus,
+      });
 
-    /**
-     * =========================
-     * 4️⃣ UI UPDATE
-     * =========================
-     */
-    setOrders((prev) =>
-      prev.map((order) =>
-        order.id === orderId
-          ? { ...order, status: nextStatus }
-          : order
-      )
-    );
+      /**
+       * =========================
+       * 4️⃣ UI UPDATE
+       * =========================
+       */
+      setOrders((prev) =>
+        prev.map((order) =>
+          order.id === orderId
+            ? { ...order, status: nextStatus }
+            : order
+        )
+      );
 
-    toast({
-      title: "Status updated",
-      description: `${current.order_no} is now ${nextStatus}.`,
-    });
+      toast({
+        title: "Status updated",
+        description: `${current.order_no} is now ${nextStatus}.`,
+      });
 
-  } catch (error: any) {
-    console.error("Error updating order status:", error);
+    } catch (error: any) {
+      console.error("Error updating order status:", error);
 
-    /**
-     * =========================
-     * 5️⃣ FALLBACK
-     * =========================
-     */
-    if (error?.response?.status === 405) {
-      try {
-        await axios.post(`/api/orders/update-status`, {
-          orderId,
-          status: nextStatus,
-        });
+      /**
+       * =========================
+       * 5️⃣ FALLBACK
+       * =========================
+       */
+      if (error?.response?.status === 405) {
+        try {
+          await axios.post(`/api/orders/update-status`, {
+            orderId,
+            status: nextStatus,
+          });
 
-        setOrders((prev) =>
-          prev.map((order) =>
-            order.id === orderId
-              ? { ...order, status: nextStatus }
-              : order
-          )
-        );
+          setOrders((prev) =>
+            prev.map((order) =>
+              order.id === orderId
+                ? { ...order, status: nextStatus }
+                : order
+            )
+          );
 
-        toast({
-          title: "Status updated (fallback)",
-          description: `${current.order_no} is now ${nextStatus}.`,
-        });
+          toast({
+            title: "Status updated (fallback)",
+            description: `${current.order_no} is now ${nextStatus}.`,
+          });
 
-        return;
-      } catch (fallbackError) {
-        console.error("Fallback also failed:", fallbackError);
+          return;
+        } catch (fallbackError) {
+          console.error("Fallback also failed:", fallbackError);
+        }
       }
-    }
 
-    toast({
-      title: "Error",
-      description: "Failed to update order status.",
-    });
-  }
-};
+      toast({
+        title: "Error",
+        description: "Failed to update order status.",
+      });
+    }
+  };
 
   const calculateNextOrderDate = (currentDate: string, frequency: string) => {
     const date = new Date(currentDate);
@@ -2081,30 +2143,38 @@ const createOrderFromComposer = async (status: string) => {
   };
 
   const createRegularTemplate = async () => {
-    const inventory = getInventoryRecord(regularForm.itemCode);
+    if (submittingRef.current) return;
 
-    if (!regularForm.customer || !regularForm.itemCode) {
-      toast({
-        title: "Missing fields",
-        description: "Customer and product are required.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const payload = {
-      template_number: generateRegularNumber(),
-      customer: regularForm.customer,
-      customer_id: regularForm.customer_id,
-      item_code: inventory?.item_code || regularForm.itemCode,
-      item_name: inventory?.item_name || regularForm.itemName,
-      quantity: Number(regularForm.quantity),
-      frequency: regularForm.frequency,
-      next_order_date: regularForm.nextOrderDate,
-      price: Number(regularForm.price || inventory?.unit_cost || 0),
-    };
+    submittingRef.current = true;
+    setIsSubmitting(true);
 
     try {
+
+      const inventory = getInventoryRecord(regularForm.itemCode);
+
+      if (!regularForm.customer || !regularForm.itemCode) {
+        toast({
+          title: "Missing fields",
+          description: "Customer and product are required.",
+          variant: "destructive",
+        });
+
+        return;
+      }
+
+      const payload = {
+        template_number: generateRegularNumber(),
+        customer: regularForm.customer,
+        customer_id: regularForm.customer_id,
+        item_code: inventory?.item_code || regularForm.itemCode,
+        item_name: inventory?.item_name || regularForm.itemName,
+        quantity: Number(regularForm.quantity),
+        frequency: regularForm.frequency,
+        next_order_date: regularForm.nextOrderDate,
+        price: Number(regularForm.price || inventory?.unit_cost || 0),
+      };
+
+
       const res = await axios.post("/api/regular-template", payload);
 
       const data = res.data;
@@ -2151,6 +2221,9 @@ const createOrderFromComposer = async (status: string) => {
           error.response?.data?.message || error.message || "Failed to create template",
         variant: "destructive",
       });
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -2198,14 +2271,15 @@ const createOrderFromComposer = async (status: string) => {
 
       expected_delivery_date: template.next_order_date,
       billingAddress: "",
-     shipping_address: String(
-  template.shipping_address ||
-  (template as any).shippingAddress ||
-  customerData?.shipping_address ||
-  customerData?.shippingAddress ||
-  customerData?.address ||
-  ""
-),
+      shipping_address: String(
+        template.shipping_address ||
+        (template as any).shippingAddress ||
+        customerData?.shipping_address ||
+        customerData?.shippingAddress ||
+        customerData?.shipping_address_line1 ||
+        customerData?.address ||
+        ""
+      ),
       referenceNo: "",
       priority: "Normal",
 
@@ -2551,53 +2625,53 @@ const createOrderFromComposer = async (status: string) => {
                 {lineItems.map((item, index) => {
                   const assessment = getLineAssessment(item);
 
-                   const filteredInventory = safeInventoryItems.filter((inv: any) => {
-    if (item.itemType === "Material") return inv.itemCode.startsWith("MAT");
-    if (item.itemType === "Product") return inv.itemCode.startsWith("PRD");
-    if (item.itemType === "Component") return inv.itemCode.startsWith("CMP"); // adjust if needed
-    return true;
-  });
+                  const filteredInventory = safeInventoryItems.filter((inv: any) => {
+                    if (item.itemType === "Material") return inv.itemCode.startsWith("MAT");
+                    if (item.itemType === "Product") return inv.itemCode.startsWith("PRD");
+                    if (item.itemType === "Component") return inv.itemCode.startsWith("CMP"); // adjust if needed
+                    return true;
+                  });
 
                   return (
                     <TableRow key={item.id || item.item_code}>
                       <TableCell className="font-mono text-xs text-muted-foreground">{index + 1}</TableCell>
                       <TableCell>
-                       <Select
-  key={`${item.id}-${item.itemType}`}
-  value={item.itemType}
-  onValueChange={(value) => {
-    setLineItems(prev =>
-      prev.map(li =>
-        li.id === item.id
-          ? {
-              ...li,
-              itemType: value,
+                        <Select
+                          key={`${item.id}-${item.itemType}`}
+                          value={item.itemType}
+                          onValueChange={(value) => {
+                            setLineItems(prev =>
+                              prev.map(li =>
+                                li.id === item.id
+                                  ? {
+                                    ...li,
+                                    itemType: value,
 
-              // reset everything dependent
-              itemCode: "",
-              item_code: "",
-              itemName: "",
-              rate: 0,
-              available: 0,
-               quantityOrdered: 1,
-              bomComponents: [],
-              noBOM: false,
-              bomLoading: false,
-              totalAmount: 0,
-            }
-          : li
-      )
-    );
-  }}
->
-  <SelectTrigger className="bg-background">
-    <SelectValue />
-  </SelectTrigger>
-  <SelectContent>
-    <SelectItem value="Material">Material</SelectItem>
-    <SelectItem value="Product">Product</SelectItem>
-  </SelectContent>
-</Select>
+                                    // reset everything dependent
+                                    itemCode: "",
+                                    item_code: "",
+                                    itemName: "",
+                                    rate: 0,
+                                    available: 0,
+                                    quantityOrdered: 1,
+                                    bomComponents: [],
+                                    noBOM: false,
+                                    bomLoading: false,
+                                    totalAmount: 0,
+                                  }
+                                  : li
+                              )
+                            );
+                          }}
+                        >
+                          <SelectTrigger className="bg-background">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Material">Material</SelectItem>
+                            <SelectItem value="Product">Product</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </TableCell>
                       <TableCell>
                         <Select
@@ -2804,35 +2878,35 @@ const createOrderFromComposer = async (status: string) => {
                   <span className="font-mono">{money(totalSummary.total)}</span>
                 </div>
               </div>
-             <div className="mt-4 flex flex-wrap justify-end gap-2">
-  <Button variant="outline" onClick={resetComposer}>
-    Reset
-  </Button>
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                <Button variant="outline" onClick={resetComposer}>
+                  Reset
+                </Button>
 
-  {/* ❌ Hide Draft in edit mode */}
-  {!isEditing && (
-    <Button
-      variant="outline"
-      onClick={() => createOrderFromComposer("Draft")}
-       disabled={isSubmitting}
-    >
-      <Save className="mr-2 h-4 w-4" />
-      Save Draft
-    </Button>
-  )}
+                {/* ❌ Hide Draft in edit mode */}
+                {!isEditing && (
+                  <Button
+                    variant="outline"
+                    onClick={() => createOrderFromComposer("Draft")}
+                    disabled={isSubmitting}
+                  >
+                    <Save className="mr-2 h-4 w-4" />
+                    Save Draft
+                  </Button>
+                )}
 
-  <Button
-    onClick={() =>
-      createOrderFromComposer(
-        isEditing ? "Updated" : "Awaiting Confirmation"
-      )
-    }
-     disabled={isSubmitting}
-  >
-    <Send className="mr-2 h-4 w-4" />
-    {isEditing ? "Update Order" : "Submit Order"}
-  </Button>
-</div>
+                <Button
+                  onClick={() =>
+                    createOrderFromComposer(
+                      isEditing ? "Updated" : "Awaiting Confirmation"
+                    )
+                  }
+                  disabled={isSubmitting}
+                >
+                  <Send className="mr-2 h-4 w-4" />
+                  {isEditing ? "Update Order" : "Submit Order"}
+                </Button>
+              </div>
             </div>
           </div>
         </section>
@@ -2960,12 +3034,11 @@ const createOrderFromComposer = async (status: string) => {
 
   const renderAllOrders = () => (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
           { label: "Total Orders", value: orders.length, tone: "primary" },
           { label: "Awaiting", value: orders.filter((order) => order.status === "Awaiting Confirmation").length, tone: "warning" },
           { label: "Confirmed", value: orders.filter((order) => order.status === "Confirmed").length, tone: "accent" },
-          { label: "Processing", value: orders.filter((order) => order.status === "Processing").length, tone: "success" },
           { label: "Cancelled", value: orders.filter((order) => order.status === "Cancelled").length, tone: "destructive" },
         ].map((metric) => (
           <div key={metric.label} className="rounded-lg border bg-card p-4 shadow-sm">
@@ -2995,7 +3068,7 @@ const createOrderFromComposer = async (status: string) => {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
-            {["Draft", "Awaiting Confirmation", "Confirmed", "Processing", "Delivered", "Cancelled"].map((status) => (
+            {["Draft", "Awaiting Confirmation", "Confirmed", "Delivered", "Cancelled"].map((status) => (
               <SelectItem key={status} value={status}>{status}</SelectItem>
             ))}
           </SelectContent>
@@ -3104,23 +3177,23 @@ const createOrderFromComposer = async (status: string) => {
                         {(order.items ?? []).length}
                       </TableCell>
                       <TableCell className="font-medium text-foreground">{money(orderTotal)}</TableCell>
-                     <TableCell>
-  {order.delivery_status === "Partially Delivered"
-    ? renderValidationBadge(
-        "partial",
-        order.delivery_status
-      )
-    : renderValidationBadge(
-        getOrderField(order, "status") === "Cancelled"
-          ? "missing"
-          : getOrderField(order, "status") === "Processing"
-          ? "produce"
-          : getOrderField(order, "status") === "Confirmed"
-          ? "available"
-          : "partial",
-        getOrderField(order, "status", "Unknown")
-      )}
-</TableCell>                  <TableCell>{order.priority}</TableCell>
+                      <TableCell>
+                        {order.delivery_status === "Partially Delivered"
+                          ? renderValidationBadge(
+                            "partial",
+                            order.delivery_status
+                          )
+                          : renderValidationBadge(
+                            getOrderField(order, "status") === "Cancelled"
+                              ? "missing"
+                              : getOrderField(order, "status") === "Processing"
+                                ? "produce"
+                                : getOrderField(order, "status") === "Confirmed"
+                                  ? "available"
+                                  : "partial",
+                            getOrderField(order, "status", "Unknown")
+                          )}
+                      </TableCell>                  <TableCell>{order.priority}</TableCell>
                       <TableCell>{order.expected_delivery_date || "—"}</TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-2">
@@ -3128,34 +3201,34 @@ const createOrderFromComposer = async (status: string) => {
                             <Eye className="h-4 w-4" />
                           </Button>
                           <Button
-  variant="ghost"
-  size="icon"
-  onClick={() => {
-    const blockedStatuses = [
-      "Confirmed",
-      "Not Shipped",
-      "Processing",
-      "Shipped",
-      "Delivered",
-      "Partially Fulfilled",
-    ];
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              const blockedStatuses = [
+                                "Confirmed",
+                                "Not Shipped",
+                                "Processing",
+                                "Shipped",
+                                "Delivered",
+                                "Partially Fulfilled",
+                              ];
 
-    const status = order.status || order.delivery_status;
+                              const status = order.status || order.delivery_status;
 
-    if (blockedStatuses.includes(status)) {
-      toast({
-        title: "Editing blocked",
-        description: `Order is already ${status}. You cannot edit it.`,
-        variant: "destructive",
-      });
-      return;
-    }
+                              if (blockedStatuses.includes(status)) {
+                                toast({
+                                  title: "Editing blocked",
+                                  description: `Order is already ${status}. You cannot edit it.`,
+                                  variant: "destructive",
+                                });
+                                return;
+                              }
 
-    handleEditOrder(order);
-  }}
->
-  <Edit className="h-4 w-4" />
-</Button>
+                              handleEditOrder(order);
+                            }}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -3457,7 +3530,13 @@ const createOrderFromComposer = async (status: string) => {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setRegularDialogOpen(false)}>Cancel</Button>
-              <Button onClick={createRegularTemplate}>Save Template</Button>
+              <Button
+                type="button"
+                onClick={createRegularTemplate}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? "Saving..." : "Save Template"}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -3559,109 +3638,109 @@ const createOrderFromComposer = async (status: string) => {
                 <TableHead>Action Required</TableHead>
               </TableRow>
             </TableHeader>
-           <TableBody>
-  {validationRows.length === 0 ? (
-    <TableRow>
-      <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
-        No pending orders to validate.
-      </TableCell>
-    </TableRow>
-  ) : (
-    (() => {
-      const runningStock: Record<string, number> = {};
+            <TableBody>
+              {validationRows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
+                    No pending orders to validate.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                (() => {
+                  const runningStock: Record<string, number> = {};
 
-      return [...validationRows]
-        .sort((a, b) =>
-          new Date(a.order.orderDate).getTime() -
-          new Date(b.order.orderDate).getTime()
-        )
-        .map(({ order, item, assessment }) => {
-          const itemCode = item.item_code;
+                  return [...validationRows]
+                    .sort((a, b) =>
+                      new Date(a.order.orderDate).getTime() -
+                      new Date(b.order.orderDate).getTime()
+                    )
+                    .map(({ order, item, assessment }) => {
+                      const itemCode = item.item_code;
 
-          const initialStock = Number(
-            item.available_stock ??
-            item.quantity_on_hand ??
-            assessment.inventory?.quantity_on_hand ??
-            assessment.available ??
-            0
-          );
+                      const initialStock = Number(
+                        item.available_stock ??
+                        item.quantity_on_hand ??
+                        assessment.inventory?.quantity_on_hand ??
+                        assessment.available ??
+                        0
+                      );
 
-          if (runningStock[itemCode] === undefined) {
-            runningStock[itemCode] = initialStock;
-          }
+                      if (runningStock[itemCode] === undefined) {
+                        runningStock[itemCode] = initialStock;
+                      }
 
-          const stockBefore = runningStock[itemCode];
-          const orderedQty = Number(assessment.quantity || 0);
+                      const stockBefore = runningStock[itemCode];
+                      const orderedQty = Number(assessment.quantity || 0);
 
-          // ❗ GAP = how much CANNOT be fulfilled
-          const gap =
-            stockBefore >= orderedQty
-              ? 0
-              : orderedQty - stockBefore;
+                      // ❗ GAP = how much CANNOT be fulfilled
+                      const gap =
+                        stockBefore >= orderedQty
+                          ? 0
+                          : orderedQty - stockBefore;
 
-          // ❗ stock becomes zero if insufficient
-          // otherwise reduce normally
-          const stockAfter =
-            stockBefore >= orderedQty
-              ? stockBefore - orderedQty
-              : 0;
+                      // ❗ stock becomes zero if insufficient
+                      // otherwise reduce normally
+                      const stockAfter =
+                        stockBefore >= orderedQty
+                          ? stockBefore - orderedQty
+                          : 0;
 
-          runningStock[itemCode] = stockAfter;
+                      runningStock[itemCode] = stockAfter;
 
-          return (
-            <TableRow key={`${order.id}-${item.item_code}`}>
-              <TableCell className="font-mono text-xs text-primary">
-                {order.order_no}
-              </TableCell>
+                      return (
+                        <TableRow key={`${order.id}-${item.item_code}`}>
+                          <TableCell className="font-mono text-xs text-primary">
+                            {order.order_no}
+                          </TableCell>
 
-              <TableCell>{order.customer}</TableCell>
+                          <TableCell>{order.customer}</TableCell>
 
-              <TableCell>
-                {item.item_name || item.item_code}
-              </TableCell>
+                          <TableCell>
+                            {item.item_name || item.item_code}
+                          </TableCell>
 
-              <TableCell className="text-right">
-                {orderedQty}
-              </TableCell>
+                          <TableCell className="text-right">
+                            {orderedQty}
+                          </TableCell>
 
-              {/* AVAILABLE AFTER ALLOCATION */}
-              <TableCell className="text-right">
-                {stockAfter}
-              </TableCell>
+                          {/* AVAILABLE AFTER ALLOCATION */}
+                          <TableCell className="text-right">
+                            {stockAfter}
+                          </TableCell>
 
-              <TableCell className="text-right">
-                {assessment.openPO ?? assessment.open_po ?? 0}
-              </TableCell>
+                          <TableCell className="text-right">
+                            {assessment.openPO ?? assessment.open_po ?? 0}
+                          </TableCell>
 
-              {/* GAP */}
-              <TableCell className="text-right font-medium">
-                {gap > 0 ? gap : "—"}
-              </TableCell>
+                          {/* GAP */}
+                          <TableCell className="text-right font-medium">
+                            {gap > 0 ? gap : "—"}
+                          </TableCell>
 
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  {renderValidationBadge(
-                    gap > 0 ? "purchase" : "available",
-                    gap > 0 ? "Need Purchase" : "Available"
-                  )}
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              {renderValidationBadge(
+                                gap > 0 ? "purchase" : "available",
+                                gap > 0 ? "Need Purchase" : "Available"
+                              )}
 
-                  {gap > 0 && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openRFQ(item, gap)}
-                    >
-                      Buy
-                    </Button>
-                  )}
-                </div>
-              </TableCell>
-            </TableRow>
-          );
-        });
-    })()
-  )}
-</TableBody>
+                              {gap > 0 && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openRFQ(item, gap)}
+                                >
+                                  Buy
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    });
+                })()
+              )}
+            </TableBody>
           </Table>
         </div>
       </div>
@@ -3713,28 +3792,28 @@ const createOrderFromComposer = async (status: string) => {
                     <TableCell className="text-right">{assessment.quantity}</TableCell>
                     <TableCell className="text-right">{assessment.available}</TableCell>
                     <TableCell className="text-right font-medium text-primary">
-  {(() => {
-    const itemCode = item.item_code;
+                      {(() => {
+                        const itemCode = item.item_code;
 
-    const initialStock = Number(
-      item.available_stock ??
-      item.quantity_on_hand ??
-      assessment.inventory?.quantity_on_hand ??
-      assessment.available ??
-      0
-    );
+                        const initialStock = Number(
+                          item.available_stock ??
+                          item.quantity_on_hand ??
+                          assessment.inventory?.quantity_on_hand ??
+                          assessment.available ??
+                          0
+                        );
 
-    const requiredQty = Number(assessment.quantity || 0);
+                        const requiredQty = Number(assessment.quantity || 0);
 
-    // simple single-line calculation (purchase view only)
-    const gap =
-      initialStock >= requiredQty
-        ? 0
-        : requiredQty - initialStock;
+                        // simple single-line calculation (purchase view only)
+                        const gap =
+                          initialStock >= requiredQty
+                            ? 0
+                            : requiredQty - initialStock;
 
-    return gap > 0 ? gap : "—";
-  })()}
-</TableCell>
+                        return gap > 0 ? gap : "—";
+                      })()}
+                    </TableCell>
                     <TableCell className="text-right">{money(assessment.gap * Number(assessment.inventory?.unit_cost || item.rate || 0))}</TableCell>
                     <TableCell>{renderValidationBadge(order.priority === "Critical" ? "missing" : order.priority === "High" ? "partial" : "available", order.priority)}</TableCell>
 
@@ -3826,25 +3905,25 @@ const createOrderFromComposer = async (status: string) => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-               {[...orders]
-  .sort((a, b) =>
-    String(b.order_no || "").localeCompare(String(a.order_no || ""))
-  )
-  .map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="font-mono text-xs text-primary">{order.order_no}</TableCell>
-                    <TableCell>{order.customer}</TableCell>
-                    <TableCell>
-                      {money(
-                        (order.items || []).reduce(
-                          (sum, item) => sum + (Number(item.total_amount) || 0),
-                          0
-                        )
-                      )}
-                    </TableCell>
-                    <TableCell>{order.status}</TableCell>
-                  </TableRow>
-                ))}
+                {[...orders]
+                  .sort((a, b) =>
+                    String(b.order_no || "").localeCompare(String(a.order_no || ""))
+                  )
+                  .map((order) => (
+                    <TableRow key={order.id}>
+                      <TableCell className="font-mono text-xs text-primary">{order.order_no}</TableCell>
+                      <TableCell>{order.customer}</TableCell>
+                      <TableCell>
+                        {money(
+                          (order.items || []).reduce(
+                            (sum, item) => sum + (Number(item.total_amount) || 0),
+                            0
+                          )
+                        )}
+                      </TableCell>
+                      <TableCell>{order.status}</TableCell>
+                    </TableRow>
+                  ))}
               </TableBody>
             </Table>
           </div>
@@ -3970,10 +4049,10 @@ const createOrderFromComposer = async (status: string) => {
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="rounded-md border bg-muted/40 p-3"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Type</div><div className="mt-1 font-medium">{viewOrder.order_type}</div></div>
                 <div className="rounded-md border bg-muted/40 p-3"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Status</div><div className="mt-1 font-medium">
-  {viewOrder.delivery_status === "Partially Delivered"
-    ? "Partially Delivered"
-    : viewOrder.status}
-</div></div>
+                  {viewOrder.delivery_status === "Partially Delivered"
+                    ? "Partially Delivered"
+                    : viewOrder.status}
+                </div></div>
                 <div className="rounded-md border bg-muted/40 p-3"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Priority</div><div className="mt-1 font-medium">{viewOrder.priority}</div></div>
               </div>
 
@@ -3988,10 +4067,10 @@ const createOrderFromComposer = async (status: string) => {
                   <div className="font-medium">Delivery</div>
                   <div className="text-muted-foreground">Dispatch: {viewOrder.expected_delivery_date || "—"}</div>
                   <div className="text-muted-foreground">
-  Status: {viewOrder.delivery_status === "Partially Delivered"
-    ? "Partially Delivered"
-    : viewOrder.status}
-</div>
+                    Status: {viewOrder.delivery_status === "Partially Delivered"
+                      ? "Partially Delivered"
+                      : viewOrder.status}
+                  </div>
                   <div className="text-muted-foreground">Mode: {viewOrder.dispatch_mode}</div>
                 </div>
               </div>
@@ -4003,7 +4082,7 @@ const createOrderFromComposer = async (status: string) => {
                       <TableHead>Item</TableHead>
                       <TableHead className="text-right">Qty</TableHead>
 
-      <TableHead className="text-right">Delivered Qty</TableHead>
+                      <TableHead className="text-right">Delivered Qty</TableHead>
 
                       <TableHead className="text-right">Rate</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
@@ -4021,13 +4100,39 @@ const createOrderFromComposer = async (status: string) => {
                           </TableCell>
                           <TableCell className="text-right">{item.quantity}</TableCell>
 
-  <TableCell className="text-right">
-    {item.delivered_qty ?? 0}
-  </TableCell>
+                          <TableCell className="text-right">
+                            {item.delivered_qty ?? 0}
+                          </TableCell>
 
                           <TableCell className="text-right"> {money(Number(item.rate || 0))}</TableCell>
                           <TableCell className="text-right">{money(Number(item.total_amount || 0))}</TableCell>
-                          <TableCell>{renderValidationBadge(assessment.state, assessment.label)}</TableCell>
+                          <TableCell>
+                            {(() => {
+                              const available = Number(
+                                item.available_stock ??
+                                item.quantity_on_hand ??
+                                assessment.inventory?.quantity_on_hand ??
+                                assessment.available ??
+                                0
+                              );
+
+                              const ordered = Number(assessment.quantity || 0);
+
+                              const gap = available >= ordered ? 0 : ordered - available;
+
+                              const state: ValidationState =
+                                gap === 0
+                                  ? "available"
+                                  : gap > 0
+                                    ? "purchase"
+                                    : "available";
+
+                              const label =
+                                gap === 0 ? "Available" : `Buy ${gap}`;
+
+                              return renderValidationBadge(state, label);
+                            })()}
+                          </TableCell>
                         </TableRow>
                       );
                     })}
@@ -4037,59 +4142,76 @@ const createOrderFromComposer = async (status: string) => {
 
               <div className="flex flex-wrap justify-end gap-2">
                 <Button variant="outline" onClick={() => {
-  cloneIntoComposer(viewOrder);
-  closeOrderSheet();
-}}>
+                  cloneIntoComposer(viewOrder);
+                  closeOrderSheet();
+                }}>
                   <Copy className="mr-2 h-4 w-4" />Clone
                 </Button>
                 {/*      <Button variant="outline" onClick={() => { setRefundOrder(viewOrder); setRefundDialogOpen(true); }}>
                   <RotateCcw className="mr-2 h-4 w-4" />Refund
                 </Button>  */}
 
-                  <Button
-  variant="outline"
-  onClick={() => {
-    const blockedStatuses = [
-      "Confirmed",
-      "Processing",
-      "Not Shipped",
-      "Shipped",
-      "Delivered",
-      "Partially Fulfilled",
-    ];
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const blockedStatuses = [
+                      "Confirmed",
+                      "Processing",
+                      "Not Shipped",
+                      "Shipped",
+                      "Delivered",
+                      "Partially Fulfilled",
+                    ];
 
-    if (blockedStatuses.includes(viewOrder.status || viewOrder.delivery_status)) {
-      toast({
-        title: "Editing blocked",
-        description: `Order is already ${viewOrder.status || viewOrder.delivery_status}. You cannot edit it.`,
-        variant: "destructive",
-      });
-      return;
-    }
+                    if (blockedStatuses.includes(viewOrder.status || viewOrder.delivery_status)) {
+                      toast({
+                        title: "Editing blocked",
+                        description: `Order is already ${viewOrder.status || viewOrder.delivery_status}. You cannot edit it.`,
+                        variant: "destructive",
+                      });
+                      return;
+                    }
 
-    handleEditOrder(viewOrder);
-    closeOrderSheet();
-  }}
->
-  <Edit className="mr-2 h-4 w-4" />
-  Edit
-</Button>
-               <Button
-  disabled={
-    ["Confirmed", "Delivered"].includes(viewOrder.status) ||
-    viewOrder.delivery_status === "Delivered" ||
-    viewOrder.delivery_status === "Shipped" ||
-     viewOrder.delivery_status === "Not Shipped" ||
-    viewOrder.delivery_status === "Partially Fulfilled"
-  }
-  onClick={() => {
-  handleOrderStatusChange(viewOrder.id, "Confirmed");
-  closeOrderSheet();
-}}
->
-  <Check className="mr-2 h-4 w-4" />
-  Confirm
-</Button>
+                    handleEditOrder(viewOrder);
+                    closeOrderSheet();
+                  }}
+                >
+                  <Edit className="mr-2 h-4 w-4" />
+                  Edit
+                </Button>
+                <Button
+                  disabled={
+                    ["Confirmed", "Delivered", "Cancelled"].includes(viewOrder.status) ||
+                    viewOrder.delivery_status === "Delivered" ||
+                    viewOrder.delivery_status === "Shipped" ||
+                    viewOrder.delivery_status === "Not Shipped" ||
+                    viewOrder.delivery_status === "Partially Fulfilled"
+                  }
+                  onClick={() => {
+                    handleOrderStatusChange(viewOrder.id, "Confirmed");
+                    closeOrderSheet();
+                  }}
+                >
+                  <Check className="mr-2 h-4 w-4" />
+                  Confirm
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={
+                    ["Delivered",  "Cancelled"].includes(viewOrder.status) ||
+                    viewOrder.delivery_status === "Delivered" ||
+                    viewOrder.delivery_status === "Shipped" ||
+                    viewOrder.delivery_status === "Partially Fulfilled"
+                  }
+                  onClick={() => {
+                    setCancelOrder(viewOrder);
+                    setCancelDialogOpen(true);
+                     setCancelling(true);
+                  }}
+                >
+                  <XCircle className="mr-2 h-4 w-4" />
+                  Cancel
+                </Button>
               </div>
             </div>
           )}
@@ -4109,6 +4231,37 @@ const createOrderFromComposer = async (status: string) => {
         </DialogContent>
       </Dialog>
 
+     <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+  <DialogContent className="max-w-md">
+    <DialogHeader>
+      <DialogTitle className="text-red-600">
+        Cancel Order
+      </DialogTitle>
+    </DialogHeader>
+
+    <div className="space-y-4 py-2">
+      <p className="text-sm text-muted-foreground">
+        This action cannot be undone. The order will be permanently cancelled.
+      </p>
+    </div>
+
+    <DialogFooter className="gap-2">
+      <Button
+        variant="outline"
+        onClick={() => setCancelDialogOpen(false)}
+      >
+        Keep Order
+      </Button>
+
+      <Button
+        variant="destructive"
+        onClick={confirmCancelOrder}
+      >
+        Yes, Cancel Order
+      </Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
       <RefundDialog open={refundDialogOpen} onOpenChange={setRefundDialogOpen} order={refundOrder} onRefundCreated={(refund) => setRefunds((prev) => [refund, ...prev])} />
     </Layout>
   );

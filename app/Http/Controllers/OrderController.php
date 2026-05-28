@@ -20,298 +20,295 @@ class OrderController extends Controller
     }
 
     public function store(Request $request)
-{
-    $request->validate([
-        'order_no' => 'nullable|string|unique:orders,order_no',
-        'customer_id' => 'required|numeric',
-        'customer' => 'required|string',
+    {
+        $request->validate([
+            'order_no' => 'nullable|string|unique:orders,order_no',
+            'customer_id' => 'required|numeric',
+            'customer' => 'required|string',
 
-        'items' => 'required|array|min:1',
-        'items.*.item_code' => 'nullable|string',
-        'items.*.quantity' => 'required|numeric|min:1',
-    ]);
-
-    DB::beginTransaction();
-
-    try {
-
-        // 1. CREATE ORDER ONCE
-        $order = Order::create([
-            'user_id' => Auth::id(),
-            'order_no' => $request->order_no,
-            'customer_id' => $request->customer_id,
-            'customer' => $request->customer,
-            'order_type' => $request->order_type,
-
-            'contact_person' => $request->contact_person,
-            'contact_number' => $request->contact_number,
-            'email' => $request->email,
-            'location' => $request->location,
-
-            'shipping_address' => $request->shipping_address,
-            'order_date' => $request->order_date,
-            'expected_dispatch_date' => $request->expected_dispatch_date,
-            'expected_delivery_date' => $request->expected_delivery_date,
-
-            'status' => $request->status ?? 'Pending',
-
-            'reference_no' => $request->reference_no,
-            'remarks' => $request->remarks,
-            'payment_terms' => $request->payment_terms,
-            'dispatch_mode' => $request->dispatch_mode,
+            'items' => 'required|array|min:1',
+            'items.*.item_code' => 'nullable|string',
+            'items.*.quantity' => 'required|numeric|min:1',
         ]);
 
-        // 2. INSERT MULTIPLE ITEMS
-        foreach ($request->items as $item) {
+        DB::beginTransaction();
 
-          $availableStock = null;
+        try {
 
-    if (isset($item['available_stock'])) {
-        $availableStock = $item['available_stock'];
-    }
+            // 1. CREATE ORDER ONCE
+            $order = Order::create([
+                'user_id' => Auth::id(),
+                'order_no' => $request->order_no,
+                'customer_id' => $request->customer_id,
+                'customer' => $request->customer,
+                'order_type' => $request->order_type,
 
-            OrderItem::create([
-                'order_id' => $order->id,
-                'item_code' => $item['item_code'] ?? null,
-                'item_name' => $item['item_name'] ?? null,
-                'item_type' => $item['item_type'] ?? null,
-                 'available_stock' => $availableStock,
-                'uom' => $item['uom'] ?? 'pcs',
-                'quantity' => $item['quantity'],
-                'rate' => $item['rate'] ?? 0,
-                'tax' => $item['tax'] ?? 0,
-                'total_amount' => $item['total_amount'] ?? 0,
+                'contact_person' => $request->contact_person,
+                'contact_number' => $request->contact_number,
+                'email' => $request->email,
+                'location' => $request->location,
+
+                'shipping_address' => $request->shipping_address,
+                'order_date' => $request->order_date,
+                'expected_dispatch_date' => $request->expected_dispatch_date,
+                'expected_delivery_date' => $request->expected_delivery_date,
+
+                'status' => $request->status ?? 'Pending',
+
+                'reference_no' => $request->reference_no,
+                'remarks' => $request->remarks,
+                'payment_terms' => $request->payment_terms,
+                'dispatch_mode' => $request->dispatch_mode,
             ]);
-        }
 
-        DB::commit();
+            // 2. INSERT MULTIPLE ITEMS
+            foreach ($request->items as $item) {
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Order created successfully',
-            'order_id' => $order->id
-        ], 201);
+                $availableStock = null;
 
-    } catch (\Exception $e) {
+                if (isset($item['available_stock'])) {
+                    $availableStock = $item['available_stock'];
+                }
 
-        DB::rollBack();
+                OrderItem::create([
+                    'order_id' => $order->id,
+                    'item_code' => $item['item_code'] ?? null,
+                    'item_name' => $item['item_name'] ?? null,
+                    'item_type' => $item['item_type'] ?? null,
+                    'available_stock' => $availableStock,
+                    'uom' => $item['uom'] ?? 'pcs',
+                    'quantity' => $item['quantity'],
+                    'rate' => $item['rate'] ?? 0,
+                    'tax' => $item['tax'] ?? 0,
+                    'total_amount' => $item['total_amount'] ?? 0,
+                ]);
+            }
 
-        Log::error('Order creation failed', [
-            'error' => $e->getMessage()
-        ]);
+            DB::commit();
 
-        return response()->json([
-            'success' => false,
-            'message' => 'Failed to create order',
-            'error' => $e->getMessage()
-        ], 500);
-    }
-}
+            return response()->json([
+                'success' => true,
+                'message' => 'Order created successfully',
+                'order_id' => $order->id
+            ], 201);
+        } catch (\Exception $e) {
 
+            DB::rollBack();
 
-public function update(Request $request, $id)
-{
-    DB::beginTransaction();
-
-    try {
-
-        $order = Order::where('id', $id)
-            ->where('user_id', Auth::id())
-            ->firstOrFail();
-
-        // =========================
-        // 1. UPDATE ORDER HEADER
-        // =========================
-        $order->update([
-            'order_no' => $request->id ?? $order->order_no,
-            'customer_id' => $request->customer_id,
-            'customer' => $request->customer,
-
-            'order_date' => $request->order_date,
-            'order_type' => $request->order_type,
-
-            'contact_person' => $request->contact_person,
-            'contact_number' => $request->contact_number,
-            'email' => $request->email,
-
-            'billing_address' => $request->billing_address,
-            'shipping_address' => $request->shipping_address,
-
-            'reference_no' => $request->reference_no,
-            'priority' => $request->priority,
-            'remarks' => $request->remarks,
-
-            'dispatch_mode' => $request->dispatch_mode,
-            'transporter_name' => $request->transporter_name,
-            'vehicle_no' => $request->vehicle_no,
-
-            'expected_dispatch_date' => $request->expected_dispatch_date,
-            'expected_delivery_date' => $request->expected_delivery_date,
-
-            'delivery_status' => $request->delivery_status,
-            'warehouse_location' => $request->warehouse_location,
-            'location' => $request->location,
-
-            'payment_type' => $request->payment_type,
-            'payment_terms' => $request->payment_terms,
-
-            'advance_amount' => $request->advance_amount,
-            'balance_amount' => $request->balance_amount,
-
-            'invoice_required' => $request->invoice_required,
-            'status' => $request->status,
-        ]);
-
-        // =========================
-        // 2. DELETE OLD ITEMS
-        // =========================
-        OrderItem::where('order_id', $order->id)->delete();
-
-        // =========================
-        // 3. INSERT NEW ITEMS
-        // =========================
-        foreach ($request->items as $item) {
-
-            OrderItem::create([
-                'order_id' => $order->id,
-                'item_code' => $item['item_code'],
-                'item_name' => $item['item_name'],
-                'item_type' => $item['item_type'],
-                'uom' => $item['uom'] ?? 'pcs',
-                'quantity' => $item['quantity'],
-                'rate' => $item['rate'] ?? 0,
-                'tax' => $item['tax'] ?? 0,
-                'total_amount' => $item['total_amount'] ?? 0,
-                'available_stock' => $item['available_stock'] ?? 0,
+            Log::error('Order creation failed', [
+                'error' => $e->getMessage()
             ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create order',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        DB::commit();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Order updated successfully',
-            'data' => $order->fresh('items')
-        ]);
-
-    } catch (\Exception $e) {
-
-        DB::rollBack();
-
-        return response()->json([
-            'success' => false,
-            'message' => $e->getMessage()
-        ], 500);
     }
-}
+
+
+    public function update(Request $request, $id)
+    {
+        DB::beginTransaction();
+
+        try {
+
+            $order = Order::where('id', $id)
+                ->where('user_id', Auth::id())
+                ->firstOrFail();
+
+            // =========================
+            // 1. UPDATE ORDER HEADER
+            // =========================
+            $order->update([
+                'order_no' => $request->id ?? $order->order_no,
+                'customer_id' => $request->customer_id,
+                'customer' => $request->customer,
+
+                'order_date' => $request->order_date,
+                'order_type' => $request->order_type,
+
+                'contact_person' => $request->contact_person,
+                'contact_number' => $request->contact_number,
+                'email' => $request->email,
+
+                'billing_address' => $request->billing_address,
+                'shipping_address' => $request->shipping_address,
+
+                'reference_no' => $request->reference_no,
+                'priority' => $request->priority,
+                'remarks' => $request->remarks,
+
+                'dispatch_mode' => $request->dispatch_mode,
+                'transporter_name' => $request->transporter_name,
+                'vehicle_no' => $request->vehicle_no,
+
+                'expected_dispatch_date' => $request->expected_dispatch_date,
+                'expected_delivery_date' => $request->expected_delivery_date,
+
+                'delivery_status' => $request->delivery_status,
+                'warehouse_location' => $request->warehouse_location,
+                'location' => $request->location,
+
+                'payment_type' => $request->payment_type,
+                'payment_terms' => $request->payment_terms,
+
+                'advance_amount' => $request->advance_amount,
+                'balance_amount' => $request->balance_amount,
+
+                'invoice_required' => $request->invoice_required,
+                'status' => $request->status,
+            ]);
+
+            // =========================
+            // 2. DELETE OLD ITEMS
+            // =========================
+            OrderItem::where('order_id', $order->id)->delete();
+
+            // =========================
+            // 3. INSERT NEW ITEMS
+            // =========================
+            foreach ($request->items as $item) {
+
+                OrderItem::create([
+                    'order_id' => $order->id,
+                    'item_code' => $item['item_code'],
+                    'item_name' => $item['item_name'],
+                    'item_type' => $item['item_type'],
+                    'uom' => $item['uom'] ?? 'pcs',
+                    'quantity' => $item['quantity'],
+                    'rate' => $item['rate'] ?? 0,
+                    'tax' => $item['tax'] ?? 0,
+                    'total_amount' => $item['total_amount'] ?? 0,
+                    'available_stock' => $item['available_stock'] ?? 0,
+                ]);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Order updated successfully',
+                'data' => $order->fresh('items')
+            ]);
+        } catch (\Exception $e) {
+
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
 
     // Fetch all orders
-   public function index(Request $request)
-{
-    try {
+    public function index(Request $request)
+    {
+        try {
 
-        $customerId = $request->query('customer_id');
+            $customerId = $request->query('customer_id');
 
-        $query = Order::with('items')
-            ->where('user_id', Auth::id())
-            ->orderBy('order_date', 'desc');
-
-        if ($customerId) {
-            $query->where('customer_id', $customerId);
-        }
-
-        $orders = $query->get();
-
-        foreach ($orders as $order) {
-
-            // ==================================================
-            // GET PACKAGES FOR THIS ORDER
-            // ==================================================
-            $packages = \App\Models\OrderPackage::where('order_number', $order->order_no)
+            $query = Order::with('items')
                 ->where('user_id', Auth::id())
-                ->where('status', 'delivered')
-                ->get();
+                ->orderBy('order_date', 'desc');
 
-            // ==================================================
-            // BUILD LINE-BASED PACKED MAP (IMPORTANT FIX)
-            // key = order_id + line_id
-            // ==================================================
-            $packedMap = [];
+            if ($customerId) {
+                $query->where('customer_id', $customerId);
+            }
 
-            foreach ($packages as $pkg) {
+            $orders = $query->get();
 
-                $items = $pkg->items;
+            foreach ($orders as $order) {
 
-                if (is_string($items)) {
-                    $items = json_decode($items, true);
-                }
+                // ==================================================
+                // GET PACKAGES FOR THIS ORDER
+                // ==================================================
+                $packages = \App\Models\OrderPackage::where('order_number', $order->order_no)
+                    ->where('user_id', Auth::id())
+                    ->where('status', 'delivered')
+                    ->get();
 
-                if (!is_array($items)) {
-                    $items = [];
-                }
+                // ==================================================
+                // BUILD LINE-BASED PACKED MAP (IMPORTANT FIX)
+                // key = order_id + line_id
+                // ==================================================
+                $packedMap = [];
 
-                foreach ($items as $pkgItem) {
+                foreach ($packages as $pkg) {
 
-                    $lineId = $pkgItem['line_id'] ?? null;
+                    $items = $pkg->items;
 
-                    if ($lineId === null) {
-                        continue;
+                    if (is_string($items)) {
+                        $items = json_decode($items, true);
                     }
+
+                    if (!is_array($items)) {
+                        $items = [];
+                    }
+
+                    foreach ($items as $pkgItem) {
+
+                        $lineId = $pkgItem['line_id'] ?? null;
+
+                        if ($lineId === null) {
+                            continue;
+                        }
+
+                        $key = $order->id . '_' . $lineId;
+
+                        $qty = (float) (
+                            $pkgItem['packed_quantity']
+                            ?? $pkgItem['quantity_to_pack']
+                            ?? 0
+                        );
+
+                        $packedMap[$key] = ($packedMap[$key] ?? 0) + $qty;
+                    }
+                }
+
+                // ==================================================
+                // ASSIGN DELIVERED QTY PER ORDER LINE
+                // ==================================================
+                foreach ($order->items as $index => $item) {
+
+                    $lineId = $item->line_id ?? $index;
 
                     $key = $order->id . '_' . $lineId;
 
-                    $qty = (float) (
-                        $pkgItem['packed_quantity']
-                        ?? $pkgItem['quantity_to_pack']
-                        ?? 0
-                    );
+                    $orderedQty = (float) $item->quantity;
 
-                    $packedMap[$key] = ($packedMap[$key] ?? 0) + $qty;
+                    $deliveredQty = $packedMap[$key] ?? 0;
+
+                    $item->delivered_qty = $deliveredQty;
+
+                    $item->balance_qty = max(0, $orderedQty - $deliveredQty);
                 }
             }
 
-            // ==================================================
-            // ASSIGN DELIVERED QTY PER ORDER LINE
-            // ==================================================
-            foreach ($order->items as $index => $item) {
+            return response()->json([
+                'success' => true,
+                'data' => $orders
+            ]);
+        } catch (\Exception $e) {
 
-                $lineId = $item->line_id ?? $index;
+            Log::error('Order fetch failed', [
+                'error' => $e->getMessage()
+            ]);
 
-                $key = $order->id . '_' . $lineId;
-
-                $orderedQty = (float) $item->quantity;
-
-                $deliveredQty = $packedMap[$key] ?? 0;
-
-                $item->delivered_qty = $deliveredQty;
-
-                $item->balance_qty = max(0, $orderedQty - $deliveredQty);
-            }
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch orders',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        return response()->json([
-            'success' => true,
-            'data' => $orders
-        ]);
-
-    } catch (\Exception $e) {
-
-        Log::error('Order fetch failed', [
-            'error' => $e->getMessage()
-        ]);
-
-        return response()->json([
-            'success' => false,
-            'message' => 'Failed to fetch orders',
-            'error' => $e->getMessage()
-        ], 500);
     }
-}
 
     public function updateStatus(Request $request, $id)
     {
         $request->validate([
-             'status' => 'required|string|in:Pending,Confirmed,Approved,Processing,Packed,Shipped,Delivered,Cancelled,
+            'status' => 'required|string|in:Pending,Confirmed,Approved,Processing,Packed,Shipped,Delivered,Cancelled,
         Partially Fulfilled',
         ]);
 
@@ -391,159 +388,212 @@ public function update(Request $request, $id)
         ]);
     }
 
-  public function recalculateStatus(Request $request)
-{
-    $orderNumber = $request->order_number;
+    public function recalculateStatus(Request $request)
+    {
+        $orderNumber = $request->order_number;
 
-   $order = Order::where('order_no', $orderNumber)
-    ->where('user_id', Auth::id())
-    ->with('items')
-    ->first();
+        $order = Order::where('order_no', $orderNumber)
+            ->where('user_id', Auth::id())
+            ->with('items')
+            ->first();
 
-    if (!$order) {
+        if (!$order) {
+            return response()->json([
+                'message' => 'Order not found'
+            ], 404);
+        }
+
+        $packages = \App\Models\OrderPackage::where('order_number', $orderNumber)
+            ->where('user_id', Auth::id())
+            ->get();
+
+        $shippedMap = [];
+        $deliveredMap = [];
+
+        // =========================
+        // Build shipped + delivered maps
+        // =========================
+        foreach ($packages as $pkg) {
+
+            $items = $pkg->items;
+
+            // if JSON string → decode
+            if (is_string($items)) {
+                $items = json_decode($items, true);
+            }
+
+            // final safety
+            if (!is_array($items)) {
+                $items = [];
+            }
+
+            foreach ($items as $item) {
+
+                $code = strtolower(trim($item['item_code'] ?? ''));
+                if (!$code) continue;
+
+                $qty = (int) (
+                    $item['packed_quantity']
+                    ?? $item['ordered_quantity']
+                    ?? $item['quantity_to_pack']
+                    ?? 0
+                );
+
+                if (strtolower($pkg->status) === 'shipped') {
+                    $shippedMap[$code] = ($shippedMap[$code] ?? 0) + $qty;
+                }
+
+                if (strtolower($pkg->status) === 'delivered') {
+                    $deliveredMap[$code] = ($deliveredMap[$code] ?? 0) + $qty;
+                }
+            }
+        }
+
+        // =========================
+        // Flags
+        // =========================
+        $allShipped = true;
+        $allDelivered = true;
+
+        $hasAnyShipped = false;
+        $hasAnyDelivered = false;
+
+        $hasPartialShip = false;
+        $hasPartialDelivery = false;
+
+        // =========================
+        // Compare with order items
+        // =========================
+        foreach ($order->items as $item) {
+
+            $code = strtolower(trim($item->item_code));
+            $orderedQty = (int) $item->quantity;
+
+            $shippedQty = $shippedMap[$code] ?? 0;
+            $deliveredQty = $deliveredMap[$code] ?? 0;
+
+            if ($shippedQty > 0) {
+                $hasAnyShipped = true;
+            }
+
+            if ($deliveredQty > 0) {
+                $hasAnyDelivered = true;
+            }
+
+            if ($shippedQty < $orderedQty) {
+                $allShipped = false;
+            }
+
+            if ($deliveredQty < $orderedQty) {
+                $allDelivered = false;
+            }
+
+            if ($shippedQty > 0 && $shippedQty < $orderedQty) {
+                $hasPartialShip = true;
+            }
+
+            if ($deliveredQty > 0 && $deliveredQty < $orderedQty) {
+                $hasPartialDelivery = true;
+            }
+        }
+
+        // =========================
+        // FINAL STATUS LOGIC
+        // =========================
+
+        if ($allDelivered) {
+
+            $status = 'Delivered';
+        } elseif ($hasPartialShip && $hasPartialDelivery) {
+
+            $status = 'Partially Fulfilled';
+        } elseif ($allShipped && !$allDelivered) {
+
+            $status = 'Shipped';
+        } elseif ($hasPartialShip) {
+
+            $status = 'Partially Fulfilled';
+        } elseif ($hasPartialDelivery) {
+
+            $status = 'Partially Fulfilled';
+        } elseif ($hasAnyShipped) {
+
+            $status = 'Shipped';
+        } else {
+
+            $status = 'Not Shipped';
+        }
+
+        // =========================
+        // SAVE
+        // =========================
+        $order->status = $status;
+        $order->delivery_status = $status;
+        $order->save();
+
         return response()->json([
-            'message' => 'Order not found'
-        ], 404);
+            'success' => true,
+            'status' => $order->status,
+            'delivery_status' => $order->delivery_status
+        ]);
     }
 
-   $packages = \App\Models\OrderPackage::where('order_number', $orderNumber)
-    ->where('user_id', Auth::id())
-    ->get();
+    public function cancel($id)
+{
+    DB::beginTransaction();
 
-    $shippedMap = [];
-    $deliveredMap = [];
+    try {
 
-    // =========================
-    // Build shipped + delivered maps
-    // =========================
-    foreach ($packages as $pkg) {
+        $order = Order::with('items')
+            ->where('id', $id)
+            ->where('user_id', Auth::id())
+            ->firstOrFail();
 
-       $items = $pkg->items;
-
-// if JSON string → decode
-if (is_string($items)) {
-    $items = json_decode($items, true);
-}
-
-// final safety
-if (!is_array($items)) {
-    $items = [];
-}
-
-        foreach ($items as $item) {
-
-            $code = strtolower(trim($item['item_code'] ?? ''));
-            if (!$code) continue;
-
-            $qty = (int) (
-                $item['packed_quantity']
-                ?? $item['ordered_quantity']
-                ?? $item['quantity_to_pack']
-                ?? 0
-            );
-
-            if (strtolower($pkg->status) === 'shipped') {
-                $shippedMap[$code] = ($shippedMap[$code] ?? 0) + $qty;
-            }
-
-            if (strtolower($pkg->status) === 'delivered') {
-                $deliveredMap[$code] = ($deliveredMap[$code] ?? 0) + $qty;
-            }
+        if ($order->status === 'Cancelled') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order already cancelled'
+            ], 400);
         }
+
+        foreach ($order->items as $item) {
+
+            $inventory = InventoryStock::where('item_code', $item->item_code)
+                ->first();
+
+            if (!$inventory) continue;
+
+            $qty = (float) $item->quantity;
+
+
+            // REDUCE ALLOCATION
+            $inventory->allocated_quantity =
+                max(0, (float)$inventory->allocated_quantity - $qty);
+
+            $inventory->save();
+        }
+
+        // UPDATE ORDER STATUS
+        $order->status = 'Cancelled';
+        $order->delivery_status = 'Cancelled';
+        $order->save();
+
+        DB::commit();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Order cancelled successfully',
+            'order_no' => $order->order_no
+        ]);
+
+    } catch (\Exception $e) {
+
+        DB::rollBack();
+
+        return response()->json([
+            'success' => false,
+            'message' => $e->getMessage()
+        ], 500);
     }
-
-    // =========================
-    // Flags
-    // =========================
-    $allShipped = true;
-    $allDelivered = true;
-
-    $hasAnyShipped = false;
-    $hasAnyDelivered = false;
-
-    $hasPartialShip = false;
-    $hasPartialDelivery = false;
-
-    // =========================
-    // Compare with order items
-    // =========================
-    foreach ($order->items as $item) {
-
-        $code = strtolower(trim($item->item_code));
-        $orderedQty = (int) $item->quantity;
-
-        $shippedQty = $shippedMap[$code] ?? 0;
-        $deliveredQty = $deliveredMap[$code] ?? 0;
-
-        if ($shippedQty > 0) {
-            $hasAnyShipped = true;
-        }
-
-        if ($deliveredQty > 0) {
-            $hasAnyDelivered = true;
-        }
-
-        if ($shippedQty < $orderedQty) {
-            $allShipped = false;
-        }
-
-        if ($deliveredQty < $orderedQty) {
-            $allDelivered = false;
-        }
-
-        if ($shippedQty > 0 && $shippedQty < $orderedQty) {
-            $hasPartialShip = true;
-        }
-
-        if ($deliveredQty > 0 && $deliveredQty < $orderedQty) {
-            $hasPartialDelivery = true;
-        }
-    }
-
-    // =========================
-    // FINAL STATUS LOGIC
-    // =========================
-
-    if ($allDelivered) {
-
-        $status = 'Delivered';
-
-    } elseif ($hasPartialShip && $hasPartialDelivery) {
-
-        $status = 'Partially Fulfilled';
-
-    } elseif ($allShipped && !$allDelivered) {
-
-        $status = 'Shipped';
-
-    } elseif ($hasPartialShip) {
-
-        $status = 'Partially Fulfilled';
-
-    } elseif ($hasPartialDelivery) {
-
-        $status = 'Partially Fulfilled';
-
-    } elseif ($hasAnyShipped) {
-
-        $status = 'Shipped';
-
-    } else {
-
-        $status = 'Not Shipped';
-    }
-
-    // =========================
-    // SAVE
-    // =========================
-    $order->status = $status;
-    $order->delivery_status = $status;
-    $order->save();
-
-    return response()->json([
-        'success' => true,
-        'status' => $order->status,
-        'delivery_status' => $order->delivery_status
-    ]);
 }
 }

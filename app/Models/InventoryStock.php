@@ -72,4 +72,9 @@ public function boms()
 {
     return $this->hasMany(BomHeader::class, 'item_code', 'item_code');
 }
+
+public function stock_transactions()
+{
+    return $this->hasMany(StockTransaction::class, 'item_code', 'item_code');
+}
 }

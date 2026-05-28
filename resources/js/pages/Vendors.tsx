@@ -2,7 +2,7 @@ import Layout from "@/components/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Plus, Mail, Phone, Download, Upload, Edit, Trash2, Eye} from "lucide-react";
+import { Search, Plus, Mail, Phone, Download, Upload, Edit, Trash2, Eye } from "lucide-react";
 import axios from "axios";
 import {
   Dialog,
@@ -31,7 +31,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 
 interface Vendor {
@@ -60,8 +60,8 @@ interface Vendor {
   ifsc_code: string | null;
   branch: string | null;
 
-   vendor_type?: string | null;
-   attachments: FileList | null;
+  vendor_type?: string | null;
+  attachments: FileList | null;
   gstCertificate: File | null;
   panCopy: File | null;
   agreement: File | null;
@@ -81,6 +81,9 @@ const Vendors = () => {
   const [vendorsData, setVendorsData] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
 
   const initialVendorState = {
     name: "",
@@ -104,15 +107,15 @@ const Vendors = () => {
     bankBranch: "",
 
     vendor_type: "",
-   notes: "",
-  tags: "",
-  attachments: null as FileList | null,
-  gstCertificate: null as File | null,
-  panCopy: null as File | null,
-  agreement: null as File | null,
-  kycDocuments: null as FileList | null,
+    notes: "",
+    tags: "",
+    attachments: null as FileList | null,
+    gstCertificate: null as File | null,
+    panCopy: null as File | null,
+    agreement: null as File | null,
+    kycDocuments: null as FileList | null,
   };
-  
+
   const [newVendor, setNewVendor] = useState(initialVendorState);
   const [editVendor, setEditVendor] = useState(initialVendorState);
 
@@ -120,27 +123,27 @@ const Vendors = () => {
     fetchVendors();
   }, []);
 
- 
-const fetchVendors = async () => {
-  try {
-    setLoading(true);
 
-    const res = await axios.get("/api/vendors");
+  const fetchVendors = async () => {
+    try {
+      setLoading(true);
 
-    setVendorsData(res.data || []);
-  } catch (error: any) {
-    toast({
-      title: "Error fetching vendors",
-      description: error.response?.data?.message || error.message,
-      variant: "destructive",
-    });
-  } finally {
-    setLoading(false);
-  }
-};
+      const res = await axios.get("/api/vendors");
+
+      setVendorsData(res.data || []);
+    } catch (error: any) {
+      toast({
+        title: "Error fetching vendors",
+        description: error.response?.data?.message || error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getRatingBadge = (rating?: string | null) => {
-  const value = rating || "Standard";
+    const value = rating || "Standard";
 
     const colors: Record<string, string> = {
       Premium: "bg-purple-100 text-purple-800 border-purple-200",
@@ -149,352 +152,360 @@ const fetchVendors = async () => {
     };
     return (
       <Badge variant="outline" className={colors[value]}>
-      {value}
-    </Badge>
+        {value}
+      </Badge>
     );
   };
 
- const getStatusBadge = (status?: string | null) => {
-  const value = status || "Active";
+  const getStatusBadge = (status?: string | null) => {
+    const value = status || "Active";
 
-  return (
-    <Badge variant={value === "Active" ? "default" : "outline"}>
-      {value}
-    </Badge>
-  );
-};
+    return (
+      <Badge variant={value === "Active" ? "default" : "outline"}>
+        {value}
+      </Badge>
+    );
+  };
 
-const handleAddVendor = async () => {
-  // Required fields validation
-  // Required fields validation
-  const missingFields: string[] = [];
-
-  if (!(newVendor.name ?? "").trim()) missingFields.push("Name");
-  if (!(newVendor.email ?? "").trim()) missingFields.push("Email");
-  if (!(newVendor.phone ?? "").trim()) missingFields.push("Mobile");
-  if (!(newVendor.country ?? "").trim()) missingFields.push("Country");
-
-   const phoneRegex = /^\d{10}$/;
-if (newVendor.phone && !phoneRegex.test(newVendor.phone)) {
-  toast({
-    title: "Invalid Phone Number",
-    description: "Phone number must be exactly 10 digits",
-    variant: "destructive",
-  });
-  return;
-}
-
-// Only validate GST if the field is non-empty
-if (newVendor.gstNumber && newVendor.gstNumber.trim() !== "") {
-  const gstNumber = newVendor.gstNumber.trim().toUpperCase();
-  const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
-
-  if (!gstRegex.test(gstNumber)) {
-    toast({
-      title: "Invalid GST Number",
-      description: "GST number must be 15 characters in correct format (e.g., 27ABCDE1234F1Z5)",
-      variant: "destructive",
-    });
-    return;
-  }
-}
-
-  
-  // Email format validation
-if (newVendor.email) {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(newVendor.email)) {
-    toast({
-      title: "Invalid Email",
-      description: "Please enter correct Email",
-      variant: "destructive",
-    });
-    return;
-} }
-
-  if (missingFields.length > 0) {
-    toast({
-      title: "Missing Required Fields",
-      description: `Please fill in: ${missingFields.join(", ")}`,
-      variant: "destructive",
-    });
-    return;
-  }
-
-  // 🔎 Duplicate Validation
-
-// Email duplicate check
-const emailExists = vendorsData.some(
-  (vendor) =>
-    vendor.email?.trim().toLowerCase() === newVendor.email?.trim().toLowerCase()
-);
+  const handleAddVendor = async () => {
+    if (submittingRef.current) return;
 
 
-// Email duplicate check
-if (
-  newVendor.email?.trim() &&
-  vendorsData.some(
-    (vendor) => vendor.email?.toLowerCase() === newVendor.email.toLowerCase()
-  )
-) {
-  toast({
-    title: "Duplicate Email",
-    description: "This email is already registered for another vendor.",
-    variant: "destructive",
-  });
-  return;
-}
+    try {
+      const missingFields: string[] = [];
 
-// Phone duplicate check
-if (
-  newVendor.phone?.trim() &&
-  vendorsData.some(
-    (vendor) => vendor.phone?.trim() === newVendor.phone.trim()
-  )
-) {
-  toast({
-    title: "Duplicate Phone Number",
-    description: "This phone number is already registered for another vendor.",
-    variant: "destructive",
-  });
-  return;
-}
+      if (!(newVendor.name ?? "").trim()) missingFields.push("Name");
+      if (!(newVendor.email ?? "").trim()) missingFields.push("Email");
+      if (!(newVendor.phone ?? "").trim()) missingFields.push("Mobile");
+      if (!(newVendor.country ?? "").trim()) missingFields.push("Country");
 
-// Company name duplicate check (optional field)
-if (newVendor.name?.trim()) {
-  const newCompany = newVendor.name.trim().toLowerCase();
-  const companyExists = vendorsData.some(vendor => {
-    const company = (vendor.company || vendor.vendor_name || "").trim().toLowerCase();
-    return company === newCompany;
-  });
+      const phoneRegex = /^\d{10}$/;
+      if (newVendor.phone && !phoneRegex.test(newVendor.phone)) {
+        toast({
+          title: "Invalid Phone Number",
+          description: "Phone number must be exactly 10 digits",
+          variant: "destructive",
+        });
+        return;
+      }
 
-  if (companyExists) {
-    toast({
-      title: "Duplicate Company Name",
-      description: "This company name already exists for another vendor.",
-      variant: "destructive",
-    });
-    return;
-  }
-}
+      // Only validate GST if the field is non-empty
+      if (newVendor.gstNumber && newVendor.gstNumber.trim() !== "") {
+        const gstNumber = newVendor.gstNumber.trim().toUpperCase();
+        const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+
+        if (!gstRegex.test(gstNumber)) {
+          toast({
+            title: "Invalid GST Number",
+            description: "GST number must be 15 characters in correct format (e.g., 27ABCDE1234F1Z5)",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
 
 
-  try {
-    const vendorCode = `VEN-${Date.now().toString().slice(-6)}`;
+      // Email format validation
+      if (newVendor.email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(newVendor.email)) {
+          toast({
+            title: "Invalid Email",
+            description: "Please enter correct Email",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
 
-    // Use FormData to handle files
-    const formData = new FormData();
-    formData.append('vendor_id', vendorCode);
-    formData.append('company', newVendor.name);
-    formData.append('vendor_name', newVendor.vendor_name);
-    formData.append('contact_person', newVendor.contact);
-    formData.append('email', newVendor.email);
-    formData.append('phone', newVendor.phone);
-    formData.append('country', newVendor.country);
-    formData.append('currency', newVendor.currency);
-    formData.append('status', newVendor.status);
-    formData.append('rating', newVendor.rating);
-    formData.append('business_number', newVendor.businessNumber || '');
-    formData.append('incorporation_details', newVendor.incorporationDetails || '');
-    formData.append('gst_number', newVendor.gstNumber || '');
-    formData.append('other_tax_details', newVendor.taxDetails || '');
-    formData.append('billing_address', newVendor.billingAddress || '');
-    formData.append('shipping_address', newVendor.shippingAddress || '');
-    formData.append('bank_name', newVendor.bankName || '');
-    formData.append('account_number', newVendor.bankAccountNumber || '');
-    formData.append('ifsc_code', newVendor.bankIfscCode || '');
-    formData.append('branch', newVendor.bankBranch || '');
-    
-    // New fields
-    formData.append('vendor_type', newVendor.vendor_type || '');
-    formData.append('notes', newVendor.notes || '');
-    formData.append('tags', newVendor.tags || '');
+      if (missingFields.length > 0) {
+        toast({
+          title: "Missing Required Fields",
+          description: `Please fill in: ${missingFields.join(", ")}`,
+          variant: "destructive",
+        });
+        return;
+      }
 
-    // Single files
-    if (newVendor.gstCertificate) formData.append('gst_certificate', newVendor.gstCertificate);
-    if (newVendor.panCopy) formData.append('pan_copy', newVendor.panCopy);
-    if (newVendor.agreement) formData.append('agreement', newVendor.agreement);
+      // 🔎 Duplicate Validation
 
-    // Multiple files (attachments & KYC documents)
-    if (newVendor.attachments) {
-      Array.from(newVendor.attachments).forEach(file => {
-        formData.append('attachments[]', file);
+      // Email duplicate check
+      const emailExists = vendorsData.some(
+        (vendor) =>
+          vendor.email?.trim().toLowerCase() === newVendor.email?.trim().toLowerCase()
+      );
+
+
+      // Email duplicate check
+      if (
+        newVendor.email?.trim() &&
+        vendorsData.some(
+          (vendor) => vendor.email?.toLowerCase() === newVendor.email.toLowerCase()
+        )
+      ) {
+        toast({
+          title: "Duplicate Email",
+          description: "This email is already registered for another vendor.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Phone duplicate check
+      if (
+        newVendor.phone?.trim() &&
+        vendorsData.some(
+          (vendor) => vendor.phone?.trim() === newVendor.phone.trim()
+        )
+      ) {
+        toast({
+          title: "Duplicate Phone Number",
+          description: "This phone number is already registered for another vendor.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Company name duplicate check (optional field)
+      if (newVendor.name?.trim()) {
+        const newCompany = newVendor.name.trim().toLowerCase();
+        const companyExists = vendorsData.some(vendor => {
+          const company = (vendor.company || vendor.vendor_name || "").trim().toLowerCase();
+          return company === newCompany;
+        });
+
+        if (companyExists) {
+          toast({
+            title: "Duplicate Company Name",
+            description: "This company name already exists for another vendor.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
+      submittingRef.current = true;
+      setIsSubmitting(true);
+
+
+      const vendorCode = `VEN-${Date.now().toString().slice(-6)}`;
+
+      // Use FormData to handle files
+      const formData = new FormData();
+      formData.append('vendor_id', vendorCode);
+      formData.append('company', newVendor.name);
+      formData.append('vendor_name', newVendor.vendor_name);
+      formData.append('contact_person', newVendor.contact);
+      formData.append('email', newVendor.email);
+      formData.append('phone', newVendor.phone);
+      formData.append('country', newVendor.country);
+      formData.append('currency', newVendor.currency);
+      formData.append('status', newVendor.status);
+      formData.append('rating', newVendor.rating);
+      formData.append('business_number', newVendor.businessNumber || '');
+      formData.append('incorporation_details', newVendor.incorporationDetails || '');
+      formData.append('gst_number', newVendor.gstNumber || '');
+      formData.append('other_tax_details', newVendor.taxDetails || '');
+      formData.append('billing_address', newVendor.billingAddress || '');
+      formData.append('shipping_address', newVendor.shippingAddress || '');
+      formData.append('bank_name', newVendor.bankName || '');
+      formData.append('account_number', newVendor.bankAccountNumber || '');
+      formData.append('ifsc_code', newVendor.bankIfscCode || '');
+      formData.append('branch', newVendor.bankBranch || '');
+
+      // New fields
+      formData.append('vendor_type', newVendor.vendor_type || '');
+      formData.append('notes', newVendor.notes || '');
+      formData.append('tags', newVendor.tags || '');
+
+      // Single files
+      if (newVendor.gstCertificate) formData.append('gst_certificate', newVendor.gstCertificate);
+      if (newVendor.panCopy) formData.append('pan_copy', newVendor.panCopy);
+      if (newVendor.agreement) formData.append('agreement', newVendor.agreement);
+
+      // Multiple files (attachments & KYC documents)
+      if (newVendor.attachments) {
+        Array.from(newVendor.attachments).forEach(file => {
+          formData.append('attachments[]', file);
+        });
+      }
+      if (newVendor.kycDocuments) {
+        Array.from(newVendor.kycDocuments).forEach(file => {
+          formData.append('kyc_documents[]', file);
+        });
+      }
+
+      // Axios request with multipart/form-data
+      const response = await axios.post("/api/vendors", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
       });
-    }
-    if (newVendor.kycDocuments) {
-      Array.from(newVendor.kycDocuments).forEach(file => {
-        formData.append('kyc_documents[]', file);
-      });
-    }
 
-    // Axios request with multipart/form-data
-    const response = await axios.post("/api/vendors", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-
-    toast({
-      title: "Success",
-      description: "Vendor added successfully",
-    });
-
-    await fetchVendors();
-    setNewVendor(initialVendorState);
-    setIsAddDialogOpen(false);
-
-  } catch (error: any) {
-    console.log(error.response?.data);
-
-    if (error.response?.status === 422) {
-      const errors = error.response.data?.errors as Record<string, string[]>;
-      const firstError = Object.values(errors)?.[0]?.[0] || "Validation error";
       toast({
-        title: "Validation Error",
-        description: firstError,
-        variant: "destructive",
+        title: "Success",
+        description: "Vendor added successfully",
       });
-    } else {
-      toast({
-        title: "Error adding vendor",
-        description: error.response?.data?.message || error.message,
-        variant: "destructive",
-      });
+
+      await fetchVendors();
+      setNewVendor(initialVendorState);
+      setIsAddDialogOpen(false);
+
+    } catch (error: any) {
+      console.log(error.response?.data);
+
+      if (error.response?.status === 422) {
+        const errors = error.response.data?.errors as Record<string, string[]>;
+        const firstError = Object.values(errors)?.[0]?.[0] || "Validation error";
+        toast({
+          title: "Validation Error",
+          description: firstError,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Error adding vendor",
+          description: error.response?.data?.message || error.message,
+          variant: "destructive",
+        });
+      }
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
     }
-  }
-};
+  };
 
 
 
-const handleEditVendor = (vendor: Vendor) => {
-  setSelectedVendor(vendor);
-  setEditVendor({
-    name: vendor.company || "",
-    vendor_name: vendor.vendor_name || "",
-    contact: vendor.contact_person || "",
-    email: vendor.email || "",
-    phone: vendor.phone || "",
-    country: vendor.country || "",
-    currency: vendor.currency || "",
-    rating: vendor.rating || "Standard",
-    status: vendor.status || "Active",
-    businessNumber: vendor.business_number || "",
-    incorporationDetails: vendor.incorporation_details || "",
-    gstNumber: vendor.gst_number || "",
-    taxDetails: vendor.other_tax_details || "",
-    billingAddress: vendor.billing_address || "",
-    shippingAddress: vendor.shipping_address || "",
-    bankName: vendor.bank_name || "",
-    bankAccountNumber: vendor.account_number || "",
-    bankIfscCode: vendor.ifsc_code || "",
-    bankBranch: vendor.branch || "",
+  const handleEditVendor = (vendor: Vendor) => {
+    setSelectedVendor(vendor);
+    setEditVendor({
+      name: vendor.company || "",
+      vendor_name: vendor.vendor_name || "",
+      contact: vendor.contact_person || "",
+      email: vendor.email || "",
+      phone: vendor.phone || "",
+      country: vendor.country || "",
+      currency: vendor.currency || "",
+      rating: vendor.rating || "Standard",
+      status: vendor.status || "Active",
+      businessNumber: vendor.business_number || "",
+      incorporationDetails: vendor.incorporation_details || "",
+      gstNumber: vendor.gst_number || "",
+      taxDetails: vendor.other_tax_details || "",
+      billingAddress: vendor.billing_address || "",
+      shippingAddress: vendor.shipping_address || "",
+      bankName: vendor.bank_name || "",
+      bankAccountNumber: vendor.account_number || "",
+      bankIfscCode: vendor.ifsc_code || "",
+      bankBranch: vendor.branch || "",
 
-    vendor_type: vendor.vendor_type || "",
-    notes: vendor.notes || "",
-    tags: vendor.tags || "",
-    attachments: null, // files cannot be pre-filled
-    gstCertificate: null,
-    panCopy: null,
-    agreement: null,
-    kycDocuments: null,
-  });
-  setIsEditDialogOpen(true);
-};
-
-const handleUpdateVendor = async () => {
-  if (!selectedVendor) return;
-
-  const vendorData = editVendor; // Use the edit form state for validation
-
-  // Required fields validation
-  const missingFields: string[] = [];
-  if (!(vendorData.name?.trim())) missingFields.push("Name");
-  if (!(vendorData.email?.trim())) missingFields.push("Email");
-  if (!(vendorData.phone?.trim())) missingFields.push("Mobile");
-  if (!(vendorData.country ?? "").trim()) missingFields.push("Country");
-
-  if (missingFields.length > 0) {
-    toast({
-      title: "Missing Required Fields",
-      description: `Please fill in: ${missingFields.join(", ")}`,
-      variant: "destructive",
+      vendor_type: vendor.vendor_type || "",
+      notes: vendor.notes || "",
+      tags: vendor.tags || "",
+      attachments: null, // files cannot be pre-filled
+      gstCertificate: null,
+      panCopy: null,
+      agreement: null,
+      kycDocuments: null,
     });
-    return;
-  }
+    setIsEditDialogOpen(true);
+  };
 
-  // Phone validation
-  const phoneRegex = /^\d{10}$/;
-  if (vendorData.phone && !phoneRegex.test(vendorData.phone)) {
-    toast({
-      title: "Invalid Phone Number",
-      description: "Phone number must be exactly 10 digits",
-      variant: "destructive",
-    });
-    return;
-  }
+  const handleUpdateVendor = async () => {
+    if (!selectedVendor) return;
 
-  // GST validation (optional)
-  if (vendorData.gstNumber?.trim()) {
-    const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
-    if (!gstRegex.test(vendorData.gstNumber.toUpperCase())) {
+    const vendorData = editVendor; // Use the edit form state for validation
+
+    // Required fields validation
+    const missingFields: string[] = [];
+    if (!(vendorData.name?.trim())) missingFields.push("Name");
+    if (!(vendorData.email?.trim())) missingFields.push("Email");
+    if (!(vendorData.phone?.trim())) missingFields.push("Mobile");
+    if (!(vendorData.country ?? "").trim()) missingFields.push("Country");
+
+    if (missingFields.length > 0) {
       toast({
-        title: "Invalid GST Number",
-        description: "GST number must be 15 characters in correct format (e.g., 27ABCDE1234F1Z5)",
+        title: "Missing Required Fields",
+        description: `Please fill in: ${missingFields.join(", ")}`,
         variant: "destructive",
       });
       return;
     }
-  }
 
-  // Email format validation
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (vendorData.email && !emailRegex.test(vendorData.email)) {
-    toast({
-      title: "Invalid Email",
-      description: "Please enter a valid Email",
-      variant: "destructive",
-    });
-    return;
-  }
+    // Phone validation
+    const phoneRegex = /^\d{10}$/;
+    if (vendorData.phone && !phoneRegex.test(vendorData.phone)) {
+      toast({
+        title: "Invalid Phone Number",
+        description: "Phone number must be exactly 10 digits",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  // Duplicate checks (exclude current vendor)
-  const emailExists = vendorsData.some(
-    (v) => v.id !== selectedVendor.id && v.email?.trim().toLowerCase() === vendorData.email?.trim().toLowerCase()
-  );
-  if (emailExists) {
-    toast({
-      title: "Duplicate Email",
-      description: "This email is already registered for another vendor.",
-      variant: "destructive",
-    });
-    return;
-  }
+    // GST validation (optional)
+    if (vendorData.gstNumber?.trim()) {
+      const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+      if (!gstRegex.test(vendorData.gstNumber.toUpperCase())) {
+        toast({
+          title: "Invalid GST Number",
+          description: "GST number must be 15 characters in correct format (e.g., 27ABCDE1234F1Z5)",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
 
-  const phoneExists = vendorsData.some(
-    (v) => v.id !== selectedVendor.id && v.phone?.trim() === vendorData.phone?.trim()
-  );
-  if (phoneExists) {
-    toast({
-      title: "Duplicate Phone Number",
-      description: "This phone number is already registered for another vendor.",
-      variant: "destructive",
-    });
-    return;
-  }
+    // Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (vendorData.email && !emailRegex.test(vendorData.email)) {
+      toast({
+        title: "Invalid Email",
+        description: "Please enter a valid Email",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  const companyExists = vendorsData.some(
-    (v) => v.id !== selectedVendor.id && v.company?.trim().toLowerCase() === vendorData.name?.trim().toLowerCase()
-  );
-  if (companyExists) {
-    toast({
-      title: "Duplicate Company Name",
-      description: "This company name already exists for another vendor.",
-      variant: "destructive",
-    });
-    return;
-  }
+    // Duplicate checks (exclude current vendor)
+    const emailExists = vendorsData.some(
+      (v) => v.id !== selectedVendor.id && v.email?.trim().toLowerCase() === vendorData.email?.trim().toLowerCase()
+    );
+    if (emailExists) {
+      toast({
+        title: "Duplicate Email",
+        description: "This email is already registered for another vendor.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  // ✅ All validations passed, send API request
-  try {
-   await axios.put(`/api/vendors/${selectedVendor.id}`, {
+    const phoneExists = vendorsData.some(
+      (v) => v.id !== selectedVendor.id && v.phone?.trim() === vendorData.phone?.trim()
+    );
+    if (phoneExists) {
+      toast({
+        title: "Duplicate Phone Number",
+        description: "This phone number is already registered for another vendor.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const companyExists = vendorsData.some(
+      (v) => v.id !== selectedVendor.id && v.company?.trim().toLowerCase() === vendorData.name?.trim().toLowerCase()
+    );
+    if (companyExists) {
+      toast({
+        title: "Duplicate Company Name",
+        description: "This company name already exists for another vendor.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // ✅ All validations passed, send API request
+    try {
+      await axios.put(`/api/vendors/${selectedVendor.id}`, {
 
         company: vendorData.name,
         vendor_name: vendorData.vendor_name,
@@ -519,66 +530,66 @@ const handleUpdateVendor = async () => {
         notes: vendorData.notes || null,
         tags: vendorData.tags || null,
         updated_at: new Date().toISOString(),
-     
-    });
+
+      });
 
 
-    toast({
-      title: "Success",
-      description: "Vendor updated successfully",
-    });
+      toast({
+        title: "Success",
+        description: "Vendor updated successfully",
+      });
 
-    await fetchVendors();
-    setIsEditDialogOpen(false);
-    setSelectedVendor(null);
-  } catch (error: any) {
-    toast({
-      title: "Error updating vendor",
-      description: error.message || "Something went wrong",
-      variant: "destructive",
-    });
-  }
-};
+      await fetchVendors();
+      setIsEditDialogOpen(false);
+      setSelectedVendor(null);
+    } catch (error: any) {
+      toast({
+        title: "Error updating vendor",
+        description: error.message || "Something went wrong",
+        variant: "destructive",
+      });
+    }
+  };
 
 
- const handleDeleteVendor = async () => {
-  if (!selectedVendor) return;
+  const handleDeleteVendor = async () => {
+    if (!selectedVendor) return;
 
-  try {
-    const response = await axios.delete(
-      `/api/vendors/${selectedVendor.id}`
+    try {
+      const response = await axios.delete(
+        `/api/vendors/${selectedVendor.id}`
+      );
+
+      toast({
+        title: "Success",
+        description: response.data?.message || "Vendor deleted successfully",
+      });
+
+      await fetchVendors();
+      setIsDeleteDialogOpen(false);
+      setSelectedVendor(null);
+
+    } catch (error: any) {
+      toast({
+        title: "Error deleting vendor",
+        description: error.response?.data?.message || error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const filteredVendors = vendorsData.filter((vendor) => {
+    const search = searchTerm.toLowerCase();
+
+    return (
+      vendor.vendor_name?.toLowerCase().includes(search) ||
+      vendor.contact_person?.toLowerCase().includes(search) ||
+      vendor.company?.toLowerCase().includes(search) ||
+      vendor.email?.toLowerCase().includes(search) ||
+      vendor.phone?.toLowerCase().includes(search) ||
+      vendor.vendor_id?.toLowerCase().includes(search)
     );
-
-    toast({
-      title: "Success",
-      description: response.data?.message || "Vendor deleted successfully",
-    });
-
-    await fetchVendors();
-    setIsDeleteDialogOpen(false);
-    setSelectedVendor(null);
-
-  } catch (error: any) {
-    toast({
-      title: "Error deleting vendor",
-      description: error.response?.data?.message || error.message,
-      variant: "destructive",
-    });
-  }
-};
-
-const filteredVendors = vendorsData.filter((vendor) => {
-  const search = searchTerm.toLowerCase();
-
-  return (
-    vendor.vendor_name?.toLowerCase().includes(search) ||
-    vendor.contact_person?.toLowerCase().includes(search) ||  
-    vendor.company?.toLowerCase().includes(search) ||
-    vendor.email?.toLowerCase().includes(search) ||
-    vendor.phone?.toLowerCase().includes(search) ||
-    vendor.vendor_id?.toLowerCase().includes(search)
-  );
-});
+  });
 
   const handleExport = () => {
     const csvContent = [
@@ -601,33 +612,33 @@ const filteredVendors = vendorsData.filter((vendor) => {
   };
 
   const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
-  const file = event.target.files?.[0];
-  if (!file) return;
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-  const formData = new FormData();
-  formData.append("file", file);
+    const formData = new FormData();
+    formData.append("file", file);
 
-  try {
-    await axios.post("/api/vendors/import", formData, {
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
-    });
+    try {
+      await axios.post("/api/vendors/import", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
 
-    toast({
-      title: "Success",
-      description: "Vendor data imported successfully",
-    });
+      toast({
+        title: "Success",
+        description: "Vendor data imported successfully",
+      });
 
-    await fetchVendors();
-  } catch (error: any) {
-    toast({
-      title: "Import Failed",
-      description: error.response?.data?.message || error.message,
-      variant: "destructive",
-    });
-  }
-};
+      await fetchVendors();
+    } catch (error: any) {
+      toast({
+        title: "Import Failed",
+        description: error.response?.data?.message || error.message,
+        variant: "destructive",
+      });
+    }
+  };
 
 
   return (
@@ -676,7 +687,7 @@ const filteredVendors = vendorsData.filter((vendor) => {
                     <TabsTrigger value="business">Business Info</TabsTrigger>
                     <TabsTrigger value="additional">Additional Info</TabsTrigger>
                   </TabsList>
-                  
+
                   <TabsContent value="general" className="space-y-4 mt-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
@@ -692,19 +703,19 @@ const filteredVendors = vendorsData.filter((vendor) => {
                       <div className="space-y-2">
                         <Label htmlFor="customer">Vendor type</Label>
                         <Select
-                            value={newVendor.vendor_type || undefined}
-                            onValueChange={(value) =>
-                              setNewVendor({ ...newVendor, vendor_type: value })
-                            }
-                          >
-                            <SelectTrigger id="customer_type">
-                              <SelectValue placeholder="Select customer type" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Individual">Individual</SelectItem>
-                              <SelectItem value="Business/Company">Business/Company</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          value={newVendor.vendor_type || undefined}
+                          onValueChange={(value) =>
+                            setNewVendor({ ...newVendor, vendor_type: value })
+                          }
+                        >
+                          <SelectTrigger id="customer_type">
+                            <SelectValue placeholder="Select customer type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Individual">Individual</SelectItem>
+                            <SelectItem value="Business/Company">Business/Company</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
 
                       <div className="space-y-2">
@@ -820,7 +831,7 @@ const filteredVendors = vendorsData.filter((vendor) => {
                       </div>
                     </div>
                   </TabsContent>
-                  
+
                   <TabsContent value="business" className="space-y-6 mt-4">
                     {/* Business Registration */}
                     <div className="space-y-4">
@@ -943,93 +954,93 @@ const filteredVendors = vendorsData.filter((vendor) => {
                     </div>
                   </TabsContent>
 
-                   {/* Additional Info Tab */}
-      <TabsContent value="additional" className="space-y-6 mt-4">
-        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-        </h3>
+                  {/* Additional Info Tab */}
+                  <TabsContent value="additional" className="space-y-6 mt-4">
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                    </h3>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2 col-span-2">
-            <Label htmlFor="notes">Notes / Remarks</Label>
-            <Textarea
-              id="notes"
-              value={newVendor.notes}
-              onChange={(e) => setNewVendor({ ...newVendor, notes: e.target.value })}
-              placeholder="Enter any notes or remarks"
-              rows={3}
-            />
-          </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2 col-span-2">
+                        <Label htmlFor="notes">Notes / Remarks</Label>
+                        <Textarea
+                          id="notes"
+                          value={newVendor.notes}
+                          onChange={(e) => setNewVendor({ ...newVendor, notes: e.target.value })}
+                          placeholder="Enter any notes or remarks"
+                          rows={3}
+                        />
+                      </div>
 
-          <div className="space-y-2 col-span-2">
-            <Label>Tags / Categories</Label>
-            <Input
-              value={newVendor.tags}
-              onChange={(e) => setNewVendor({ ...newVendor, tags: e.target.value })}
-              placeholder="Enter tags or categories (comma separated)"
-            />
-          </div>
+                      <div className="space-y-2 col-span-2">
+                        <Label>Tags / Categories</Label>
+                        <Input
+                          value={newVendor.tags}
+                          onChange={(e) => setNewVendor({ ...newVendor, tags: e.target.value })}
+                          placeholder="Enter tags or categories (comma separated)"
+                        />
+                      </div>
 
-          <div className="space-y-2 col-span-2">
-            <Label>Attachments</Label>
-            <Input
-              type="file"
-              multiple
-              onChange={(e) =>
-                setNewVendor({ ...newVendor, attachments: e.target.files })
-              }
-            />
-          </div>
+                      <div className="space-y-2 col-span-2">
+                        <Label>Attachments</Label>
+                        <Input
+                          type="file"
+                          multiple
+                          onChange={(e) =>
+                            setNewVendor({ ...newVendor, attachments: e.target.files })
+                          }
+                        />
+                      </div>
 
-          <div className="space-y-2">
-            <Label>GST Certificate</Label>
-            <Input
-              type="file"
-              onChange={(e) =>
-               setNewVendor({ ...newVendor, gstCertificate: e.target.files?.[0] ?? null })
-              }
-            />
-          </div>
+                      <div className="space-y-2">
+                        <Label>GST Certificate</Label>
+                        <Input
+                          type="file"
+                          onChange={(e) =>
+                            setNewVendor({ ...newVendor, gstCertificate: e.target.files?.[0] ?? null })
+                          }
+                        />
+                      </div>
 
-          <div className="space-y-2">
-            <Label>PAN Copy</Label>
-            <Input
-              type="file"
-              onChange={(e) =>
-                setNewVendor({ ...newVendor, panCopy: e.target.files?.[0] ?? null })
-              }
-            />
-          </div>
+                      <div className="space-y-2">
+                        <Label>PAN Copy</Label>
+                        <Input
+                          type="file"
+                          onChange={(e) =>
+                            setNewVendor({ ...newVendor, panCopy: e.target.files?.[0] ?? null })
+                          }
+                        />
+                      </div>
 
-          <div className="space-y-2">
-            <Label>Agreement</Label>
-            <Input
-              type="file"
-              onChange={(e) =>
-                setNewVendor({ ...newVendor, agreement: e.target.files?.[0] ?? null })
-              }
-            />
-          </div>
+                      <div className="space-y-2">
+                        <Label>Agreement</Label>
+                        <Input
+                          type="file"
+                          onChange={(e) =>
+                            setNewVendor({ ...newVendor, agreement: e.target.files?.[0] ?? null })
+                          }
+                        />
+                      </div>
 
-          <div className="space-y-2">
-            <Label>KYC Documents</Label>
-            <Input
-              type="file"
-              multiple
-              onChange={(e) =>
-                setNewVendor({ ...newVendor, kycDocuments: e.target.files })
-              }
-            />
-          </div>
-        </div>
-      </TabsContent>
+                      <div className="space-y-2">
+                        <Label>KYC Documents</Label>
+                        <Input
+                          type="file"
+                          multiple
+                          onChange={(e) =>
+                            setNewVendor({ ...newVendor, kycDocuments: e.target.files })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </TabsContent>
                 </Tabs>
-                
+
                 <div className="flex justify-end gap-2 mt-4">
                   <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
                     Cancel
                   </Button>
-                  <Button onClick={handleAddVendor}>
-                    Add Vendor
+                  <Button onClick={handleAddVendor} disabled={isSubmitting}>
+                    {isSubmitting ? "Creating..." : "Add Vendor"}
                   </Button>
                 </div>
               </DialogContent>
@@ -1047,12 +1058,12 @@ const filteredVendors = vendorsData.filter((vendor) => {
                   placeholder="Search by vendor name, contact, or email..."
                   className="pl-10"
                   value={searchTerm}
-  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
               <Button variant="outline" onClick={() => setSearchTerm("")}>
-  Clear
-</Button>
+                Clear
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -1096,8 +1107,8 @@ const filteredVendors = vendorsData.filter((vendor) => {
                       </div>
                     </TableCell>
                     <TableCell>{vendor.orders_count || 0}</TableCell>
-                    <TableCell>{getRatingBadge(vendor.rating || 'Standard')}</TableCell>  
-                    <TableCell>{getStatusBadge(vendor.status || 'Active')}</TableCell>                                  
+                    <TableCell>{getRatingBadge(vendor.rating || 'Standard')}</TableCell>
+                    <TableCell>{getStatusBadge(vendor.status || 'Active')}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
                         <Dialog>
@@ -1178,9 +1189,9 @@ const filteredVendors = vendorsData.filter((vendor) => {
                         <Button variant="ghost" size="sm" onClick={() => handleEditVendor(vendor)}>
                           <Edit className="h-4 w-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => {
                             setSelectedVendor(vendor);
                             setIsDeleteDialogOpen(true);
@@ -1209,22 +1220,22 @@ const filteredVendors = vendorsData.filter((vendor) => {
                 <TabsTrigger value="business">Business Info</TabsTrigger>
                 <TabsTrigger value="additional">Additional Info</TabsTrigger>
               </TabsList>
-              
+
               <TabsContent value="general" className="space-y-4 mt-4">
                 <div className="grid grid-cols-2 gap-4">
 
-                    <div className="space-y-2">
-                  <Label>Vendor Name </Label>
-                  <Input
-                    value={editVendor.vendor_name}
-                    onChange={(e) =>
-                      setEditVendor({ ...editVendor, vendor_name: e.target.value })
-                    }
-                    placeholder="Enter vendor name"
-                  />
-                </div>
+                  <div className="space-y-2">
+                    <Label>Vendor Name </Label>
+                    <Input
+                      value={editVendor.vendor_name}
+                      onChange={(e) =>
+                        setEditVendor({ ...editVendor, vendor_name: e.target.value })
+                      }
+                      placeholder="Enter vendor name"
+                    />
+                  </div>
 
-                     <div className="space-y-2">
+                  <div className="space-y-2">
                     <Label>Vendor Type</Label>
                     <Select
                       value={editVendor.vendor_type || ""}
@@ -1242,7 +1253,7 @@ const filteredVendors = vendorsData.filter((vendor) => {
                     </Select>
                   </div>
 
-                   <div className="space-y-2">
+                  <div className="space-y-2">
                     <Label>Company Name *</Label>
                     <Input
                       value={editVendor.name}
@@ -1325,7 +1336,7 @@ const filteredVendors = vendorsData.filter((vendor) => {
                   </div>
                 </div>
               </TabsContent>
-              
+
               <TabsContent value="business" className="space-y-6 mt-4">
                 <div className="space-y-4">
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Business Registration</h3>
@@ -1471,7 +1482,7 @@ const filteredVendors = vendorsData.filter((vendor) => {
                       onChange={(e) =>
                         setEditVendor({
                           ...editVendor,
-                          attachments: e.target.files                           
+                          attachments: e.target.files
                         })
                       }
                     />
@@ -1521,7 +1532,7 @@ const filteredVendors = vendorsData.filter((vendor) => {
                     <Input
                       type="file"
                       multiple
-                     onChange={(e) =>
+                      onChange={(e) =>
                         setEditVendor({
                           ...editVendor,
                           kycDocuments: e.target.files
