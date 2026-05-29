@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\InventoryStock;
+use App\Models\StockTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -538,7 +539,7 @@ class OrderController extends Controller
         ]);
     }
 
-    public function cancel($id)
+   public function cancel($id)
 {
     DB::beginTransaction();
 
@@ -556,24 +557,35 @@ class OrderController extends Controller
             ], 400);
         }
 
+        $shouldReturnStock = in_array($order->status, ['Confirmed']);
+
         foreach ($order->items as $item) {
-
-            $inventory = InventoryStock::where('item_code', $item->item_code)
-                ->first();
-
-            if (!$inventory) continue;
 
             $qty = (float) $item->quantity;
 
+            // 1. reduce allocated stock
+            if ($shouldReturnStock) {
+                InventoryStock::where('item_code', $item->item_code)
+                    ->update([
+                        'allocated_quantity' => DB::raw(
+                            "GREATEST(0, COALESCE(allocated_quantity,0) - {$qty})"
+                        )
+                    ]);
 
-            // REDUCE ALLOCATION
-            $inventory->allocated_quantity =
-                max(0, (float)$inventory->allocated_quantity - $qty);
-
-            $inventory->save();
+                // 2. CREATE STOCK TRANSACTION (IMPORTANT PART)
+                StockTransaction::create([
+                    'item_code' => $item->item_code,
+                    'transaction_type' => 'ORDER_CANCELLED',
+                    'reference_type'  => 'Order',
+                    'quantity' => $qty,
+                    'unit_cost' => $item->rate ?? 0,
+                    'reference_number' => $order->order_no,
+                    'notes' => 'Returned from cancelled order',
+                    'user_id' => Auth::id(),
+                ]);
+            }
         }
 
-        // UPDATE ORDER STATUS
         $order->status = 'Cancelled';
         $order->delivery_status = 'Cancelled';
         $order->save();
@@ -583,11 +595,11 @@ class OrderController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Order cancelled successfully',
+            'should_return_stock' => $shouldReturnStock,
             'order_no' => $order->order_no
         ]);
 
     } catch (\Exception $e) {
-
         DB::rollBack();
 
         return response()->json([

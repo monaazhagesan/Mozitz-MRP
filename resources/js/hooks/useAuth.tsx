@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 interface User {
   id: number;
   email: string;
+   currency?: string;
 }
 
 interface Session {
@@ -16,7 +17,7 @@ interface Session {
 interface AuthContextType {
   user: User | null;
   session: Session | null;
-  signUp: (email: string, password: string, first_name?: string, last_name?: string, company?: string) => Promise<any>;
+  signUp: (email: string, password: string, first_name?: string, last_name?: string, company?: string,  country?: string, currency?: string) => Promise<any>;
   signIn: (email: string, password: string) => Promise<any>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<any>;
@@ -62,7 +63,9 @@ const signUp = async (
   password: string,
   first_name?: string,
   last_name?: string,
-  company?: string
+  company?: string,
+   country?: string,
+  currency?: string
 ) => {
   try {
     await axios.get('/sanctum/csrf-cookie');
@@ -73,6 +76,8 @@ const signUp = async (
       first_name,
       last_name,
       company,
+      country,
+      currency,
     });
 
     setUser(res.data.user);
@@ -194,7 +199,7 @@ const resetPassword = async (email: string) => {
   const signOut = async () => {
     await axios.post('/logout');
     setUser(null);
-    setSession(null); 
+    setSession(null);
     navigate('/auth');
   };
 

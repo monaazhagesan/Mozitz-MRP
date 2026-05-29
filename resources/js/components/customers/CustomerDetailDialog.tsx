@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect, useState } from "react";
 import { DollarSign, ShoppingCart, Clock, CreditCard, FileText, RotateCcw } from "lucide-react";
+import { Money } from "@/components/Money";
 
 interface Customer {
   id: string;
@@ -167,7 +168,7 @@ const CustomerDetailDialog = ({ customer, open, onOpenChange }: CustomerDetailDi
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Total Sales</p>
-                <p className="text-lg font-bold">₹{totalSales.toLocaleString()}</p>
+                <p className="text-lg font-bold">  <Money value={totalSales} /></p>
               </div>
             </CardContent>
           </Card>
@@ -178,7 +179,7 @@ const CustomerDetailDialog = ({ customer, open, onOpenChange }: CustomerDetailDi
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Pending Payments</p>
-                <p className="text-lg font-bold">₹{pendingPayments.toLocaleString()}</p>
+                <p className="text-lg font-bold"> <Money value={pendingPayments} /></p>
               </div>
             </CardContent>
           </Card>
@@ -200,7 +201,7 @@ const CustomerDetailDialog = ({ customer, open, onOpenChange }: CustomerDetailDi
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Credit Notes</p>
-                <p className="text-lg font-bold">₹{totalCreditNotes.toLocaleString()}</p>
+                <p className="text-lg font-bold"> <Money value={totalCreditNotes} /></p>
               </div>
             </CardContent>
           </Card>

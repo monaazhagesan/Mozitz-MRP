@@ -11,8 +11,11 @@ import { useEffect } from 'react';
 import { z } from 'zod';
 import {
   Mail, Lock, User, Building2, Eye, EyeOff,
-  ArrowRight, ArrowLeft, UserPlus, Send, Check, MailCheck,
+  ArrowRight, ArrowLeft, UserPlus, Send, Check, MailCheck, Globe, Coins
 } from 'lucide-react';
+import countries from "world-countries";
+import currencyCodes from "currency-codes";
+
 
 type Tab = 'login' | 'register' | 'forgot';
 
@@ -25,6 +28,15 @@ const calcStrength = (v: string) => {
   return s;
 };
 
+const countryOptions = countries.map((c) => ({
+  label: c.name.common,
+  value: c.cca2,
+}));
+
+const currencyOptions = currencyCodes.data.map((c) => ({
+  label: `${c.code} - ${c.currency}`,
+  value: c.code,
+}));
 
 const StrengthBar = ({ value }: { value: string }) => {
   const s = calcStrength(value);
@@ -125,11 +137,11 @@ const Auth = () => {
   const [loading, setLoading] = useState(false);
   const { signUp, signIn, resetPassword, signInWithGoogle, user } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
-   const [tab, setTab] = useState<Tab>('login');
+  const [tab, setTab] = useState<Tab>('login');
   const navigate = useNavigate();
 
 
-   // login
+  // login
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPw, setLoginPw] = useState('');
   const [showLoginPw, setShowLoginPw] = useState(false);
@@ -146,6 +158,15 @@ const Auth = () => {
   const [terms, setTerms] = useState(false);
   const [regLoading, setRegLoading] = useState(false);
 
+  const [country, setCountry] = useState('');
+  const [currency, setCurrency] = useState('');
+
+  const [countryQuery, setCountryQuery] = useState("");
+  const [showCountryList, setShowCountryList] = useState(false);
+
+  const [currencyQuery, setCurrencyQuery] = useState("");
+  const [showCurrencyList, setShowCurrencyList] = useState(false);
+
   // forgot
   const [fpStep, setFpStep] = useState<1 | 2>(1);
   const [fpEmail, setFpEmail] = useState('');
@@ -154,108 +175,129 @@ const Auth = () => {
 
 
   const handleRegister = async (e: React.FormEvent) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  // custom validations first (like your original logic)
-  if (!terms) {
-    toast.error('Please accept the Terms and Privacy Policy');
-    return;
-  }
-
-  if (!first.trim()) {
-    toast.error('Please enter your first name');
-    return;
-  }
-
-  // Zod validation (structured like your login/register pattern)
-  try {
-    authSchema.parse({
-      email: regEmail,
-      password: regPw,
-    });
-  } catch (err: any) {
-    if (err?.issues?.length) {
-      toast.error(err.issues[0].message);
+    // custom validations first (like your original logic)
+    if (!terms) {
+      toast.error('Please accept the Terms and Privacy Policy');
       return;
     }
 
-    toast.error('Invalid input');
-    return;
-  }
-
-  setRegLoading(true);
-
-  const { error } = await signUp(
-  regEmail,
-  regPw,
-  first,
-  last,
-  company
-);
-
-  setRegLoading(false);
-
-  if (error) {
-    const message =
-      typeof error === "string"
-        ? error
-        : error?.message || "Registration failed";
-
-    if (message.includes("already registered")) {
-      toast.error("This email is already registered. Please sign in instead.");
-    } else {
-      toast.error(message);
+    if (!first.trim()) {
+      toast.error('Please enter your first name');
+      return;
     }
-  } else {
-    toast.success("Account created successfully! You can now sign in.");
 
-     setTab("login");
-     
-    setFirst("");
-    setLast("");
-    setRegEmail("");
-    setRegPw("");
+    if (!company.trim()) {
+      toast.error('Please enter your company');
+      return;
+    }
 
-   
-  }
-};
+    if (!country.trim()) {
+      toast.error('Please enter your country');
+      return;
+    }
+
+    if (!currency.trim()) {
+      toast.error('Please enter your currency');
+      return;
+    }
+    // Zod validation (structured like your login/register pattern)
+    try {
+      authSchema.parse({
+        email: regEmail,
+        password: regPw,
+      });
+    } catch (err: any) {
+      if (err?.issues?.length) {
+        toast.error(err.issues[0].message);
+        return;
+      }
+
+      toast.error('Invalid input');
+      return;
+    }
+
+    setRegLoading(true);
+
+    const { error } = await signUp(
+      regEmail,
+      regPw,
+      first,
+      last,
+      company,
+      country,
+      currency
+    );
+
+    setRegLoading(false);
+
+    if (error) {
+      const message =
+        typeof error === "string"
+          ? error
+          : error?.message || "Registration failed";
+
+      if (message.includes("already registered")) {
+        toast.error("This email is already registered. Please sign in instead.");
+      } else {
+        toast.error(message);
+      }
+    } else {
+      toast.success("Account created successfully! You can now sign in.");
+
+      setTab("login");
+
+      setFirst("");
+      setLast("");
+      setRegEmail("");
+      setRegPw("");
+      setCompany("");
+
+      setCountry("");
+      setCountryQuery("");
+
+      setCurrency("");
+      setCurrencyQuery("");
+    }
+  };
 
 
   const handleLogin = async (e: React.FormEvent) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  try {
-    authSchema.parse({
-      email: loginEmail,
-      password: loginPw,
-    });
-  } catch (err: any) {
-    toast.error(err?.issues?.[0]?.message || "Invalid input");
-    return;
-  }
-
-  setLoading(true);
-
-  const { error } = await signIn(loginEmail, loginPw);
-
-  setLoading(false);
-
-  if (error) {
-    const message =
-      typeof error === "string"
-        ? error
-        : error?.message || "Login failed";
-
-    if (message.includes("Invalid login credentials")) {
-      toast.error("Invalid email or password");
-    } else {
-      toast.error(message);
+    try {
+      authSchema.parse({
+        email: loginEmail,
+        password: loginPw,
+      });
+    } catch (err: any) {
+      toast.error(err?.issues?.[0]?.message || "Invalid input");
+      return;
     }
-  } else {
-    toast.success("Signed in successfully!");
-    navigate('/');
-  }
-};
+
+    setLoading(true);
+
+    const { error } = await signIn(loginEmail, loginPw);
+
+    setLoading(false);
+
+    if (error) {
+      const message =
+        typeof error === "string"
+          ? error
+          : error?.message || "Login failed";
+
+      if (message.includes("Invalid login credentials")) {
+        toast.error("Invalid email or password");
+      } else {
+        toast.error(message);
+      }
+    } else {
+      toast.success("Signed in successfully!");
+      navigate('/');
+    }
+  };
 
   const handleGoogle = async () => {
     setGoogleLoading(true);
@@ -264,51 +306,50 @@ const Auth = () => {
     setGoogleLoading(false);
   };
 
- const handleForgot = async (e: React.FormEvent) => {
-  e.preventDefault();
+  const handleForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
 
-  if (!fpEmail) {
-    toast.error('Please enter your email first');
-    return;
-  }
+    if (!fpEmail) {
+      toast.error('Please enter your email first');
+      return;
+    }
 
-  try {
-    z.string().email().parse(fpEmail);
-  } catch {
-    toast.error('Please enter a valid email');
-    return;
-  }
+    try {
+      z.string().email().parse(fpEmail);
+    } catch {
+      toast.error('Please enter a valid email');
+      return;
+    }
 
-  toast.loading('Sending password reset email...', {
-    id: 'reset-password',
-  });
-
-  const { error } = await resetPassword(fpEmail);
-
-  if (error) {
-    toast.error(error.message || 'Email is not registered', {
+    toast.loading('Sending password reset email...', {
       id: 'reset-password',
     });
-  } else {
-    toast.success(
-      'Password reset email has been sent to your email address.',
-      {
+
+    const { error } = await resetPassword(fpEmail);
+
+    if (error) {
+      toast.error(error.message || 'Email is not registered', {
         id: 'reset-password',
-      }
-    );
+      });
+    } else {
+      toast.success(
+        'Password reset email has been sent to your email address.',
+        {
+          id: 'reset-password',
+        }
+      );
 
-    setFpStep(2);
-  }
-};
+      setFpStep(2);
+    }
+  };
 
- const TabBtn = ({ id, children }: { id: Tab; children: React.ReactNode }) => (
+  const TabBtn = ({ id, children }: { id: Tab; children: React.ReactNode }) => (
     <button
       onClick={() => setTab(id)}
-      className={`text-[13px] font-medium px-[18px] py-[7px] rounded-full border transition-all ${
-        tab === id
-          ? 'bg-[#1D9E75] border-[#1D9E75] text-white'
-          : 'bg-transparent border-black/10 text-[#5F5E5A] hover:border-[#1D9E75]/40'
-      }`}
+      className={`text-[13px] font-medium px-[18px] py-[7px] rounded-full border transition-all ${tab === id
+        ? 'bg-[#1D9E75] border-[#1D9E75] text-white'
+        : 'bg-transparent border-black/10 text-[#5F5E5A] hover:border-[#1D9E75]/40'
+        }`}
     >
       {children}
     </button>
@@ -355,7 +396,7 @@ const Auth = () => {
             <button type="button" onClick={handleGoogle} disabled={googleLoading}
               className="w-full h-[38px] border border-black/10 rounded-lg bg-[#F7F6F2] hover:bg-[#F4F3EF] text-[#1A1A18] text-[13px] flex items-center justify-center gap-2 transition-colors">
               {googleLoading ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                : <svg width="16" height="16" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>}
+                : <svg width="16" height="16" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" /><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" /><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05" /><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" /></svg>}
               Sign in with Google
             </button>
 
@@ -387,6 +428,85 @@ const Auth = () => {
             </Field>
             <Field label="Company" htmlFor="reg-company">
               <InputWrap id="reg-company" icon={Building2} value={company} onChange={setCompany} placeholder="Acme Manufacturing" autoComplete="organization" />
+            </Field>
+            <Field label="Country" htmlFor="reg-country">
+              <div className="relative">
+                <InputWrap
+                  id="reg-country"
+                  icon={Globe}
+                  value={countryQuery}
+                  onChange={(v) => {
+                    setCountryQuery(v);
+                    setCountry(v); // store actual value
+                    setShowCountryList(true);
+                  }}
+                  placeholder="Search country..."
+                  autoComplete="off"
+                />
+
+                {showCountryList && countryQuery && (
+                  <div className="absolute z-50 w-full mt-1 max-h-48 overflow-auto bg-white border border-black/10 rounded-lg shadow">
+                    {countryOptions
+                      .filter((c) =>
+                        c.label.toLowerCase().includes(countryQuery.toLowerCase())
+                      )
+                      .slice(0, 10)
+                      .map((c) => (
+                        <div
+                          key={c.value}
+                          onClick={() => {
+                            setCountry(c.label);
+                            setCountryQuery(c.label);
+                            setShowCountryList(false);
+                          }}
+                          className="px-3 py-2 text-sm hover:bg-[#F4F3EF] cursor-pointer"
+                        >
+                          {c.label}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </Field>
+
+            <Field label="Currency" htmlFor="reg-currency">
+              <div className="relative">
+                <InputWrap
+                  id="reg-currency"
+                  icon={Coins}
+                  value={currencyQuery}
+                  onChange={(v) => {
+                    setCurrencyQuery(v);
+                    setCurrency(v); // store selected value
+                    setShowCurrencyList(true);
+                  }}
+                  placeholder="Search currency..."
+                  autoComplete="off"
+                />
+
+                {showCurrencyList && currencyQuery && (
+                  <div className="absolute z-50 w-full mt-1 max-h-48 overflow-auto bg-white border border-black/10 rounded-lg shadow">
+                    {currencyOptions
+                      .filter((c) =>
+                        c.label.toLowerCase().includes(currencyQuery.toLowerCase())
+                      )
+                      .slice(0, 10)
+                      .map((c) => (
+                        <div
+                          key={c.value}
+                          onClick={() => {
+                            setCurrency(c.value);
+                            setCurrencyQuery(c.label);
+                            setShowCurrencyList(false);
+                          }}
+                          className="px-3 py-2 text-sm hover:bg-[#F4F3EF] cursor-pointer"
+                        >
+                          {c.label}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
             </Field>
             <Field label="Password" htmlFor="reg-pw">
               <InputWrap id="reg-pw" icon={Lock} type={showRegPw ? 'text' : 'password'} value={regPw} onChange={setRegPw}
@@ -422,9 +542,8 @@ const Auth = () => {
             <div className="flex items-center mb-5">
               {[1, 2].map((n, i) => (
                 <div key={n} className="flex items-center flex-1 last:flex-none">
-                  <div className={`w-[26px] h-[26px] rounded-full border flex items-center justify-center text-[11px] font-medium transition-all ${
-                    fpStep >= n ? 'bg-[#1D9E75] border-[#1D9E75] text-white' : 'bg-[#F7F6F2] border-black/10 text-[#A09F9A]'
-                  }`}>{n}</div>
+                  <div className={`w-[26px] h-[26px] rounded-full border flex items-center justify-center text-[11px] font-medium transition-all ${fpStep >= n ? 'bg-[#1D9E75] border-[#1D9E75] text-white' : 'bg-[#F7F6F2] border-black/10 text-[#A09F9A]'
+                    }`}>{n}</div>
                   {i < 1 && <div className={`flex-1 h-px mx-1 ${fpStep > n ? 'bg-[#1D9E75]' : 'bg-black/10'}`} />}
                 </div>
               ))}

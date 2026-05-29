@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Plus, Mail, Phone, Download, Upload, Edit, Trash2, Eye } from "lucide-react";
 import axios from "axios";
+import { Money } from "@/components/Money";
 import {
   Dialog,
   DialogContent,
@@ -1157,12 +1158,12 @@ const Vendors = () => {
                                   </div>
                                   <div>
                                     <p className="text-sm text-muted-foreground">Total Purchases</p>
-                                    <p className="text-2xl font-bold">₹{(vendor.total_purchases || 0).toLocaleString()}</p>
+                                    <p className="text-2xl font-bold"><Money value={vendor.total_purchases || 0} /></p>
                                   </div>
                                   <div>
                                     <p className="text-sm text-muted-foreground">Pending Payments</p>
                                     <p className="text-2xl font-bold text-orange-600">
-                                      ₹{(vendor.pending_payments || 0).toLocaleString()}
+                                       <Money value={vendor.pending_payments || 0} />
                                     </p>
                                   </div>
                                 </CardContent>

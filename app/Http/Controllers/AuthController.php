@@ -24,6 +24,8 @@ class AuthController extends Controller
         'first_name' => 'nullable|string|max:255',
         'last_name' => 'nullable|string|max:255',
         'company' => 'nullable|string|max:255',
+        'country' => 'nullable|string|max:100',
+        'currency' => 'nullable|string|max:10',
     ]);
 
     $user = User::create([
@@ -34,6 +36,8 @@ class AuthController extends Controller
         'first_name' => $request->first_name,
         'last_name' => $request->last_name,
         'company' => $request->company,
+         'country' => $request->country,
+        'currency' => $request->currency,
     ]);
 
     Auth::login($user);
@@ -48,7 +52,7 @@ class AuthController extends Controller
          $request->validate([
             'email' => 'required|email',
             'password' => 'required',
-        ]); 
+        ]);
 
         $user = User::where('email', $request->email)->first();
 

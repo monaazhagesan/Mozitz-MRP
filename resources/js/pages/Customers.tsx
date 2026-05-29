@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Plus, Mail, Phone, Pencil, Trash2, RotateCcw, Eye, DollarSign, Clock, CreditCard } from "lucide-react";
 import axios from "axios";
+import { Money } from "@/components/Money";
 import {
   Dialog,
   DialogContent,
@@ -1293,7 +1294,7 @@ const Customers = () => {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Sales</p>
-                <p className="text-2xl font-bold">₹{financialData.totalSales.toLocaleString()}</p>
+                <p className="text-2xl font-bold"> <Money value={financialData.totalSales} /></p>
               </div>
             </CardContent>
           </Card>
@@ -1304,7 +1305,7 @@ const Customers = () => {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Pending Payments</p>
-                <p className="text-2xl font-bold">₹{financialData.pendingPayments.toLocaleString()}</p>
+                <p className="text-2xl font-bold"><Money value={financialData.pendingPayments} /></p>
               </div>
             </CardContent>
           </Card>
@@ -1315,7 +1316,7 @@ const Customers = () => {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Credit Notes Balance</p>
-                <p className="text-2xl font-bold">₹{financialData.creditBalance.toLocaleString()}</p>
+                <p className="text-2xl font-bold"> <Money value={financialData.creditBalance} /></p>
               </div>
             </CardContent>
           </Card>

@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Edit, XCircle } from "lucide-react";
 import axios from "axios";
+import { Money } from "@/components/Money";
+import { useCurrency } from "@/hooks/useCurrency";
 import {
   Dialog,
   DialogContent,
@@ -237,7 +239,6 @@ const initialOrderState = {
 };
 
 const todayISO = () => new Date().toISOString().split("T")[0];
-const money = (value: number) => `₹${Number.isFinite(value) ? value.toFixed(2) : "0.00"}`;
 const integer = (value: number) => Math.max(0, Math.round(value || 0));
 const normalizeText = (value?: string | null) => (value || "").trim().toLowerCase();
 
@@ -335,6 +336,17 @@ const Orders = () => {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [cancelOrder, setCancelOrder] = useState<any>(null);
   const [cancelling, setCancelling] = useState(false);
+
+  const currency = useCurrency();
+
+  const formatPrintMoney = (value: number) => {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency, // ✅ now it's being used
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0));
+};
+
 
   const [regularForm, setRegularForm] = useState({
     customer: "",
@@ -1199,13 +1211,12 @@ const Orders = () => {
   };
 
 
-  const confirmCancelOrder = async () => {
+ const confirmCancelOrder = async () => {
   if (!cancelOrder) return;
 
   try {
     setCancelling(true);
 
-    // 1. CANCEL ORDER
     const cancelRes = await axios.post(
       `/api/orders/${cancelOrder.id}/cancel`
     );
@@ -1214,28 +1225,7 @@ const Orders = () => {
       throw new Error(cancelRes.data.message || "Cancel failed");
     }
 
-    // 2. ONLY CREATE STOCK TRANSACTIONS IF ORDER WAS CONFIRMED
-    const shouldReturnStock =
-      ["Confirmed"].includes(cancelOrder.status);
-
-    if (shouldReturnStock) {
-      for (const item of cancelOrder.items || []) {
-        const unitCost = Number(
-          item.unitCost || item.unit_cost || item.rate || 0
-        );
-
-        await axios.post("/api/stock-transactions", {
-          item_code: item.item_code,
-          transaction_type: "ORDER_CANCELLED",
-          quantity: item.quantity,
-          unit_cost: unitCost,
-          reference_number: cancelOrder.order_no,
-          notes: "Returned from cancelled order",
-        });
-      }
-    }
-
-    // 3. UPDATE UI
+    // UI update only
     setOrders((prev) =>
       prev.map((order) =>
         order.id === cancelOrder.id
@@ -1250,7 +1240,7 @@ const Orders = () => {
 
     toast({
       title: "Order Cancelled",
-      description: shouldReturnStock
+      description: cancelRes.data.should_return_stock
         ? "Stock returned successfully."
         : "Order cancelled (no stock return).",
     });
@@ -1262,13 +1252,14 @@ const Orders = () => {
   } catch (error) {
     toast({
       title: "Cancel failed",
-      description: error.message,
+      description: error.response?.data?.message || error.message,
       variant: "destructive",
     });
   } finally {
     setCancelling(false);
   }
 };
+
 
   const fetchOrders = async () => {
     try {
@@ -1632,8 +1623,9 @@ const Orders = () => {
           <td class="right">
           ${item.delivered_qty ?? 0}
         </td>
-          <td class="right">₹${Number(item.rate || 0).toFixed(2)}</td>
-          <td class="right">₹${Number(item.total_amount || 0).toFixed(2)}</td>
+          <td class="right">${formatPrintMoney(Number(item.rate || 0))}</td>
+
+<td class="right">${formatPrintMoney(Number(item.total_amount || 0))}</td>
           <td class="center">${assessment?.label || "Stock OK"}</td>
         </tr>
       `;
@@ -2757,7 +2749,7 @@ const Orders = () => {
                           onChange={(event) => updateLineItem(item.id, "tax", Number(event.target.value))}
                         />
                       </TableCell>
-                      <TableCell className="text-right font-medium text-foreground">{money(item.totalAmount)}</TableCell>
+                      <TableCell className="text-right font-medium text-foreground"> <Money value={item.totalAmount || 0} /></TableCell>
                       <TableCell>
                         {renderValidationBadge(assessment.state, assessment.label)}
                       </TableCell>
@@ -2867,15 +2859,15 @@ const Orders = () => {
               <div className="space-y-2 text-sm">
                 <div className="flex items-center justify-between text-muted-foreground">
                   <span>Subtotal</span>
-                  <span className="font-mono">{money(totalSummary.subtotal)}</span>
+                  <span className="font-mono"> <Money value={totalSummary.subtotal || 0} /></span>
                 </div>
                 <div className="flex items-center justify-between text-muted-foreground">
                   <span>Tax</span>
-                  <span className="font-mono">{money(totalSummary.taxAmount)}</span>
+                  <span className="font-mono"><Money value={totalSummary.taxAmount || 0} /></span>
                 </div>
                 <div className="flex items-center justify-between border-t pt-2 text-base font-semibold text-foreground">
                   <span>Total</span>
-                  <span className="font-mono">{money(totalSummary.total)}</span>
+                  <span className="font-mono"> <Money value={totalSummary.total || 0} /></span>
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap justify-end gap-2">
@@ -3176,7 +3168,7 @@ const Orders = () => {
                       <TableCell className="text-right">
                         {(order.items ?? []).length}
                       </TableCell>
-                      <TableCell className="font-medium text-foreground">{money(orderTotal)}</TableCell>
+                      <TableCell className="font-medium text-foreground">  <Money value={orderTotal || 0} /></TableCell>
                       <TableCell>
                         {order.delivery_status === "Partially Delivered"
                           ? renderValidationBadge(
@@ -3307,15 +3299,15 @@ const Orders = () => {
                         {order.customer}
                       </div>
 
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {order.order_type} • {order.items.length} lines •{" "}
-                        {money(
-                          order.items.reduce(
-                            (sum, item) => sum + Number(item.total_amount || 0),
-                            0
-                          )
-                        )}
-                      </div>
+                     <div className="mt-1 text-xs text-muted-foreground">
+  {order.order_type} • {order.items.length} lines •{" "}
+  <Money
+    value={order.items.reduce(
+      (sum, item) => sum + Number(item.total_amount || 0),
+      0
+    )}
+  />
+</div>
                     </div>
                   </button>
                 );
@@ -3387,11 +3379,11 @@ const Orders = () => {
                           </TableCell>
 
                           <TableCell className="text-right">
-                            {money(Number(item.rate) || 0)}
+                           <Money value={Number(item.rate) || 0} />
                           </TableCell>
 
                           <TableCell className="text-right">
-                            {money(Number(item.total_amount) || 0)}
+                           <Money value={Number(item.total_amount) || 0} />
                           </TableCell>
                         </TableRow>
                       ))}
@@ -3751,7 +3743,17 @@ const Orders = () => {
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Items to Purchase</div><div className="mt-2 text-2xl font-semibold text-primary">{purchaseNeeds.length}</div></div>
-        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Estimated Value</div><div className="mt-2 text-2xl font-semibold text-warning">{money(purchaseNeeds.reduce((sum, row) => sum + row.assessment.gap * Number(row.assessment.inventory?.unit_cost || row.item.rate || 0), 0))}</div></div>
+        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Estimated Value</div><div className="mt-2 text-2xl font-semibold text-warning">
+          <Money
+  value={purchaseNeeds.reduce(
+    (sum, row) =>
+      sum +
+      row.assessment.gap *
+        Number(row.assessment.inventory?.unit_cost || row.item.rate || 0),
+    0
+  )}
+/>
+</div></div>
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Urgent Buys</div><div className="mt-2 text-2xl font-semibold text-destructive">{purchaseNeeds.filter((row) => ["High", "Critical"].includes(row.order.priority)).length}</div></div>
       </div>
 
@@ -3814,7 +3816,14 @@ const Orders = () => {
                         return gap > 0 ? gap : "—";
                       })()}
                     </TableCell>
-                    <TableCell className="text-right">{money(assessment.gap * Number(assessment.inventory?.unit_cost || item.rate || 0))}</TableCell>
+                   <TableCell className="text-right">
+  <Money
+    value={
+      assessment.gap *
+      Number(assessment.inventory?.unit_cost || item.rate || 0)
+    }
+  />
+</TableCell>
                     <TableCell>{renderValidationBadge(order.priority === "Critical" ? "missing" : order.priority === "High" ? "partial" : "available", order.priority)}</TableCell>
 
                     <TableCell className="text-right">
@@ -3835,7 +3844,17 @@ const Orders = () => {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Excess Items</div><div className="mt-2 text-2xl font-semibold text-primary">{excessRows.length}</div></div>
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Excess Qty Total</div><div className="mt-2 text-2xl font-semibold text-success">{excessRows.reduce((sum, row) => sum + row.excessQty, 0)}</div></div>
-        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Excess Value</div><div className="mt-2 text-2xl font-semibold text-warning">{money(excessRows.reduce((sum, row) => sum + row.excessValue, 0))}</div></div>
+<div className="rounded-lg border bg-card p-4 shadow-sm">
+  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+    Excess Value
+  </div>
+
+  <div className="mt-2 text-2xl font-semibold text-warning">
+    <Money
+      value={excessRows.reduce((sum, row) => sum + row.excessValue, 0)}
+    />
+  </div>
+</div>
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Reusable</div><div className="mt-2 text-2xl font-semibold text-accent">{excessRows.filter((row) => row.type !== "Product").length}</div></div>
       </div>
 
@@ -3871,7 +3890,7 @@ const Orders = () => {
                     <TableCell className="text-right">{row.allocated}</TableCell>
                     <TableCell className="text-right">{row.netOrders}</TableCell>
                     <TableCell className="text-right font-medium text-primary">{row.excessQty}</TableCell>
-                    <TableCell className="text-right">{money(row.excessValue)}</TableCell>
+                    <TableCell className="text-right"> <Money value={row.excessValue || 0} /></TableCell>
                     <TableCell>{renderValidationBadge(row.type === "Product" ? "produce" : "available", row.type === "Product" ? "Reduce production run" : "Use in future orders")}</TableCell>
                   </TableRow>
                 ))
@@ -3887,7 +3906,7 @@ const Orders = () => {
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Orders This Month</div><div className="mt-2 text-2xl font-semibold text-primary">{dashboardStats.monthOrders}</div></div>
-        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Order Value</div><div className="mt-2 text-2xl font-semibold text-success">{money(dashboardStats.orderValue)}</div></div>
+        <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Order Value</div><div className="mt-2 text-2xl font-semibold text-success"> <Money value={dashboardStats.orderValue || 0} /></div></div>
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Pending Delivery</div><div className="mt-2 text-2xl font-semibold text-warning">{dashboardStats.pendingDelivery}</div></div>
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Overdue</div><div className="mt-2 text-2xl font-semibold text-destructive">{dashboardStats.overdue}</div></div>
       </div>
@@ -3914,13 +3933,13 @@ const Orders = () => {
                       <TableCell className="font-mono text-xs text-primary">{order.order_no}</TableCell>
                       <TableCell>{order.customer}</TableCell>
                       <TableCell>
-                        {money(
-                          (order.items || []).reduce(
-                            (sum, item) => sum + (Number(item.total_amount) || 0),
-                            0
-                          )
-                        )}
-                      </TableCell>
+  <Money
+    value={(order.items || []).reduce(
+      (sum, item) => sum + (Number(item.total_amount) || 0),
+      0
+    )}
+  />
+</TableCell>
                       <TableCell>{order.status}</TableCell>
                     </TableRow>
                   ))}
@@ -4104,8 +4123,8 @@ const Orders = () => {
                             {item.delivered_qty ?? 0}
                           </TableCell>
 
-                          <TableCell className="text-right"> {money(Number(item.rate || 0))}</TableCell>
-                          <TableCell className="text-right">{money(Number(item.total_amount || 0))}</TableCell>
+                          <TableCell className="text-right">  <Money value={Number(item.rate || 0)} /></TableCell>
+                          <TableCell className="text-right">  <Money value={Number(item.total_amount || 0)} /></TableCell>
                           <TableCell>
                             {(() => {
                               const available = Number(
