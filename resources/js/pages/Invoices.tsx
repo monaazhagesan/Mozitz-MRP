@@ -6,6 +6,12 @@ import { Search, Plus, Eye, Edit, Trash2, FileText, DollarSign, Download, X, Che
 import { useEffect } from "react";
 import { Switch } from "@/components/ui/switch";
 import axios, { AxiosResponse } from "axios";
+import { Money } from "@/components/Money";
+import { formatMoney } from "@/utils/formatMoney";
+import { useCurrency } from "@/hooks/useCurrency";
+import currencyCodes from "currency-codes";
+import getSymbolFromCurrency from "currency-symbol-map";
+import currencies from "currency-list";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 import "jspdf-autotable";
@@ -140,10 +146,11 @@ interface Invoice {
   amountPaid: number;
   payments: Payment[];
   status: "Draft" | "Sent" | "Paid" | "Pending" | "Overdue";
-   isProforma?: boolean;
+  isProforma?: boolean;
   currency?: string;
   exchangeRate?: number;
-
+  exchange_rate?: number;
+  formExchangeRate: number;
   taxType?: string;
   placeOfSupply?: string;
   gstType?: string;
@@ -159,6 +166,8 @@ interface Invoice {
   beforeDueDays?: number;
   overdueReminderDays?: number;
 }
+
+const currencyData = currencies.getAll("en_US");
 
 const CURRENCY_OPTIONS: { code: string; sym: string; name: string; rate: number }[] = [
   { code: "INR", sym: "₹", name: "Indian Rupee", rate: 1 },
@@ -241,8 +250,8 @@ const Invoices = () => {
   const [tdsAmount, setTdsAmount] = useState(0);
 
   // For example, fetched from API or stored in state
-const [inventoryItems, setInventoryItems] = useState<{id: number; itemName: string}[]>([]);
-const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
+  const [inventoryItems, setInventoryItems] = useState<{ id: number; itemName: string }[]>([]);
+  const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
 
   const [customers, setCustomers] = useState<{
     id: string;
@@ -278,8 +287,8 @@ const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
   const [formPaymentTerms, setFormPaymentTerms] = useState("30 Days Net");
   const [formBankInfo, setFormBankInfo] = useState("");
   const [formInternalRemarks, setFormInternalRemarks] = useState("");
-    const [formInvoiceNo, setFormInvoiceNo] = useState("");
-    const [formInvoiceDate, setFormInvoiceDate] = useState("");
+  const [formInvoiceNo, setFormInvoiceNo] = useState("");
+  const [formInvoiceDate, setFormInvoiceDate] = useState("");
 
   const [formDueDate, setFormDueDate] = useState("");
   const [formReferenceNo, setFormReferenceNo] = useState("");
@@ -297,19 +306,21 @@ const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
   const [formSignatory, setFormSignatory] = useState("");
   const [formDigitalSignature, setFormDigitalSignature] = useState(false);
   const [formNotes, setFormNotes] = useState("");
-  const [currency, setCurrency] = useState("INR");
-const [exchangeRate, setExchangeRate] = useState(1);
+  const currency = useCurrency();
+  const baseCurrency = useCurrency();
+  const [exchangeRate, setExchangeRate] = useState(1);
+  const [totalInINR, setTotalInINR] = useState(0);
 
-const [customerEmail, setCustomerEmail] = useState("");
-const [contactPerson, setContactPerson] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [contactPerson, setContactPerson] = useState("");
 
-const [billingAddress, setBillingAddress] = useState("");
-const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [billingAddress, setBillingAddress] = useState("");
+  const [deliveryAddress, setDeliveryAddress] = useState("");
 
-const [deliveryDate, setDeliveryDate] = useState("");
-const [dispatchType, setDispatchType] = useState("");
+  const [deliveryDate, setDeliveryDate] = useState("");
+  const [dispatchType, setDispatchType] = useState("");
 
-const [remarks, setRemarks] = useState("");
+  const [remarks, setRemarks] = useState("");
 
   const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([
     {
@@ -400,7 +411,7 @@ const [remarks, setRemarks] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
 
   // Helper function to auto-generate invoice number
- const generateInvoiceNumber = (invoices: Invoice[]): string => {
+  const generateInvoiceNumber = (invoices: Invoice[]): string => {
     const year = new Date().getFullYear();
 
     // Filter invoices for the current year
@@ -488,200 +499,254 @@ const [remarks, setRemarks] = useState("");
     },
   ]); */
 
-   const [recurringInvoices, setRecurringInvoices] = useState<RecurringInvoice[]>([]);
+  const [recurringInvoices, setRecurringInvoices] = useState<RecurringInvoice[]>([]);
   const [recurringLoading, setRecurringLoading] = useState(false);
 
   // Fetch recurring invoices from database
-const fetchRecurringInvoices = async () => {
-  setRecurringLoading(true);
+  const fetchRecurringInvoices = async () => {
+    setRecurringLoading(true);
 
-  try {
-    const response = await axios.get("/api/recurring-invoices");
+    try {
+      const response = await axios.get("/api/recurring-invoices");
 
-    setRecurringInvoices(response.data);
-  } catch (error: any) {
-    toast({
-      title: "Error",
-      description:
-        error?.response?.data?.message ||
-        "Failed to fetch recurring invoices.",
-      variant: "destructive",
-    });
-  } finally {
-    setRecurringLoading(false);
-  }
-};
+      setRecurringInvoices(response.data);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description:
+          error?.response?.data?.message ||
+          "Failed to fetch recurring invoices.",
+        variant: "destructive",
+      });
+    } finally {
+      setRecurringLoading(false);
+    }
+  };
 
   // Save recurring invoice to database
-const saveRecurringInvoice = async (invoice: any) => {
-  if (!recurringStartDate) {
-    toast({
-      title: "Error",
-      description: "Please set a start date for recurring invoice.",
-      variant: "destructive",
-    });
-    return;
-  }
-
-  try {
-    console.log("🔍 Full invoice object received:", invoice);
-
-    // ✅ FIX: Use UUID directly (NO Number(), NO integer check)
-    const invoiceId = invoice?.id;
-
-    if (!invoiceId) {
-      throw new Error("Invalid invoice ID");
+  const saveRecurringInvoice = async (invoice: any) => {
+    if (!recurringStartDate) {
+      toast({
+        title: "Error",
+        description: "Please set a start date for recurring invoice.",
+        variant: "destructive",
+      });
+      return;
     }
 
-    console.log("✅ Using invoice_id =", invoiceId);
+    try {
+      console.log("🔍 Full invoice object received:", invoice);
 
-    const payload = {
-      invoice_id: invoiceId, // ✅ UUID STRING
+      // ✅ FIX: Use UUID directly (NO Number(), NO integer check)
+      const invoiceId = invoice?.id;
 
-      customer_name: formCustomerName?.trim() || "Customer",
-      customer_email: formCustomerEmail || null,
-      customer_gstin: formCustomerGSTIN || null,
-      customer_address: formCustomerAddress || null,
+      if (!invoiceId) {
+        throw new Error("Invalid invoice ID");
+      }
 
-      items: invoiceItems.map((item) => ({
-        description: item.description || "",
-        hsn: item.hsn || "",
-        material: item.material || "",
-        quantity: Number(item.quantity) || 0,
-        rate: Number(item.rate) || 0,
-        amount: Number(item.amount) || 0,
-        sgst: Number(item.sgst) || 0,
-        cgst: Number(item.cgst) || 0,
-        tds: Number(item.tds) || 0,
-      })),
+      console.log("✅ Using invoice_id =", invoiceId);
 
-      tax_type: invoiceTaxConfig.taxType || "GST (India)",
-      tax_config: invoiceTaxConfig || {},
+      const payload = {
+        invoice_id: invoiceId, // ✅ UUID STRING
 
-      subtotal: formSubtotal,
+        customer_name: formCustomerName?.trim() || "Customer",
+        customer_email: formCustomerEmail || null,
+        customer_gstin: formCustomerGSTIN || null,
+        customer_address: formCustomerAddress || null,
 
-      tax_amount: formTaxAmount,
+        items: invoiceItems.map((item) => ({
+          description: item.description || "",
+          hsn: item.hsn || "",
+          material: item.material || "",
+          quantity: Number(item.quantity) || 0,
+          rate: Number(item.rate) || 0,
+          amount: Number(item.amount) || 0,
+          sgst: Number(item.sgst) || 0,
+          cgst: Number(item.cgst) || 0,
+          tds: Number(item.tds) || 0,
+        })),
 
-      total_amount: formGrandTotal,
+        tax_type: invoiceTaxConfig.taxType || "GST (India)",
+        tax_config: invoiceTaxConfig || {},
 
-      frequency: recurringFrequency,
-      start_date: recurringStartDate,
-      end_type: recurringEndType || "never",
+        subtotal: formSubtotal,
 
-      occurrences:
-        recurringEndType === "occurrences"
-          ? parseInt(recurringOccurrences || "0", 10)
-          : null,
+        tax_amount: formTaxAmount,
 
-      end_date: recurringEndType === "date" ? recurringEndDate : null,
+        total_amount: formGrandTotal,
 
-      next_invoice_date: recurringStartDate,
-      status: "active",
+        frequency: recurringFrequency,
+        start_date: recurringStartDate,
+        end_type: recurringEndType || "never",
 
-      notes: formNotes || null,
+        occurrences:
+          recurringEndType === "occurrences"
+            ? parseInt(recurringOccurrences || "0", 10)
+            : null,
 
-      send_reminders: Boolean(sendReminders),
-      reminder_days_before: parseInt(reminderDaysBefore || "0", 10),
-      reminder_on_due_date: Boolean(reminderOnDueDate),
-      reminder_days_after: parseInt(reminderDaysAfter || "0", 10),
-    };
+        end_date: recurringEndType === "date" ? recurringEndDate : null,
 
-    console.log("📦 Final Payload:", JSON.stringify(payload, null, 2));
+        next_invoice_date: recurringStartDate,
+        status: "active",
 
-    await axios.post("/api/recurring-invoices", payload);
+        notes: formNotes || null,
 
-    toast({
-      title: "Recurring Invoice Created",
-      description: `Recurring ${recurringFrequency} invoice set up successfully.`,
-    });
+        send_reminders: Boolean(sendReminders),
+        reminder_days_before: parseInt(reminderDaysBefore || "0", 10),
+        reminder_on_due_date: Boolean(reminderOnDueDate),
+        reminder_days_after: parseInt(reminderDaysAfter || "0", 10),
+      };
 
-    fetchRecurringInvoices();
-  } catch (error: any) {
-    console.error("❌ saveRecurringInvoice ERROR:", error);
+      console.log("📦 Final Payload:", JSON.stringify(payload, null, 2));
 
-    toast({
-      title: "Recurring Save Failed",
-      description:
-        error?.response?.data?.message ||
-        error.message ||
-        "Failed to create recurring invoice.",
-      variant: "destructive",
-    });
-  }
-};
+      await axios.post("/api/recurring-invoices", payload);
+
+      toast({
+        title: "Recurring Invoice Created",
+        description: `Recurring ${recurringFrequency} invoice set up successfully.`,
+      });
+
+      fetchRecurringInvoices();
+    } catch (error: any) {
+      console.error("❌ saveRecurringInvoice ERROR:", error);
+
+      toast({
+        title: "Recurring Save Failed",
+        description:
+          error?.response?.data?.message ||
+          error.message ||
+          "Failed to create recurring invoice.",
+        variant: "destructive",
+      });
+    }
+  };
 
   // Pause/Resume recurring invoice
- const toggleRecurringStatus = async (id: string, currentStatus: string) => {
-  try {
-    const newStatus = currentStatus === "active" ? "paused" : "active";
+  const toggleRecurringStatus = async (id: string, currentStatus: string) => {
+    try {
+      const newStatus = currentStatus === "active" ? "paused" : "active";
 
-    await axios.patch(`/api/recurring-invoices/${id}/status`, {
-      status: newStatus,
-    });
+      await axios.patch(`/api/recurring-invoices/${id}/status`, {
+        status: newStatus,
+      });
 
-    toast({
-      title: "Updated",
-      description: `Recurring invoice ${newStatus}.`,
-    });
+      toast({
+        title: "Updated",
+        description: `Recurring invoice ${newStatus}.`,
+      });
 
-    fetchRecurringInvoices();
-  } catch (error: any) {
-    toast({
-      title: "Error",
-      description:
-        error?.response?.data?.message ||
-        "Failed to update recurring status.",
-      variant: "destructive",
-    });
-  }
-};
+      fetchRecurringInvoices();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description:
+          error?.response?.data?.message ||
+          "Failed to update recurring status.",
+        variant: "destructive",
+      });
+    }
+  };
 
   // Cancel recurring invoice
- const cancelRecurring = async (id: string) => {
-  try {
-    await axios.patch(`/api/recurring-invoices/${id}/cancel`);
+  const cancelRecurring = async (id: string) => {
+    try {
+      await axios.patch(`/api/recurring-invoices/${id}/cancel`);
 
-    toast({
-      title: "Cancelled",
-      description: "Recurring invoice cancelled.",
-    });
+      toast({
+        title: "Cancelled",
+        description: "Recurring invoice cancelled.",
+      });
 
-    fetchRecurringInvoices();
-  } catch (error: any) {
-    toast({
-      title: "Error",
-      description:
-        error?.response?.data?.message ||
-        "Failed to cancel recurring invoice.",
-      variant: "destructive",
-    });
-  }
-};
+      fetchRecurringInvoices();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description:
+          error?.response?.data?.message ||
+          "Failed to cancel recurring invoice.",
+        variant: "destructive",
+      });
+    }
+  };
 
   // Trigger manual processing of recurring invoices
- const processRecurringNow = async () => {
-  try {
-    await axios.post("/api/recurring-invoices/process");
+  const processRecurringNow = async () => {
+    try {
+      await axios.post("/api/recurring-invoices/process");
 
-    toast({
-      title: "Processed",
-      description: "Recurring invoices processed successfully.",
-    });
+      toast({
+        title: "Processed",
+        description: "Recurring invoices processed successfully.",
+      });
 
-    fetchRecurringInvoices();
-  } catch (err: any) {
-    toast({
-      title: "Error",
-      description:
-        err?.response?.data?.message || "Failed to process.",
-      variant: "destructive",
-    });
-  }
-};
+      fetchRecurringInvoices();
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description:
+          err?.response?.data?.message || "Failed to process.",
+        variant: "destructive",
+      });
+    }
+  };
 
   useEffect(() => {
     fetchRecurringInvoices();
   }, []);
+
+
+
+  useEffect(() => {
+    const fetchExchangeRate = async () => {
+      console.log("currency (base):", currency);
+      console.log("formCurrency (target):", formCurrency);
+
+      if (!formCurrency || !currency) {
+        setFormExchangeRate(1);
+        return;
+      }
+
+      try {
+        const base = currency.toUpperCase();
+        const target = formCurrency.toUpperCase();
+
+        // fxapi supports BASE/TARGET.json format
+        const url = `https://fxapi.app/api/${base}/${target}.json`;
+
+        const res = await fetch(url);
+
+        if (!res.ok) {
+          throw new Error(`API error: ${res.status}`);
+        }
+
+        const data = await res.json();
+
+        console.log("FULL API RESPONSE:", data);
+
+        /**
+         * Expected response format (typical fxapi):
+         * {
+         *   "rate": 83.12,
+         *   "base": "USD",
+         *   "target": "INR"
+         * }
+         */
+
+        const rate =
+          Number(data?.rate ?? data?.value ?? 1);
+
+        console.log(`1 ${base} = ${rate} ${target}`);
+
+        setFormExchangeRate(rate);
+      } catch (err) {
+        console.error("Exchange rate error:", err);
+        setFormExchangeRate(1);
+      }
+    };
+
+    fetchExchangeRate();
+  }, [formCurrency, currency]);
+
 
   const calculateInvoiceStatus = (invoice: Invoice): Invoice["status"] => {
     const today = new Date();
@@ -743,13 +808,13 @@ const saveRecurringInvoice = async (invoice: any) => {
 
 
   useEffect(() => {
-  // Only when creating NEW invoice (not editing)
-  if (isCreateDialogOpen && !selectedInvoice) {
-    const nextInvoiceNo = generateInvoiceNumber(invoices);
-    setInvoiceNumber(nextInvoiceNo);
+    // Only when creating NEW invoice (not editing)
+    if (isCreateDialogOpen && !selectedInvoice) {
+      const nextInvoiceNo = generateInvoiceNumber(invoices);
+      setInvoiceNumber(nextInvoiceNo);
 
-  }
-}, [isCreateDialogOpen, selectedInvoice, invoices]);
+    }
+  }, [isCreateDialogOpen, selectedInvoice, invoices]);
 
   useEffect(() => {
     const fetchCompanyDetails = async () => {
@@ -783,27 +848,27 @@ const saveRecurringInvoice = async (invoice: any) => {
     fetchCompanyDetails();
   }, []);
 
-   useEffect(() => {
-      const fetchInventoryItems = async () => {
-        try {
-          const response = await fetch("/api/inventory-stock"); // Your API endpoint
-          if (!response.ok) {
-            const errorData = await response.json();
-            console.error("Failed to fetch inventory items:", errorData.message);
-            return;
-          }
-
-          const data = await response.json();
-          console.log("Raw API data:", data);
-          console.log("Keys:", Object.keys(data));
-          setInventoryItems(Array.isArray(data.items) ? data.items : []);
-        } catch (error) {
-          console.error("Error fetching inventory items:", error);
+  useEffect(() => {
+    const fetchInventoryItems = async () => {
+      try {
+        const response = await fetch("/api/inventory-stock"); // Your API endpoint
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error("Failed to fetch inventory items:", errorData.message);
+          return;
         }
-      };
 
-      fetchInventoryItems();
-    }, []);
+        const data = await response.json();
+        console.log("Raw API data:", data);
+        console.log("Keys:", Object.keys(data));
+        setInventoryItems(Array.isArray(data.items) ? data.items : []);
+      } catch (error) {
+        console.error("Error fetching inventory items:", error);
+      }
+    };
+
+    fetchInventoryItems();
+  }, []);
 
 
   useEffect(() => {
@@ -887,8 +952,8 @@ const saveRecurringInvoice = async (invoice: any) => {
 
 
   useEffect(() => {
-  console.log("viewInvoice changed:", viewInvoice);
-}, [viewInvoice]);
+    console.log("viewInvoice changed:", viewInvoice);
+  }, [viewInvoice]);
 
   const openPaymentDialog = (invoice: Invoice) => {
     setSelectedInvoice(invoice);
@@ -900,90 +965,90 @@ const saveRecurringInvoice = async (invoice: any) => {
   };
 
   const canEditInvoice = (invoice: any) => {
-  return invoice.status === "Draft" || invoice.amountPaid === 0;
-};
-
-/*  const handleEditInvoice = async (invoice: any) => {
-    if (!invoice) {
-      toast({
-        title: "Error",
-        description: "No invoice selected to edit.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setSelectedInvoice(invoice); // Set the invoice to state for editing
-
-    try {
-      // Prepare updated payload
-      const updatedInvoice: any = {
-        invoice_number: invoice.invoiceNo,
-        invoice_date: invoiceDate,
-        due_date: dueDate,
-        reference_number: referenceNumber,
-        customer_name: customerName,
-        customer_gstin: customerGSTIN,
-        customer_address: customerAddress,
-        customer_phone: customerPhone,
-        company_name: businessName,
-        company_gstin: businessGSTIN,
-        company_address: businessAddress,
-        company_phone: businessPhone,
-        company_pan: businessPAN,
-        contact_phone: contactPhone,
-        contact_email: contactEmail,
-        tax_type: invoiceTaxConfig.taxType || "None",
-        gst_type: invoiceTaxConfig.gstType || "",
-        place_of_supply: invoiceTaxConfig.placeOfSupply || "",
-        cess_percentage: invoiceTaxConfig.cessPercent || 0,
-        terms,
-        signatory,
-        items: invoiceItems,
-         isProforma: formIsProforma,
-              currency: formCurrency,
-              exchangeRate: formExchangeRate,
-        subtotal,
-        tax_amount,
-        total_amount,
-        amount_paid: invoice.amountPaid || 0,
-        sgst_total,
-        cgst_total,
-        igst_total,
-        vat_total,
-        sales_tax_total,
-        tds_total,
-        status,
-      };
-
-      const response = await axios.put(`/api/invoices/${invoice.id}`, updatedInvoice);
-
-      // Update local state
-      setInvoices(prev =>
-        prev.map(inv =>
-          inv.id === invoice.id ? { ...inv, ...response.data } : inv
-        )
-      );
-
-      toast({
-        title: "Invoice Updated",
-        description: `Invoice ${response.data.invoice_number} updated successfully.`,
-      });
-
-      setIsCreateDialogOpen(false);
-      setInvoiceItems([]);
-      setSelectedInvoice(null);
-
-    } catch (error: any) {
-      console.error("Invoice update failed:", error.response?.data || error.message);
-      toast({
-        title: "Error",
-        description: `Failed to update invoice. ${error.response?.data?.message || ""}`,
-        variant: "destructive",
-      });
-    }
+    return invoice.status === "Draft" || invoice.amountPaid === 0;
   };
-*/
+
+  /*  const handleEditInvoice = async (invoice: any) => {
+      if (!invoice) {
+        toast({
+          title: "Error",
+          description: "No invoice selected to edit.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setSelectedInvoice(invoice); // Set the invoice to state for editing
+
+      try {
+        // Prepare updated payload
+        const updatedInvoice: any = {
+          invoice_number: invoice.invoiceNo,
+          invoice_date: invoiceDate,
+          due_date: dueDate,
+          reference_number: referenceNumber,
+          customer_name: customerName,
+          customer_gstin: customerGSTIN,
+          customer_address: customerAddress,
+          customer_phone: customerPhone,
+          company_name: businessName,
+          company_gstin: businessGSTIN,
+          company_address: businessAddress,
+          company_phone: businessPhone,
+          company_pan: businessPAN,
+          contact_phone: contactPhone,
+          contact_email: contactEmail,
+          tax_type: invoiceTaxConfig.taxType || "None",
+          gst_type: invoiceTaxConfig.gstType || "",
+          place_of_supply: invoiceTaxConfig.placeOfSupply || "",
+          cess_percentage: invoiceTaxConfig.cessPercent || 0,
+          terms,
+          signatory,
+          items: invoiceItems,
+           isProforma: formIsProforma,
+                currency: formCurrency,
+                exchangeRate: formExchangeRate,
+          subtotal,
+          tax_amount,
+          total_amount,
+          amount_paid: invoice.amountPaid || 0,
+          sgst_total,
+          cgst_total,
+          igst_total,
+          vat_total,
+          sales_tax_total,
+          tds_total,
+          status,
+        };
+
+        const response = await axios.put(`/api/invoices/${invoice.id}`, updatedInvoice);
+
+        // Update local state
+        setInvoices(prev =>
+          prev.map(inv =>
+            inv.id === invoice.id ? { ...inv, ...response.data } : inv
+          )
+        );
+
+        toast({
+          title: "Invoice Updated",
+          description: `Invoice ${response.data.invoice_number} updated successfully.`,
+        });
+
+        setIsCreateDialogOpen(false);
+        setInvoiceItems([]);
+        setSelectedInvoice(null);
+
+      } catch (error: any) {
+        console.error("Invoice update failed:", error.response?.data || error.message);
+        toast({
+          title: "Error",
+          description: `Failed to update invoice. ${error.response?.data?.message || ""}`,
+          variant: "destructive",
+        });
+      }
+    };
+  */
 
 
   const handleDownloadInvoice = (invoice: Invoice) => {
@@ -993,6 +1058,14 @@ const saveRecurringInvoice = async (invoice: any) => {
     };
 
     const amountDue = invoice.total - invoice.amountPaid;
+
+    const formatPrintMoney = (value: number) => {
+      return new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency, // ✅ now it's being used
+        maximumFractionDigits: 2,
+      }).format(Number(value || 0));
+    };
 
     const numberToWords = (num: number): string => {
       const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
@@ -1142,17 +1215,25 @@ const saveRecurringInvoice = async (invoice: any) => {
           <td>${i + 1}</td>
           <td>${item.description}</td>
           <td>${item.quantity}</td>
-          <td>₹${item.rate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-          <td>₹${(item.quantity * item.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+          <td>${formatPrintMoney(item.rate)}</td>
+         <td>${formatPrintMoney(item.quantity * item.rate)}</td>
 
           <!-- Conditional Tax Cells -->
-          ${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST" ? `<td>₹${(item.sgst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td><td>₹${(item.cgst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-          ${invoice.taxType === "GST (India)" && invoice.gstType === "IGST" ? `<td>₹${(item.igst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-          ${invoice.taxType === "VAT" ? `<td>₹${(item.vat_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-          ${invoice.taxType === "Sales Tax" ? `<td>₹${(item.sales_tax_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-
-         <td>₹${(item.tds_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-          <td>₹${(item.total ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST"
+        ? `<td>${formatPrintMoney(item.sgst_amount)}</td>
+     <td>${formatPrintMoney(item.cgst_amount)}</td>`
+        : ""}
+${invoice.taxType === "GST (India)" && invoice.gstType === "IGST"
+        ? `<td>${formatPrintMoney(item.igst_amount)}</td>`
+        : ""}
+${invoice.taxType === "VAT"
+        ? `<td>${formatPrintMoney(item.vat_amount)}</td>`
+        : ""}
+${invoice.taxType === "Sales Tax"
+        ? `<td>${formatPrintMoney(item.sales_tax_amount)}</td>`
+        : ""}
+        <td>${formatPrintMoney(item.tds_amount ?? 0)}</td>
+<td>${formatPrintMoney(item.total ?? 0)}</td>
         </tr>
       `).join('') : `
         <tr>
@@ -1160,15 +1241,29 @@ const saveRecurringInvoice = async (invoice: any) => {
   <td>Invoice Items</td>
   <td>-</td>
   <td>1</td>
-  <td>₹${invoice.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-  <td>₹${invoice.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+ <td>${formatPrintMoney(invoice.subtotal)}</td>
+<td>${formatPrintMoney(invoice.subtotal)}</td>
 
-${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST" ? `<td>₹${(item.sgst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td><td>₹${(item.cgst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-          ${invoice.taxType === "GST (India)" && invoice.gstType === "IGST" ? `<td>₹${(item.igst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-          ${invoice.taxType === "VAT" ? `<td>₹${(item.vat_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-          ${invoice.taxType === "Sales Tax" ? `<td>₹${(item.sales_tax_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-          <td>₹${(invoice.tds_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-  <td>₹${invoice.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST"
+        ? `<td>${formatPrintMoney(item.sgst_amount)}</td>
+     <td>${formatPrintMoney(item.cgst_amount)}</td>`
+        : ""}
+
+${invoice.taxType === "GST (India)" && invoice.gstType === "IGST"
+        ? `<td>${formatPrintMoney(item.igst_amount)}</td>`
+        : ""}
+
+${invoice.taxType === "VAT"
+        ? `<td>${formatPrintMoney(item.vat_amount)}</td>`
+        : ""}
+
+${invoice.taxType === "Sales Tax"
+        ? `<td>${formatPrintMoney(item.sales_tax_amount)}</td>`
+        : ""}
+
+<td>${formatPrintMoney(invoice.tds_amount)}</td>
+
+<td>${formatPrintMoney(invoice.total)}</td>
 </tr>
       `}
     </tbody>
@@ -1177,25 +1272,56 @@ ${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST" ? `<td>�
 
 <div class="totals-section">
   <div class="totals-table">
-    ${invoice.items.length > 0 ? invoice.items.map((item, i) => `
-      <div class="row"><span>Subtotal:</span><span>₹${invoice.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-      ${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST" ? `
-        <div class="row"><span>SGST:</span><span>₹${(item.sgst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-        <div class="row"><span>CGST:</span><span>₹${(item.cgst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-      ` : ""}
-      ${invoice.taxType === "GST (India)" && invoice.gstType === "IGST" ? `
-        <div class="row"><span>IGST:</span><span>₹${(item.igst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-      ` : ""}
-      ${invoice.taxType === "VAT" ? `
-        <div class="row"><span>VAT:</span><span>₹${(item.vat_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-      ` : ""}
-      ${invoice.taxType === "Sales Tax" ? `
-        <div class="row"><span>Sales Tax:</span><span>₹${(item.sales_tax_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-      ` : ""}
-      <div class="row"><span>TDS:</span><span>₹${(item.tds_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-      <div class="row total"><span>Total (INR):</span><span>₹${(item.total ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-    `).join('') : ""}
+  <div class="row">
+    <span>Subtotal:</span>
+    <span>${formatPrintMoney(invoice.subtotal)}</span>
   </div>
+
+  ${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST"
+        ? `
+      <div class="row"><span>SGST:</span><span>${formatPrintMoney(
+          invoice.items.reduce((t, i) => t + (i.sgst_amount ?? 0), 0)
+        )}</span></div>
+
+      <div class="row"><span>CGST:</span><span>${formatPrintMoney(
+          invoice.items.reduce((t, i) => t + (i.cgst_amount ?? 0), 0)
+        )}</span></div>
+    `
+        : ""}
+
+  ${invoice.taxType === "GST (India)" && invoice.gstType === "IGST"
+        ? `
+      <div class="row"><span>IGST:</span><span>${formatPrintMoney(
+          invoice.items.reduce((t, i) => t + (i.igst_amount ?? 0), 0)
+        )}</span></div>
+    `
+        : ""}
+
+  ${invoice.taxType === "VAT"
+        ? `
+      <div class="row"><span>VAT:</span><span>${formatPrintMoney(
+          invoice.items.reduce((t, i) => t + (i.vat_amount ?? 0), 0)
+        )}</span></div>
+    `
+        : ""}
+
+  ${invoice.taxType === "Sales Tax"
+        ? `
+      <div class="row"><span>Sales Tax:</span><span>${formatPrintMoney(
+          invoice.items.reduce((t, i) => t + (i.sales_tax_amount ?? 0), 0)
+        )}</span></div>
+    `
+        : ""}
+
+  <div class="row"><span>TDS:</span><span>${formatPrintMoney(
+          invoice.items.reduce((t, i) => t + (i.tds_amount ?? 0), 0)
+        )}</span></div>
+
+  <div class="row total">
+    <span>Total (INR):</span>
+    <span>${formatPrintMoney(invoice.total)}</span>
+  </div>
+</div>
 </div>
 
     <div class="amount-words">
@@ -1259,13 +1385,21 @@ ${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST" ? `<td>�
 
 
 
-const handleDownloadPDF = async (invoice: Invoice) => {
-      const formatDate = (dateStr: string) => {
+  const handleDownloadPDF = async (invoice: Invoice) => {
+    const formatDate = (dateStr: string) => {
       const d = new Date(dateStr);
       return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
     };
 
     const amountDue = invoice.total - invoice.amountPaid;
+
+    const formatPrintMoney = (value: number) => {
+      return new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency, // ✅ now it's being used
+        maximumFractionDigits: 2,
+      }).format(Number(value || 0));
+    };
 
     const numberToWords = (num: number): string => {
       const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
@@ -1397,7 +1531,6 @@ const handleDownloadPDF = async (invoice: Invoice) => {
       <tr>
         <th>#</th>
         <th>Item</th>
-        <th>HSN Code</th>
         <th>Qty</th>
         <th>Rate</th>
         <th>Amount</th>
@@ -1416,19 +1549,26 @@ const handleDownloadPDF = async (invoice: Invoice) => {
         <tr>
           <td>${i + 1}</td>
           <td>${item.description}</td>
-          <td>${item.hsn || '-'}</td>
           <td>${item.quantity}</td>
-          <td>₹${item.rate.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-          <td>₹${(item.quantity * item.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+           <td>${formatPrintMoney(item.rate)}</td>
+         <td>${formatPrintMoney(item.quantity * item.rate)}</td>
 
           <!-- Conditional Tax Cells -->
-          ${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST" ? `<td>₹${(item.sgst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td><td>₹${(item.cgst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-          ${invoice.taxType === "GST (India)" && invoice.gstType === "IGST" ? `<td>₹${(item.igst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-          ${invoice.taxType === "VAT" ? `<td>₹${(item.vat_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-          ${invoice.taxType === "Sales Tax" ? `<td>₹${(item.sales_tax_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-
-         <td>₹${(item.tds_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-          <td>₹${(item.total ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST"
+        ? `<td>${formatPrintMoney(item.sgst_amount)}</td>
+     <td>${formatPrintMoney(item.cgst_amount)}</td>`
+        : ""}
+${invoice.taxType === "GST (India)" && invoice.gstType === "IGST"
+        ? `<td>${formatPrintMoney(item.igst_amount)}</td>`
+        : ""}
+${invoice.taxType === "VAT"
+        ? `<td>${formatPrintMoney(item.vat_amount)}</td>`
+        : ""}
+${invoice.taxType === "Sales Tax"
+        ? `<td>${formatPrintMoney(item.sales_tax_amount)}</td>`
+        : ""}
+        <td>${formatPrintMoney(item.tds_amount ?? 0)}</td>
+<td>${formatPrintMoney(item.total ?? 0)}</td>
         </tr>
       `).join('') : `
         <tr>
@@ -1436,15 +1576,29 @@ const handleDownloadPDF = async (invoice: Invoice) => {
   <td>Invoice Items</td>
   <td>-</td>
   <td>1</td>
-  <td>₹${invoice.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-  <td>₹${invoice.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+ <td>${formatPrintMoney(invoice.subtotal)}</td>
+<td>${formatPrintMoney(invoice.subtotal)}</td>
 
-${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST" ? `<td>₹${(item.sgst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td><td>₹${(item.cgst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-          ${invoice.taxType === "GST (India)" && invoice.gstType === "IGST" ? `<td>₹${(item.igst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-          ${invoice.taxType === "VAT" ? `<td>₹${(item.vat_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-          ${invoice.taxType === "Sales Tax" ? `<td>₹${(item.sales_tax_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>` : ""}
-          <td>₹${(invoice.tds_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-  <td>₹${invoice.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST"
+        ? `<td>${formatPrintMoney(item.sgst_amount)}</td>
+     <td>${formatPrintMoney(item.cgst_amount)}</td>`
+        : ""}
+
+${invoice.taxType === "GST (India)" && invoice.gstType === "IGST"
+        ? `<td>${formatPrintMoney(item.igst_amount)}</td>`
+        : ""}
+
+${invoice.taxType === "VAT"
+        ? `<td>${formatPrintMoney(item.vat_amount)}</td>`
+        : ""}
+
+${invoice.taxType === "Sales Tax"
+        ? `<td>${formatPrintMoney(item.sales_tax_amount)}</td>`
+        : ""}
+
+<td>${formatPrintMoney(invoice.tds_amount)}</td>
+
+<td>${formatPrintMoney(invoice.total)}</td>
 </tr>
       `}
     </tbody>
@@ -1453,25 +1607,56 @@ ${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST" ? `<td>�
 
 <div class="totals-section">
   <div class="totals-table">
-    ${invoice.items.length > 0 ? invoice.items.map((item, i) => `
-      <div class="row"><span>Subtotal:</span><span>₹${invoice.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-      ${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST" ? `
-        <div class="row"><span>SGST:</span><span>₹${(item.sgst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-        <div class="row"><span>CGST:</span><span>₹${(item.cgst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-      ` : ""}
-      ${invoice.taxType === "GST (India)" && invoice.gstType === "IGST" ? `
-        <div class="row"><span>IGST:</span><span>₹${(item.igst_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-      ` : ""}
-      ${invoice.taxType === "VAT" ? `
-        <div class="row"><span>VAT:</span><span>₹${(item.vat_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-      ` : ""}
-      ${invoice.taxType === "Sales Tax" ? `
-        <div class="row"><span>Sales Tax:</span><span>₹${(item.sales_tax_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-      ` : ""}
-      <div class="row"><span>TDS:</span><span>₹${(item.tds_amount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-      <div class="row total"><span>Total (INR):</span><span>₹${(item.total ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-    `).join('') : ""}
+     <div class="row">
+    <span>Subtotal:</span>
+    <span>${formatPrintMoney(invoice.subtotal)}</span>
   </div>
+
+  ${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST"
+        ? `
+      <div class="row"><span>SGST:</span><span>${formatPrintMoney(
+          invoice.items.reduce((t, i) => t + (i.sgst_amount ?? 0), 0)
+        )}</span></div>
+
+      <div class="row"><span>CGST:</span><span>${formatPrintMoney(
+          invoice.items.reduce((t, i) => t + (i.cgst_amount ?? 0), 0)
+        )}</span></div>
+    `
+        : ""}
+
+  ${invoice.taxType === "GST (India)" && invoice.gstType === "IGST"
+        ? `
+      <div class="row"><span>IGST:</span><span>${formatPrintMoney(
+          invoice.items.reduce((t, i) => t + (i.igst_amount ?? 0), 0)
+        )}</span></div>
+    `
+        : ""}
+
+  ${invoice.taxType === "VAT"
+        ? `
+      <div class="row"><span>VAT:</span><span>${formatPrintMoney(
+          invoice.items.reduce((t, i) => t + (i.vat_amount ?? 0), 0)
+        )}</span></div>
+    `
+        : ""}
+
+  ${invoice.taxType === "Sales Tax"
+        ? `
+      <div class="row"><span>Sales Tax:</span><span>${formatPrintMoney(
+          invoice.items.reduce((t, i) => t + (i.sales_tax_amount ?? 0), 0)
+        )}</span></div>
+    `
+        : ""}
+
+  <div class="row"><span>TDS:</span><span>${formatPrintMoney(
+          invoice.items.reduce((t, i) => t + (i.tds_amount ?? 0), 0)
+        )}</span></div>
+
+  <div class="row total">
+    <span>Total (INR):</span>
+    <span>${formatPrintMoney(invoice.total)}</span>
+  </div>
+</div>
 </div>
 
     <div class="amount-words">
@@ -1513,42 +1698,42 @@ ${invoice.taxType === "GST (India)" && invoice.gstType === "CGST_SGST" ? `<td>�
 </body>
 </html>`;
 
-// Create a temporary container for your invoice HTML
-const container = document.createElement("div");
-container.style.position = "fixed";
-container.style.left = "-9999px";
-container.innerHTML = html;
-document.body.appendChild(container);
+    // Create a temporary container for your invoice HTML
+    const container = document.createElement("div");
+    container.style.position = "fixed";
+    container.style.left = "-9999px";
+    container.innerHTML = html;
+    document.body.appendChild(container);
 
-const element = container.querySelector(".page") as HTMLElement;
-if (!element) return;
+    const element = container.querySelector(".page") as HTMLElement;
+    if (!element) return;
 
-// html2pdf options
-const options = {
-  margin:       10,
-  filename:     `Invoice-${invoice.invoiceNo}.pdf`,
-  image:        { type: 'png', quality: 1 },
-  html2canvas:  { scale: 2, useCORS: true, allowTaint: true },
-  jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-  pagebreak:    { mode: ['css', 'legacy'] } // automatically split pages
-};
+    // html2pdf options
+    const options = {
+      margin: 10,
+      filename: `Invoice-${invoice.invoiceNo}.pdf`,
+      image: { type: 'png', quality: 1 },
+      html2canvas: { scale: 2, useCORS: true, allowTaint: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak: { mode: ['css', 'legacy'] } // automatically split pages
+    };
 
-// Generate PDF
-html2pdf().set(options).from(element).save().finally(() => {
-  document.body.removeChild(container);
+    // Generate PDF
+    html2pdf().set(options).from(element).save().finally(() => {
+      document.body.removeChild(container);
 
-  toast({
-    title: "Invoice Downloaded",
-    description: `Invoice ${invoice.invoiceNo} downloaded as PDF.`,
-  });
-});
-};
+      toast({
+        title: "Invoice Downloaded",
+        description: `Invoice ${invoice.invoiceNo} downloaded as PDF.`,
+      });
+    });
+  };
 
   const addInvoiceItem = () => {
     setInvoiceItems([
       ...invoiceItems,
       {
-         id: String(Date.now()),
+        id: String(Date.now()),
         description: "",
         hsn: "",
         material: "",
@@ -1558,7 +1743,7 @@ html2pdf().set(options).from(element).save().finally(() => {
         sgst: 0,
         cgst: 0,
         tds: 0,
-         discount: 0,
+        discount: 0,
 
         sgst_percent: 9,
         sgst_amount: 0,
@@ -1600,7 +1785,7 @@ html2pdf().set(options).from(element).save().finally(() => {
   const formTaxableBase = formSubtotal + (Number(formFreight) || 0) + (Number(formOtherCharges) || 0);
   const formTaxAmount = (formTaxableBase * effectiveTaxRate) / 100;
   const formGrandTotal = formTaxableBase + formTaxAmount;
-  const currencySym = CURRENCY_OPTIONS.find((c) => c.code === formCurrency)?.sym || "₹";
+  const currencySym = getSymbolFromCurrency(formCurrency);
   const fmt = (n: number) =>
     `${currencySym}${(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -1627,149 +1812,149 @@ html2pdf().set(options).from(element).save().finally(() => {
     return { amount, sgst, cgst, igst, total };
   };
 
- /* useEffect(() => {
-    if (selectedInvoice) {
-      // Customer Info
-      setCustomerName(selectedInvoice.customerName || "");
-      setCustomerPhone(selectedInvoice.customerPhone || "");
-      setCustomerAddress(selectedInvoice.customerAddress || "");
-      setCustomerGSTIN(selectedInvoice.customerGSTIN || "");
+  /* useEffect(() => {
+     if (selectedInvoice) {
+       // Customer Info
+       setCustomerName(selectedInvoice.customerName || "");
+       setCustomerPhone(selectedInvoice.customerPhone || "");
+       setCustomerAddress(selectedInvoice.customerAddress || "");
+       setCustomerGSTIN(selectedInvoice.customerGSTIN || "");
 
-      // Company Info
-      setBusinessName(selectedInvoice.businessName || "");
-      setBusinessPhone(selectedInvoice.businessPhone || "");
-      setBusinessAddress(selectedInvoice.businessAddress || "");
-      setBusinessGSTIN(selectedInvoice.businessGSTIN || "");
-      setBusinessPAN(selectedInvoice.businessPAN || "");
+       // Company Info
+       setBusinessName(selectedInvoice.businessName || "");
+       setBusinessPhone(selectedInvoice.businessPhone || "");
+       setBusinessAddress(selectedInvoice.businessAddress || "");
+       setBusinessGSTIN(selectedInvoice.businessGSTIN || "");
+       setBusinessPAN(selectedInvoice.businessPAN || "");
 
-      // Invoice Dates & Reference
-      setInvoiceDate(selectedInvoice.invoiceDate || "");
-      setDueDate(selectedInvoice.dueDate || "");
-      setReferenceNumber(selectedInvoice.referenceNumber || "");
+       // Invoice Dates & Reference
+       setInvoiceDate(selectedInvoice.invoiceDate || "");
+       setDueDate(selectedInvoice.dueDate || "");
+       setReferenceNumber(selectedInvoice.referenceNumber || "");
 
-      // Contact Info
-      setContactPhone(selectedInvoice.contactPhone || "");
-      setContactEmail(selectedInvoice.contactEmail || "");
+       // Contact Info
+       setContactPhone(selectedInvoice.contactPhone || "");
+       setContactEmail(selectedInvoice.contactEmail || "");
 
-      // Bank Info
-      setBankAccountName(selectedInvoice.bankAccountName || "");
-      setBankAccountNumber(selectedInvoice.bankAccountNumber || "");
-      setBankIFSC(selectedInvoice.bankIFSC || "");
-      setBankName(selectedInvoice.bankName || "");
-      setBankBranch(selectedInvoice.bankBranch || "");
-      setBankAccountType(selectedInvoice.bankAccountType || "");
+       // Bank Info
+       setBankAccountName(selectedInvoice.bankAccountName || "");
+       setBankAccountNumber(selectedInvoice.bankAccountNumber || "");
+       setBankIFSC(selectedInvoice.bankIFSC || "");
+       setBankName(selectedInvoice.bankName || "");
+       setBankBranch(selectedInvoice.bankBranch || "");
+       setBankAccountType(selectedInvoice.bankAccountType || "");
 
-      // Invoice items
-      setInvoiceItems(selectedInvoice.items || []);
+       // Invoice items
+       setInvoiceItems(selectedInvoice.items || []);
 
-      // Terms & Signatory
-      setTerms(selectedInvoice.terms || "");
-      setSignatory(selectedInvoice.signatory || "");
+       // Terms & Signatory
+       setTerms(selectedInvoice.terms || "");
+       setSignatory(selectedInvoice.signatory || "");
 
-      // Tax Info
-      setInvoiceTaxConfig({
-        taxType: selectedInvoice.taxType || "None",
-        gstType: selectedInvoice.gstType || "",
-        placeOfSupply: selectedInvoice.placeOfSupply || "",
-        cessPercent: selectedInvoice.cessPercentage || 0,
-      });
+       // Tax Info
+       setInvoiceTaxConfig({
+         taxType: selectedInvoice.taxType || "None",
+         gstType: selectedInvoice.gstType || "",
+         placeOfSupply: selectedInvoice.placeOfSupply || "",
+         cessPercent: selectedInvoice.cessPercentage || 0,
+       });
 
-      // Recurring Info
-      setIsRecurring(selectedInvoice.recurring || false);
-      setRecurringFrequency(selectedInvoice.frequency || "");
-      setRecurringStartDate(selectedInvoice.startDate || "");
-      setRecurringEndType(selectedInvoice.endAfter ? "occurrences" : selectedInvoice.endDate ? "date" : "");
-      setRecurringOccurrences(selectedInvoice.endAfter || 0);
-      setRecurringEndDate(selectedInvoice.endDate || "");
+       // Recurring Info
+       setIsRecurring(selectedInvoice.recurring || false);
+       setRecurringFrequency(selectedInvoice.frequency || "");
+       setRecurringStartDate(selectedInvoice.startDate || "");
+       setRecurringEndType(selectedInvoice.endAfter ? "occurrences" : selectedInvoice.endDate ? "date" : "");
+       setRecurringOccurrences(selectedInvoice.endAfter || 0);
+       setRecurringEndDate(selectedInvoice.endDate || "");
 
-      // Reminders
-      setSendReminders(selectedInvoice.reminder || false);
-      setReminderDaysBefore(selectedInvoice.reminderDaysBefore || 0);
-      setReminderOnDueDate(selectedInvoice.reminderOnDueDate || false);
-      setReminderAfterEnabled(selectedInvoice.reminderDaysAfter ? true : false);
-      setReminderDaysAfter(selectedInvoice.reminderDaysAfter || 0);
-    } else {
-      // Clear fields for new invoice
-      setCustomerName("");
-      setCustomerPhone("");
-      setCustomerAddress("");
-      setCustomerGSTIN("");
+       // Reminders
+       setSendReminders(selectedInvoice.reminder || false);
+       setReminderDaysBefore(selectedInvoice.reminderDaysBefore || 0);
+       setReminderOnDueDate(selectedInvoice.reminderOnDueDate || false);
+       setReminderAfterEnabled(selectedInvoice.reminderDaysAfter ? true : false);
+       setReminderDaysAfter(selectedInvoice.reminderDaysAfter || 0);
+     } else {
+       // Clear fields for new invoice
+       setCustomerName("");
+       setCustomerPhone("");
+       setCustomerAddress("");
+       setCustomerGSTIN("");
 
-      setBusinessName("");
-      setBusinessPhone("");
-      setBusinessAddress("");
-      setBusinessGSTIN("");
-      setBusinessPAN("");
+       setBusinessName("");
+       setBusinessPhone("");
+       setBusinessAddress("");
+       setBusinessGSTIN("");
+       setBusinessPAN("");
 
-      setInvoiceDate("");
-      setDueDate("");
-      setReferenceNumber("");
+       setInvoiceDate("");
+       setDueDate("");
+       setReferenceNumber("");
 
-      setContactPhone("");
-      setContactEmail("");
+       setContactPhone("");
+       setContactEmail("");
 
-      setBankAccountName("");
-      setBankAccountNumber("");
-      setBankIFSC("");
-      setBankName("");
-      setBankBranch("");
-      setBankAccountType("");
+       setBankAccountName("");
+       setBankAccountNumber("");
+       setBankIFSC("");
+       setBankName("");
+       setBankBranch("");
+       setBankAccountType("");
 
-      setInvoiceItems([]);
+       setInvoiceItems([]);
 
-      setTerms("");
-      setSignatory("");
+       setTerms("");
+       setSignatory("");
 
-      setTaxType("");
-      setPlaceOfSupply("");
-      setGstType("");
-      setCessPercentage(0);
+       setTaxType("");
+       setPlaceOfSupply("");
+       setGstType("");
+       setCessPercentage(0);
 
-      setIsRecurring(false);
-      setRecurringFrequency("");
-      setRecurringStartDate("");
-      setRecurringEndType("");
-      setRecurringOccurrences(0);
-      setRecurringEndDate("");
+       setIsRecurring(false);
+       setRecurringFrequency("");
+       setRecurringStartDate("");
+       setRecurringEndType("");
+       setRecurringOccurrences(0);
+       setRecurringEndDate("");
 
-      setSendReminders(false);
-      setFormIsProforma(false);
-    setFormCurrency("INR");
-    setFormExchangeRate(1);
-     setFormOrderRef("");
-    setFormContactPerson("");
-    setFormCustomerEmail("");
-    setFormShipAddress("");
-    setFormDeliveryDate("");
-    setFormDispatchVia("");
-    setFormTaxScheme("gst");
-    setFormTaxRate("18");
-    setFormCustomTaxRate(0);
-    setFormFreight(0);
-    setFormOtherCharges(0);
-    setFormPaymentTerms("30 Days Net");
-    setFormBankInfo("");
-    setFormInternalRemarks("");
-      setReminderDaysBefore(0);
-      setReminderOnDueDate(false);
-      setReminderAfterEnabled(false);
-      setReminderDaysAfter(0);
-    }
-  }, [selectedInvoice]);
-*/
+       setSendReminders(false);
+       setFormIsProforma(false);
+     setFormCurrency("INR");
+     setFormExchangeRate(1);
+      setFormOrderRef("");
+     setFormContactPerson("");
+     setFormCustomerEmail("");
+     setFormShipAddress("");
+     setFormDeliveryDate("");
+     setFormDispatchVia("");
+     setFormTaxScheme("gst");
+     setFormTaxRate("18");
+     setFormCustomTaxRate(0);
+     setFormFreight(0);
+     setFormOtherCharges(0);
+     setFormPaymentTerms("30 Days Net");
+     setFormBankInfo("");
+     setFormInternalRemarks("");
+       setReminderDaysBefore(0);
+       setReminderOnDueDate(false);
+       setReminderAfterEnabled(false);
+       setReminderDaysAfter(0);
+     }
+   }, [selectedInvoice]);
+ */
 
 
   const openEditInvoice = (invoice: any) => {
 
     console.log("Full Invoice Object:", invoice);
-   console.log("Invoice object passed to edit:", invoice);
-  console.log("invoice.order_reference:", invoice.recurringEndDate);
+    console.log("Invoice object passed to edit:", invoice);
+    console.log("invoice.order_reference:", invoice.recurringEndDate);
     setSelectedInvoice(invoice);
 
-     setCustomerId(invoice.customerId  || "");
+    setCustomerId(invoice.customerId || "");
 
     // Prefill all form states
-  setFormCustomerName(invoice.customerName || "");
+    setFormCustomerName(invoice.customerName || "");
     setCustomerPhone(invoice.customerPhone || "");
     setFormCustomerAddress(invoice.customerAddress || "");
     setFormCustomerGSTIN(invoice.customerGSTIN || "");
@@ -1781,7 +1966,7 @@ html2pdf().set(options).from(element).save().finally(() => {
     setBusinessGSTIN(invoice.businessGSTIN || "");
     setBusinessPAN(invoice.businessPAN || "");
 
-     setInvoiceNumber(invoice.invoiceNo || "");
+    setInvoiceNumber(invoice.invoiceNo || "");
     setInvoiceDate(invoice.invoiceDate.split("T")[0]); // simplest
     setDueDate(invoice.dueDate.split("T")[0]);
     setReferenceNumber(invoice.referenceNumber || "");
@@ -1790,7 +1975,7 @@ html2pdf().set(options).from(element).save().finally(() => {
     setContactEmail(invoice.ontactEmail || "");
 
 
-      setFormOrderRef(invoice.formOrderRef ?? "");
+    setFormOrderRef(invoice.formOrderRef ?? "");
 
 
     setBankAccountName(invoice.bankAccountName || "");
@@ -1814,15 +1999,15 @@ html2pdf().set(options).from(element).save().finally(() => {
 
 
     setFormDeliveryDate(invoice.formDeliveryDate.split("T")[0] || "");
-  setFormDispatchVia(invoice.formDispatchVia || "");
+    setFormDispatchVia(invoice.formDispatchVia || "");
 
     setFormContactPerson(invoice.formContactPerson || "");
-      setFormCustomerEmail(invoice.formCustomerEmail || "");
+    setFormCustomerEmail(invoice.formCustomerEmail || "");
 
-        setFormFreight(invoice.formFreight || 0);
-  setFormOtherCharges(invoice.formOtherCharges || 0);
-  setFormNotes(invoice.formNotes || "");
-  setFormInternalRemarks(invoice.formInternalRemarks || "");
+    setFormFreight(invoice.formFreight || 0);
+    setFormOtherCharges(invoice.formOtherCharges || 0);
+    setFormNotes(invoice.formNotes || "");
+    setFormInternalRemarks(invoice.formInternalRemarks || "");
 
 
     setIsRecurring(invoice.recurring || true);
@@ -1830,7 +2015,7 @@ html2pdf().set(options).from(element).save().finally(() => {
     setRecurringStartDate(invoice.recurringStartDate.split("T")[0] || "");
     setRecurringEndType(invoice.recurringEndType ? "occurrences" : invoice.endDate ? "date" : "");
     setRecurringOccurrences(invoice.recurringOccurrences || 0);
-setRecurringEndDate(invoice.recurringEndDate?.split("T")[0] || "");
+    setRecurringEndDate(invoice.recurringEndDate?.split("T")[0] || "");
 
     setSendReminders(invoice.reminder || true);
     setReminderDaysBefore(invoice.reminderDaysBefore || 0);
@@ -1838,657 +2023,657 @@ setRecurringEndDate(invoice.recurringEndDate?.split("T")[0] || "");
     setReminderAfterEnabled(invoice.reminderDaysAfter ? true : false);
     setReminderDaysAfter(invoice.reminderDaysAfter || 0);
 
-setFormIsProforma(
-  invoice.type === "proforma" ||
-  invoice.formIsProforma === "proforma"
-);
+    setFormIsProforma(
+      invoice.type === "proforma" ||
+      invoice.formIsProforma === "proforma"
+    );
     setFormCurrency(invoice.formCurrency || "INR");
     setFormExchangeRate(invoice.formExchangeRate ?? 1);
     setIsCreateDialogOpen(true); // finally open modal
   };
 
- /* const handleCreateInvoice = async (status: "Draft" | "Pending" = "Pending") => {
-    // Validate that at least one item exists
-    if (invoiceItems.length === 0) {
-      toast({
-        title: "Error",
-        description: "Add at least one invoice item.",
-        variant: "destructive",
-      });
-      return;
-    }
+  /* const handleCreateInvoice = async (status: "Draft" | "Pending" = "Pending") => {
+     // Validate that at least one item exists
+     if (invoiceItems.length === 0) {
+       toast({
+         title: "Error",
+         description: "Add at least one invoice item.",
+         variant: "destructive",
+       });
+       return;
+     }
 
-    const missingFields: string[] = [];
+     const missingFields: string[] = [];
 
-    if (!String(customerName ?? "").trim()) missingFields.push("Customer Name");
-    if (!(customerPhone ?? "").trim()) missingFields.push("Cusomer Mobile");
+     if (!String(customerName ?? "").trim()) missingFields.push("Customer Name");
+     if (!(customerPhone ?? "").trim()) missingFields.push("Cusomer Mobile");
 
-    if (!(customerAddress ?? "").trim()) missingFields.push("Cusomer Address");
-    if (!invoiceDate) missingFields.push("Invoice Date");
-    if (!dueDate) missingFields.push("Due Date");
-    if (!String(businessName ?? "").trim()) missingFields.push("Company Name");
+     if (!(customerAddress ?? "").trim()) missingFields.push("Cusomer Address");
+     if (!invoiceDate) missingFields.push("Invoice Date");
+     if (!dueDate) missingFields.push("Due Date");
+     if (!String(businessName ?? "").trim()) missingFields.push("Company Name");
 
-    if (!(businessAddress ?? "").trim()) missingFields.push("Company Address");
-    if (!(businessPhone ?? "").trim()) missingFields.push("Company Mobile");
-    if (!(contactEmail ?? "").trim()) missingFields.push("Company Email");
-    if (missingFields.length > 0) {
-      toast({
-        title: "Missing Required Fields",
-        description: `Please fill in: ${missingFields.join(", ")}`,
-        variant: "destructive",
-      });
-      return;
-    }
+     if (!(businessAddress ?? "").trim()) missingFields.push("Company Address");
+     if (!(businessPhone ?? "").trim()) missingFields.push("Company Mobile");
+     if (!(contactEmail ?? "").trim()) missingFields.push("Company Email");
+     if (missingFields.length > 0) {
+       toast({
+         title: "Missing Required Fields",
+         description: `Please fill in: ${missingFields.join(", ")}`,
+         variant: "destructive",
+       });
+       return;
+     }
 
-    // Phone validation (10 digits)
-    const phone = String(customerPhone ?? "").replace(/\D/g, ""); // remove non-digits
-    if (!/^\d{10}$/.test(phone)) {
-      toast({
-        title: "Invalid Phone Number",
-        description: "Customer Phone number must be exactly 10 digits",
-        variant: "destructive",
-      });
-      return;
-    }
-
-
-    const mobile = String(businessPhone ?? "").replace(/\D/g, ""); // remove non-digits
-    if (!/^\d{10}$/.test(mobile)) {
-      toast({
-        title: "Invalid Phone Number",
-        description: "Company Phone number must be exactly 10 digits",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const mobile2 = String(contactPhone ?? "").replace(/\D/g, "");
-
-    // Only validate if user typed something
-    if (mobile2.length > 0 && !/^\d{10}$/.test(mobile2)) {
-      toast({
-        title: "Invalid Phone Number",
-        description: "Contact Phone number must be exactly 10 digits",
-        variant: "destructive",
-      });
-      return;
-    }
+     // Phone validation (10 digits)
+     const phone = String(customerPhone ?? "").replace(/\D/g, ""); // remove non-digits
+     if (!/^\d{10}$/.test(phone)) {
+       toast({
+         title: "Invalid Phone Number",
+         description: "Customer Phone number must be exactly 10 digits",
+         variant: "destructive",
+       });
+       return;
+     }
 
 
+     const mobile = String(businessPhone ?? "").replace(/\D/g, ""); // remove non-digits
+     if (!/^\d{10}$/.test(mobile)) {
+       toast({
+         title: "Invalid Phone Number",
+         description: "Company Phone number must be exactly 10 digits",
+         variant: "destructive",
+       });
+       return;
+     }
 
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (contactEmail && !emailRegex.test(contactEmail)) {
-      toast({
-        title: "Invalid Email",
-        description: "Please enter a valid email address",
-        variant: "destructive",
-      });
-      return;
-    }
+     const mobile2 = String(contactPhone ?? "").replace(/\D/g, "");
 
-    // Invoice & Due Date validation
-    const invoiceDt = new Date(invoiceDate);
-    const dueDt = new Date(dueDate);
-    if (isNaN(invoiceDt.getTime()) || isNaN(dueDt.getTime())) {
-      toast({
-        title: "Invalid Date",
-        description: "Invoice date or due date is invalid",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (dueDt < invoiceDt) {
-      toast({
-        title: "Invalid Due Date",
-        description: "Due date cannot be before invoice date",
-        variant: "destructive",
-      });
-      return;
-    }
+     // Only validate if user typed something
+     if (mobile2.length > 0 && !/^\d{10}$/.test(mobile2)) {
+       toast({
+         title: "Invalid Phone Number",
+         description: "Contact Phone number must be exactly 10 digits",
+         variant: "destructive",
+       });
+       return;
+     }
+
+
+
+     // Email validation
+     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+     if (contactEmail && !emailRegex.test(contactEmail)) {
+       toast({
+         title: "Invalid Email",
+         description: "Please enter a valid email address",
+         variant: "destructive",
+       });
+       return;
+     }
+
+     // Invoice & Due Date validation
+     const invoiceDt = new Date(invoiceDate);
+     const dueDt = new Date(dueDate);
+     if (isNaN(invoiceDt.getTime()) || isNaN(dueDt.getTime())) {
+       toast({
+         title: "Invalid Date",
+         description: "Invoice date or due date is invalid",
+         variant: "destructive",
+       });
+       return;
+     }
+     if (dueDt < invoiceDt) {
+       toast({
+         title: "Invalid Due Date",
+         description: "Due date cannot be before invoice date",
+         variant: "destructive",
+       });
+       return;
+     }
+
+     try {
+       // Prepare items, only including what the user entered
+       const itemsWithTotals = invoiceItems.map(item => {
+         const quantity = Number(item.quantity) || 0;
+         const unit_price = Number(item.rate) || 0;
+
+         const amount = quantity * unit_price;
+         // Initialize all tax fields
+         let cgst_percent = 0, cgst_amount = 0;
+         let sgst_percent = 0, sgst_amount = 0;
+         let igst_percent = 0, igst_amount = 0;
+         let vat_percent = 0, vat_amount = 0;
+         let sales_tax_percent = 0, sales_tax_amount = 0;
+
+         // Conditional logic based on invoiceTaxConfig
+         if (invoiceTaxConfig.taxType === "GST (India)") {
+           if (invoiceTaxConfig.gstType === "CGST_SGST") {
+             cgst_percent = 9;
+             sgst_percent = 9;
+             cgst_amount = parseFloat((amount * cgst_percent / 100).toFixed(2));
+             sgst_amount = parseFloat((amount * sgst_percent / 100).toFixed(2));
+           } else if (invoiceTaxConfig.gstType === "IGST") {
+             igst_percent = 18;
+             igst_amount = parseFloat((amount * igst_percent / 100).toFixed(2));
+           }
+         } else if (invoiceTaxConfig.taxType === "VAT") {
+           vat_percent = 12;
+           vat_amount = parseFloat((amount * vat_percent / 100).toFixed(2));
+         } else if (invoiceTaxConfig.taxType === "Sales Tax") {
+           sales_tax_percent = 10;
+           sales_tax_amount = parseFloat((amount * sales_tax_percent / 100).toFixed(2));
+         }
+         const tax_amount = sgst_amount + cgst_amount + igst_amount + vat_amount + sales_tax_amount;
+
+         const tds_amount = Number(item.tds) || 0;
+         const total = parseFloat((amount + tax_amount - tds_amount).toFixed(2));
+
+
+         return {
+
+           item_code: item.material || undefined,                // optional code, using material if available
+           item: item.description || item.material || undefined, // frontend "item_name" -> backend "item"
+           description: item.description || undefined,          // keeps description
+           hsn: item.hsn || undefined,                           // HSN/SAC code
+           material: item.material || undefined,                // material field
+           quantity: Number(item.quantity) || 0,                // numeric quantity
+           rate: Number(item.rate) || 0,                  // numeric rate/unit price
+           sgst_percent: 9,                                     // default SGST %
+           sgst_amount,            // SGST amount
+           cgst_percent: 9,                                     // default CGST %
+           cgst_amount,            // CGST amount
+           total,                      // total after taxes
+           tax_amount,             // total tax amount (SGST + CGST)
+           tds_amount,
+
+
+           igst_percent,
+           igst_amount,
+           vat_percent,
+           vat_amount,
+           sales_tax_percent,
+           sales_tax_amount,
+         };
+       });
+
+       // Compute totals
+
+       const subtotal = itemsWithTotals.reduce((sum, i) => sum + i.rate, 0);
+       const sgstTotal = itemsWithTotals.reduce((sum, i) => sum + i.sgst_amount, 0);
+       const cgstTotal = itemsWithTotals.reduce((sum, i) => sum + i.cgst_amount, 0);
+       const igstTotal = itemsWithTotals.reduce((sum, i) => sum + i.igst_amount, 0);
+       const vatTotal = itemsWithTotals.reduce((sum, i) => sum + i.vat_amount, 0);
+       const salesTaxTotal = itemsWithTotals.reduce((sum, i) => sum + i.sales_tax_amount, 0);
+
+       const totalAmount = subtotal + sgstTotal + cgstTotal + igstTotal + vatTotal + salesTaxTotal;
+       const taxAmount = itemsWithTotals.reduce((sum, i) => sum + i.sgst_amount + i.cgst_amount, 0);
+       const tdsTotal = itemsWithTotals.reduce((sum, i) => sum + i.tds_amount, 0);
+
+
+       // Prepare payload with only user-provided values
+       const newInvoice: any = {};
+
+       newInvoice.invoice_number = generateInvoiceNumber(invoices);
+
+       if (invoiceDate) newInvoice.invoice_date = invoiceDate;
+       if (dueDate) newInvoice.due_date = dueDate;
+       if (referenceNumber) newInvoice.reference_number = referenceNumber;
+       if (customerName) newInvoice.customer_name = customerName;
+       if (customerGSTIN) newInvoice.customer_gstin = customerGSTIN;
+       if (customerAddress) newInvoice.customer_address = customerAddress;
+       if (customerPhone) newInvoice.customer_phone = customerPhone;
+
+       if (businessName) newInvoice.company_name = businessName;
+       if (businessGSTIN) newInvoice.company_gstin = businessGSTIN;
+       if (businessAddress) newInvoice.company_address = businessAddress;
+       if (businessPhone) newInvoice.company_phone = businessPhone;
+       if (businessPAN) newInvoice.company_pan = businessPAN;
+
+       if (bankAccountName) newInvoice.account_name = bankAccountName;
+       if (bankAccountNumber) newInvoice.account_number = bankAccountNumber;
+       if (bankIFSC) newInvoice.ifsc_code = bankIFSC;
+       if (bankName) newInvoice.bank_name = bankName;
+       if (bankBranch) newInvoice.branch_name = bankBranch;
+       if (bankAccountType) newInvoice.account_type = bankAccountType;
+
+       if (contactPhone) newInvoice.contact_phone = contactPhone;
+       if (contactEmail) newInvoice.contact_email = contactEmail;
+
+       if (taxType) newInvoice.tax_type = taxType;
+       if (placeOfSupply) newInvoice.place_of_supply = placeOfSupply;
+       if (gstType) newInvoice.gst_type = gstType;
+       if (cessPercentage) newInvoice.cess_percentage = cessPercentage;
+
+       if (isRecurring) {
+         newInvoice.recurring = true;
+         newInvoice.frequency = recurringFrequency;
+         newInvoice.start_date = recurringStartDate;
+
+         if (recurringEndType === "occurrences") newInvoice.end_after = recurringOccurrences;
+         if (recurringEndType === "date") newInvoice.end_date = recurringEndDate;
+       }
+
+       if (sendReminders) {
+         newInvoice.reminder = true;
+         newInvoice.before_due_days = Number(reminderDaysBefore) || 0;
+         newInvoice.on_due_date = reminderOnDueDate;
+         if (reminderAfterEnabled) newInvoice.overdue_reminder_days = Number(reminderDaysAfter) || 0;
+       }
+       newInvoice.tax_type = invoiceTaxConfig.taxType || "None";
+       newInvoice.place_of_supply = invoiceTaxConfig.placeOfSupply || "";
+       newInvoice.gst_type = invoiceTaxConfig.gstType || "";
+       newInvoice.cess_percentage = invoiceTaxConfig.cessPercent || 0;
+
+       newInvoice.terms = terms;
+       newInvoice.signatory = signatory;
+       newInvoice.items = itemsWithTotals;
+       newInvoice.subtotal = subtotal;
+       newInvoice.tax_amount = taxAmount;
+       newInvoice.total_amount = totalAmount;
+       newInvoice.amount_paid = 0;
+       newInvoice.payments = [];
+       newInvoice.status = status;
+
+
+       newInvoice.sgst_total = sgstTotal;
+       newInvoice.cgst_total = cgstTotal;
+       newInvoice.igst_total = igstTotal;
+       newInvoice.vat_total = vatTotal;           // ✅ ADD THIS
+       newInvoice.sales_tax_total = salesTaxTotal; // ✅ ADD THIS
+       newInvoice.tds_total = tdsTotal;
+
+       console.log("Payload being sent:", JSON.stringify(newInvoice, null, 2));
+
+       const response = await axios.post("/api/invoices", newInvoice);
+
+       // Update local state
+       setInvoices(prev => [
+         ...prev,
+         {
+           ...response.data,
+           invoiceNo: response.data.invoice_number,
+           invoiceDate: response.data.invoice_date,
+           dueDate: response.data.due_date,
+           referenceNo: response.data.reference_number,
+           customerName: response.data.customer_name,
+           customerGSTIN: response.data.customer_gstin,
+           customerAddress: response.data.customer_address,
+           customerPhone: response.data.customer_phone,
+           businessName: response.data.company_name,
+           businessGSTIN: response.data.company_gstin,
+           businessAddress: response.data.company_address,
+           businessPhone: response.data.company_phone,
+           businessPAN: response.data.company_pan,
+           contactPhone: response.data.contact_phone,
+           contactEmail: response.data.contact_email,
+           terms: response.data.terms,
+           signatory: response.data.signatory,
+           sgstTotal: response.data.tax_amount / 2,
+           cgstTotal: response.data.tax_amount / 2,
+           igstTotal: parseFloat(response.data.igst_total || 0),
+           vatTotal: parseFloat(response.data.vat_total || 0),
+           salesTaxTotal: parseFloat(response.data.sales_tax_total || 0),
+           total: response.data.total_amount,
+           amountPaid: response.data.amount_paid,
+           bankAccountName: response.data.account_name,
+           bankAccountNumber: response.data.account_number,
+           bankIFSC: response.data.ifsc_code,
+           bankName: response.data.bank_name,
+           bankBranch: response.data.branch_name,
+           bankAccountType: response.data.account_type,
+           items: response.data.items || [],
+           payments: response.data.payments || [],
+           taxType: response.data.tax_type,
+           placeOfSupply: response.data.place_of_supply,
+           gstType: response.data.gst_type,
+           cessPercentage: response.data.cess_percentage,
+           frequency: response.data.frequency,
+           startDate: response.data.start_date,
+           endAfter: response.data.end_after,
+           endDate: response.data.end_date,
+           beforeDueDays: response.data.before_due_days,
+           overdueReminderDays: response.data.overdue_reminder_days,
+           reminderOnDueDate: response.data.on_due_date,
+           tdsTotal: parseFloat(response.data.tds_total || 0),
+         },
+       ]);
+
+       toast({
+         title: "Invoice Created",
+         description: `Invoice ${response.data.invoice_number} created successfully.`,
+       });
+
+       // Reset form
+       setIsCreateDialogOpen(false);
+       setInvoiceItems([]);
+     } catch (error: any) {
+       console.error("Invoice creation failed:", error.response?.data || error.message);
+       toast({
+         title: "Error",
+         description: `Failed to create invoice. ${error.response?.data?.message || ""}`,
+         variant: "destructive",
+       });
+     }
+   };  */
+
+  const handleSaveInvoice = async (
+    status: "Draft" | "Pending" = "Pending"
+  ) => {
+    const getErrorMessage = (error: any): string => {
+      if (error.response) {
+        const data = error.response.data;
+
+        if (data?.message) return data.message;
+
+        if (data?.errors) {
+          return Object.entries(data.errors)
+            .map(([field, msg]: [string, any]) =>
+              `${field}: ${Array.isArray(msg) ? msg.join(", ") : msg}`
+            )
+            .join("; ");
+        }
+
+        return JSON.stringify(data);
+      }
+
+      return error.message || "An unknown error occurred.";
+    };
 
     try {
-      // Prepare items, only including what the user entered
-      const itemsWithTotals = invoiceItems.map(item => {
+      // ========================
+      // 1️⃣ VALIDATION
+      // ========================
+      if (!invoiceItems || invoiceItems.length === 0) {
+        toast({
+          title: "Error",
+          description: "Add at least one invoice item.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!invoiceDate || !dueDate) {
+        toast({
+          title: "Missing Date",
+          description: "Invoice date and due date are required.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const invoiceDt = new Date(invoiceDate);
+      const dueDt = new Date(dueDate);
+
+      if (Number.isNaN(invoiceDt.getTime()) || Number.isNaN(dueDt.getTime())) {
+        toast({
+          title: "Invalid Date",
+          description: "Please select valid dates.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (dueDt < invoiceDt) {
+        toast({
+          title: "Invalid Due Date",
+          description: "Due date cannot be before invoice date.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (formCustomerEmail && !emailRegex.test(formCustomerEmail)) {
+        toast({
+          title: "Invalid Email",
+          description: "Enter a valid email address.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // ========================
+      // 2️⃣ ITEM CALCULATION
+      // ========================
+
+      const itemsWithTotals = invoiceItems.map((item) => {
         const quantity = Number(item.quantity) || 0;
-        const unit_price = Number(item.rate) || 0;
+        const rate = Number(item.rate) || 0;
+        const shipping = Number(item.shipping) || 0;
 
-        const amount = quantity * unit_price;
-        // Initialize all tax fields
-        let cgst_percent = 0, cgst_amount = 0;
-        let sgst_percent = 0, sgst_amount = 0;
-        let igst_percent = 0, igst_amount = 0;
-        let vat_percent = 0, vat_amount = 0;
-        let sales_tax_percent = 0, sales_tax_amount = 0;
+        const amount = quantity * rate;
 
-        // Conditional logic based on invoiceTaxConfig
+        let cgst_amount = 0,
+          sgst_amount = 0,
+          igst_amount = 0,
+          vat_amount = 0,
+          sales_tax_amount = 0;
+
         if (invoiceTaxConfig.taxType === "GST (India)") {
           if (invoiceTaxConfig.gstType === "CGST_SGST") {
-            cgst_percent = 9;
-            sgst_percent = 9;
-            cgst_amount = parseFloat((amount * cgst_percent / 100).toFixed(2));
-            sgst_amount = parseFloat((amount * sgst_percent / 100).toFixed(2));
-          } else if (invoiceTaxConfig.gstType === "IGST") {
-            igst_percent = 18;
-            igst_amount = parseFloat((amount * igst_percent / 100).toFixed(2));
+            cgst_amount = amount * 0.09;
+            sgst_amount = amount * 0.09;
+          } else {
+            igst_amount = amount * 0.18;
           }
         } else if (invoiceTaxConfig.taxType === "VAT") {
-          vat_percent = 12;
-          vat_amount = parseFloat((amount * vat_percent / 100).toFixed(2));
+          vat_amount = amount * 0.12;
         } else if (invoiceTaxConfig.taxType === "Sales Tax") {
-          sales_tax_percent = 10;
-          sales_tax_amount = parseFloat((amount * sales_tax_percent / 100).toFixed(2));
+          sales_tax_amount = amount * 0.1;
         }
-        const tax_amount = sgst_amount + cgst_amount + igst_amount + vat_amount + sales_tax_amount;
+
+        const tax_amount =
+          cgst_amount +
+          sgst_amount +
+          igst_amount +
+          vat_amount +
+          sales_tax_amount;
 
         const tds_amount = Number(item.tds) || 0;
-        const total = parseFloat((amount + tax_amount - tds_amount).toFixed(2));
 
+        const total = amount + tax_amount - tds_amount + shipping;
 
         return {
-
-          item_code: item.material || undefined,                // optional code, using material if available
-          item: item.description || item.material || undefined, // frontend "item_name" -> backend "item"
-          description: item.description || undefined,          // keeps description
-          hsn: item.hsn || undefined,                           // HSN/SAC code
-          material: item.material || undefined,                // material field
-          quantity: Number(item.quantity) || 0,                // numeric quantity
-          rate: Number(item.rate) || 0,                  // numeric rate/unit price
-          sgst_percent: 9,                                     // default SGST %
-          sgst_amount,            // SGST amount
-          cgst_percent: 9,                                     // default CGST %
-          cgst_amount,            // CGST amount
-          total,                      // total after taxes
-          tax_amount,             // total tax amount (SGST + CGST)
-          tds_amount,
-
-
-          igst_percent,
+          ...item,
+          quantity,
+          rate,
+          amount,
+          shipping,
+          cgst_amount,
+          sgst_amount,
           igst_amount,
-          vat_percent,
           vat_amount,
-          sales_tax_percent,
           sales_tax_amount,
+          tax_amount,
+          tds_amount,
+          total: +total.toFixed(2),
         };
       });
 
-      // Compute totals
+      // ========================
+      // 3️⃣ TOTALS
+      // ========================
 
-      const subtotal = itemsWithTotals.reduce((sum, i) => sum + i.rate, 0);
-      const sgstTotal = itemsWithTotals.reduce((sum, i) => sum + i.sgst_amount, 0);
-      const cgstTotal = itemsWithTotals.reduce((sum, i) => sum + i.cgst_amount, 0);
-      const igstTotal = itemsWithTotals.reduce((sum, i) => sum + i.igst_amount, 0);
-      const vatTotal = itemsWithTotals.reduce((sum, i) => sum + i.vat_amount, 0);
-      const salesTaxTotal = itemsWithTotals.reduce((sum, i) => sum + i.sales_tax_amount, 0);
+      const subtotal = itemsWithTotals.reduce((s, i) => s + i.amount, 0);
 
-      const totalAmount = subtotal + sgstTotal + cgstTotal + igstTotal + vatTotal + salesTaxTotal;
-      const taxAmount = itemsWithTotals.reduce((sum, i) => sum + i.sgst_amount + i.cgst_amount, 0);
-      const tdsTotal = itemsWithTotals.reduce((sum, i) => sum + i.tds_amount, 0);
+      const sgstTotal = itemsWithTotals.reduce((s, i) => s + i.sgst_amount, 0);
+      const cgstTotal = itemsWithTotals.reduce((s, i) => s + i.cgst_amount, 0);
+      const igstTotal = itemsWithTotals.reduce((s, i) => s + i.igst_amount, 0);
+      const vatTotal = itemsWithTotals.reduce((s, i) => s + i.vat_amount, 0);
+      const salesTaxTotal = itemsWithTotals.reduce(
+        (s, i) => s + i.sales_tax_amount,
+        0
+      );
 
+      const tdsTotal = itemsWithTotals.reduce((s, i) => s + i.tds_amount, 0);
+      const shippingTotal = itemsWithTotals.reduce((s, i) => s + i.shipping, 0);
 
-      // Prepare payload with only user-provided values
-      const newInvoice: any = {};
+      const taxAmount =
+        sgstTotal + cgstTotal + igstTotal + vatTotal + salesTaxTotal;
 
-      newInvoice.invoice_number = generateInvoiceNumber(invoices);
+      const freight = Number(formFreight) || 0;
+      const otherCharges = Number(formOtherCharges) || 0;
 
-      if (invoiceDate) newInvoice.invoice_date = invoiceDate;
-      if (dueDate) newInvoice.due_date = dueDate;
-      if (referenceNumber) newInvoice.reference_number = referenceNumber;
-      if (customerName) newInvoice.customer_name = customerName;
-      if (customerGSTIN) newInvoice.customer_gstin = customerGSTIN;
-      if (customerAddress) newInvoice.customer_address = customerAddress;
-      if (customerPhone) newInvoice.customer_phone = customerPhone;
+      const baseTotal =
+        subtotal +
+        taxAmount -
+        tdsTotal +
+        shippingTotal +
+        freight +
+        otherCharges;
 
-      if (businessName) newInvoice.company_name = businessName;
-      if (businessGSTIN) newInvoice.company_gstin = businessGSTIN;
-      if (businessAddress) newInvoice.company_address = businessAddress;
-      if (businessPhone) newInvoice.company_phone = businessPhone;
-      if (businessPAN) newInvoice.company_pan = businessPAN;
+      const exchange = Number(exchangeRate) || 1;
 
-      if (bankAccountName) newInvoice.account_name = bankAccountName;
-      if (bankAccountNumber) newInvoice.account_number = bankAccountNumber;
-      if (bankIFSC) newInvoice.ifsc_code = bankIFSC;
-      if (bankName) newInvoice.bank_name = bankName;
-      if (bankBranch) newInvoice.branch_name = bankBranch;
-      if (bankAccountType) newInvoice.account_type = bankAccountType;
+      const totalAmount =
+        currency === "INR" ? baseTotal : baseTotal * exchange;
 
-      if (contactPhone) newInvoice.contact_phone = contactPhone;
-      if (contactEmail) newInvoice.contact_email = contactEmail;
+      // ========================
+      // 4️⃣ INVOICE NUMBER
+      // ========================
 
-      if (taxType) newInvoice.tax_type = taxType;
-      if (placeOfSupply) newInvoice.place_of_supply = placeOfSupply;
-      if (gstType) newInvoice.gst_type = gstType;
-      if (cessPercentage) newInvoice.cess_percentage = cessPercentage;
+      const invoiceNumber =
+        selectedInvoice?.invoice_number ||
+        generateInvoiceNumber(invoices);
 
+      // ========================
+      // 5️⃣ PAYLOAD
+      // ========================
+
+      const payload: any = {
+        invoice_date: invoiceDate,
+        due_date: dueDate,
+        delivery_date: formDeliveryDate || null,
+        dispatch_type: formDispatchVia || null,
+
+        customer_id: customerId ? Number(customerId) : null,
+        customer_name: formCustomerName,
+        customer_phone: formCustomerPhone,
+        customer_email: formCustomerEmail || null,
+        contact_person: formContactPerson || null,
+
+        customer_address: formCustomerAddress,
+        billing_address: formCustomerAddress || null,
+        delivery_address: formShipAddress || null,
+        customer_gstin: formCustomerGSTIN,
+
+        company_name: businessName,
+        company_phone: businessPhone,
+        company_address: businessAddress,
+        company_gstin: businessGSTIN,
+        company_pan: businessPAN,
+
+        contact_phone: contactPhone,
+        contact_email: contactEmail,
+
+        bank_name: bankName,
+        notes: formNotes,
+
+        currency: formCurrency || "INR",
+        exchange_rate: formExchangeRate,
+        order_reference: (formOrderRef ?? "").trim() || null,
+
+        tax_type: invoiceTaxConfig.taxType,
+        gst_type: invoiceTaxConfig.gstType,
+
+        items: itemsWithTotals,
+
+        invoice_number: invoiceNumber,
+
+        subtotal,
+        tax_amount: taxAmount,
+        total_amount: totalAmount,
+
+        sgst_total: sgstTotal,
+        cgst_total: cgstTotal,
+        igst_total: igstTotal,
+        vat_total: vatTotal,
+        sales_tax_total: salesTaxTotal,
+        tds_total: tdsTotal,
+
+        shipping_charge: formFreight || 0,
+        freight,
+        other_charges: otherCharges,
+
+        amount_paid: 0,
+        payments: [],
+
+        terms,
+        signatory,
+        remarks: formInternalRemarks || null,
+        status: status,
+
+        // Recurring fields - Safer handling to avoid 422
+        frequency: isRecurring ? recurringFrequency : null,
+        start_date: isRecurring && recurringStartDate ? recurringStartDate : null,
+        end_after: isRecurring && recurringEndType === "occurrences" && recurringOccurrences
+          ? Number(recurringOccurrences)
+          : null,
+        end_date: isRecurring && recurringEndType === "date" && recurringEndDate
+          ? recurringEndDate
+          : null,
+
+        reminder: Boolean(sendReminders),
+        before_due_days: sendReminders && reminderDaysBefore ? Number(reminderDaysBefore) : null,
+        reminder_on_due_date: Boolean(sendReminders && reminderOnDueDate),
+        overdue_reminder_days: reminderAfterEnabled && reminderDaysAfter
+          ? Number(reminderDaysAfter)
+          : null,
+
+        type: formIsProforma ? "proforma" : "invoice",
+      };
+
+      console.log("🚀 FINAL PAYLOAD:", payload);
+
+      // ========================
+      // 6️⃣ API CALL
+      // ========================
+
+      let response: AxiosResponse<Invoice>;
+
+      if (selectedInvoice?.id) {
+        response = await axios.put(`/api/invoices/${selectedInvoice.id}`, payload);
+        setInvoices((prev) =>
+          prev.map((inv) => (inv.id === selectedInvoice.id ? response.data : inv))
+        );
+      } else {
+        response = await axios.post("/api/invoices", payload);
+        setInvoices((prev) => [...prev, response.data]);
+      }
+
+      // Save Recurring if enabled
       if (isRecurring) {
-        newInvoice.recurring = true;
-        newInvoice.frequency = recurringFrequency;
-        newInvoice.start_date = recurringStartDate;
-
-        if (recurringEndType === "occurrences") newInvoice.end_after = recurringOccurrences;
-        if (recurringEndType === "date") newInvoice.end_date = recurringEndDate;
+        try {
+          await saveRecurringInvoice(response.data);
+        } catch (recErr) {
+          console.warn("Recurring save warning:", recErr);
+        }
       }
 
-      if (sendReminders) {
-        newInvoice.reminder = true;
-        newInvoice.before_due_days = Number(reminderDaysBefore) || 0;
-        newInvoice.on_due_date = reminderOnDueDate;
-        if (reminderAfterEnabled) newInvoice.overdue_reminder_days = Number(reminderDaysAfter) || 0;
-      }
-      newInvoice.tax_type = invoiceTaxConfig.taxType || "None";
-      newInvoice.place_of_supply = invoiceTaxConfig.placeOfSupply || "";
-      newInvoice.gst_type = invoiceTaxConfig.gstType || "";
-      newInvoice.cess_percentage = invoiceTaxConfig.cessPercent || 0;
+      // Refresh both lists
+      await fetchInvoices();
+      await fetchRecurringInvoices();
 
-      newInvoice.terms = terms;
-      newInvoice.signatory = signatory;
-      newInvoice.items = itemsWithTotals;
-      newInvoice.subtotal = subtotal;
-      newInvoice.tax_amount = taxAmount;
-      newInvoice.total_amount = totalAmount;
-      newInvoice.amount_paid = 0;
-      newInvoice.payments = [];
-      newInvoice.status = status;
+      // Success Message
 
 
-      newInvoice.sgst_total = sgstTotal;
-      newInvoice.cgst_total = cgstTotal;
-      newInvoice.igst_total = igstTotal;
-      newInvoice.vat_total = vatTotal;           // ✅ ADD THIS
-      newInvoice.sales_tax_total = salesTaxTotal; // ✅ ADD THIS
-      newInvoice.tds_total = tdsTotal;
-
-      console.log("Payload being sent:", JSON.stringify(newInvoice, null, 2));
-
-      const response = await axios.post("/api/invoices", newInvoice);
-
-      // Update local state
-      setInvoices(prev => [
-        ...prev,
-        {
-          ...response.data,
-          invoiceNo: response.data.invoice_number,
-          invoiceDate: response.data.invoice_date,
-          dueDate: response.data.due_date,
-          referenceNo: response.data.reference_number,
-          customerName: response.data.customer_name,
-          customerGSTIN: response.data.customer_gstin,
-          customerAddress: response.data.customer_address,
-          customerPhone: response.data.customer_phone,
-          businessName: response.data.company_name,
-          businessGSTIN: response.data.company_gstin,
-          businessAddress: response.data.company_address,
-          businessPhone: response.data.company_phone,
-          businessPAN: response.data.company_pan,
-          contactPhone: response.data.contact_phone,
-          contactEmail: response.data.contact_email,
-          terms: response.data.terms,
-          signatory: response.data.signatory,
-          sgstTotal: response.data.tax_amount / 2,
-          cgstTotal: response.data.tax_amount / 2,
-          igstTotal: parseFloat(response.data.igst_total || 0),
-          vatTotal: parseFloat(response.data.vat_total || 0),
-          salesTaxTotal: parseFloat(response.data.sales_tax_total || 0),
-          total: response.data.total_amount,
-          amountPaid: response.data.amount_paid,
-          bankAccountName: response.data.account_name,
-          bankAccountNumber: response.data.account_number,
-          bankIFSC: response.data.ifsc_code,
-          bankName: response.data.bank_name,
-          bankBranch: response.data.branch_name,
-          bankAccountType: response.data.account_type,
-          items: response.data.items || [],
-          payments: response.data.payments || [],
-          taxType: response.data.tax_type,
-          placeOfSupply: response.data.place_of_supply,
-          gstType: response.data.gst_type,
-          cessPercentage: response.data.cess_percentage,
-          frequency: response.data.frequency,
-          startDate: response.data.start_date,
-          endAfter: response.data.end_after,
-          endDate: response.data.end_date,
-          beforeDueDays: response.data.before_due_days,
-          overdueReminderDays: response.data.overdue_reminder_days,
-          reminderOnDueDate: response.data.on_due_date,
-          tdsTotal: parseFloat(response.data.tds_total || 0),
-        },
-      ]);
-
-      toast({
-        title: "Invoice Created",
-        description: `Invoice ${response.data.invoice_number} created successfully.`,
-      });
-
-      // Reset form
+      // ========================
+      // 7️⃣ RESET
+      // ========================
       setIsCreateDialogOpen(false);
       setInvoiceItems([]);
+      setSelectedInvoice(null);
+      setIsRecurring(false);
+
     } catch (error: any) {
-      console.error("Invoice creation failed:", error.response?.data || error.message);
+      console.error("❌ INVOICE SAVE ERROR:", error);
       toast({
-        title: "Error",
-        description: `Failed to create invoice. ${error.response?.data?.message || ""}`,
+        title: "Failed to save invoice",
+        description: getErrorMessage(error),
         variant: "destructive",
       });
     }
-  };  */
-
-const handleSaveInvoice = async (
-  status: "Draft" | "Pending" = "Pending"
-) => {
-  const getErrorMessage = (error: any): string => {
-    if (error.response) {
-      const data = error.response.data;
-
-      if (data?.message) return data.message;
-
-      if (data?.errors) {
-        return Object.entries(data.errors)
-          .map(([field, msg]: [string, any]) =>
-            `${field}: ${Array.isArray(msg) ? msg.join(", ") : msg}`
-          )
-          .join("; ");
-      }
-
-      return JSON.stringify(data);
-    }
-
-    return error.message || "An unknown error occurred.";
   };
-
-  try {
-    // ========================
-    // 1️⃣ VALIDATION
-    // ========================
-    if (!invoiceItems || invoiceItems.length === 0) {
-      toast({
-        title: "Error",
-        description: "Add at least one invoice item.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!invoiceDate || !dueDate) {
-      toast({
-        title: "Missing Date",
-        description: "Invoice date and due date are required.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const invoiceDt = new Date(invoiceDate);
-    const dueDt = new Date(dueDate);
-
-    if (Number.isNaN(invoiceDt.getTime()) || Number.isNaN(dueDt.getTime())) {
-      toast({
-        title: "Invalid Date",
-        description: "Please select valid dates.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (dueDt < invoiceDt) {
-      toast({
-        title: "Invalid Due Date",
-        description: "Due date cannot be before invoice date.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (formCustomerEmail && !emailRegex.test(formCustomerEmail)) {
-      toast({
-        title: "Invalid Email",
-        description: "Enter a valid email address.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // ========================
-    // 2️⃣ ITEM CALCULATION
-    // ========================
-
-    const itemsWithTotals = invoiceItems.map((item) => {
-      const quantity = Number(item.quantity) || 0;
-      const rate = Number(item.rate) || 0;
-      const shipping = Number(item.shipping) || 0;
-
-      const amount = quantity * rate;
-
-      let cgst_amount = 0,
-        sgst_amount = 0,
-        igst_amount = 0,
-        vat_amount = 0,
-        sales_tax_amount = 0;
-
-      if (invoiceTaxConfig.taxType === "GST (India)") {
-        if (invoiceTaxConfig.gstType === "CGST_SGST") {
-          cgst_amount = amount * 0.09;
-          sgst_amount = amount * 0.09;
-        } else {
-          igst_amount = amount * 0.18;
-        }
-      } else if (invoiceTaxConfig.taxType === "VAT") {
-        vat_amount = amount * 0.12;
-      } else if (invoiceTaxConfig.taxType === "Sales Tax") {
-        sales_tax_amount = amount * 0.1;
-      }
-
-      const tax_amount =
-        cgst_amount +
-        sgst_amount +
-        igst_amount +
-        vat_amount +
-        sales_tax_amount;
-
-      const tds_amount = Number(item.tds) || 0;
-
-      const total = amount + tax_amount - tds_amount + shipping;
-
-      return {
-        ...item,
-        quantity,
-        rate,
-        amount,
-        shipping,
-        cgst_amount,
-        sgst_amount,
-        igst_amount,
-        vat_amount,
-        sales_tax_amount,
-        tax_amount,
-        tds_amount,
-        total: +total.toFixed(2),
-      };
-    });
-
-    // ========================
-    // 3️⃣ TOTALS
-    // ========================
-
-    const subtotal = itemsWithTotals.reduce((s, i) => s + i.amount, 0);
-
-    const sgstTotal = itemsWithTotals.reduce((s, i) => s + i.sgst_amount, 0);
-    const cgstTotal = itemsWithTotals.reduce((s, i) => s + i.cgst_amount, 0);
-    const igstTotal = itemsWithTotals.reduce((s, i) => s + i.igst_amount, 0);
-    const vatTotal = itemsWithTotals.reduce((s, i) => s + i.vat_amount, 0);
-    const salesTaxTotal = itemsWithTotals.reduce(
-      (s, i) => s + i.sales_tax_amount,
-      0
-    );
-
-    const tdsTotal = itemsWithTotals.reduce((s, i) => s + i.tds_amount, 0);
-    const shippingTotal = itemsWithTotals.reduce((s, i) => s + i.shipping, 0);
-
-    const taxAmount =
-      sgstTotal + cgstTotal + igstTotal + vatTotal + salesTaxTotal;
-
-    const freight = Number(formFreight) || 0;
-    const otherCharges = Number(formOtherCharges) || 0;
-
-    const baseTotal =
-      subtotal +
-      taxAmount -
-      tdsTotal +
-      shippingTotal +
-      freight +
-      otherCharges;
-
-    const exchange = Number(exchangeRate) || 1;
-
-    const totalAmount =
-      currency === "INR" ? baseTotal : baseTotal * exchange;
-
-    // ========================
-    // 4️⃣ INVOICE NUMBER
-    // ========================
-
-    const invoiceNumber =
-      selectedInvoice?.invoice_number ||
-      generateInvoiceNumber(invoices);
-
-    // ========================
-    // 5️⃣ PAYLOAD
-    // ========================
-
-    const payload: any = {
-      invoice_date: invoiceDate,
-      due_date: dueDate,
-      delivery_date: formDeliveryDate || null,
-      dispatch_type: formDispatchVia || null,
-
-      customer_id: customerId ? Number(customerId) : null,
-      customer_name: formCustomerName,
-      customer_phone: formCustomerPhone,
-      customer_email: formCustomerEmail || null,
-      contact_person: formContactPerson || null,
-
-      customer_address: formCustomerAddress,
-      billing_address: formCustomerAddress || null,
-      delivery_address: formShipAddress || null,
-      customer_gstin: formCustomerGSTIN,
-
-      company_name: businessName,
-      company_phone: businessPhone,
-      company_address: businessAddress,
-      company_gstin: businessGSTIN,
-      company_pan: businessPAN,
-
-      contact_phone: contactPhone,
-      contact_email: contactEmail,
-
-      bank_name: bankName,
-      notes: formNotes,
-
-      currency: formCurrency || "INR",
-      exchange_rate: formExchangeRate,
-      order_reference: (formOrderRef ?? "").trim() || null,
-
-      tax_type: invoiceTaxConfig.taxType,
-      gst_type: invoiceTaxConfig.gstType,
-
-      items: itemsWithTotals,
-
-      invoice_number: invoiceNumber,
-
-      subtotal,
-      tax_amount: taxAmount,
-      total_amount: totalAmount,
-
-      sgst_total: sgstTotal,
-      cgst_total: cgstTotal,
-      igst_total: igstTotal,
-      vat_total: vatTotal,
-      sales_tax_total: salesTaxTotal,
-      tds_total: tdsTotal,
-
-      shipping_charge: formFreight || 0,
-      freight,
-      other_charges: otherCharges,
-
-      amount_paid: 0,
-      payments: [],
-
-      terms,
-      signatory,
-      remarks: formInternalRemarks || null,
-      status: status,
-
-      // Recurring fields - Safer handling to avoid 422
-      frequency: isRecurring ? recurringFrequency : null,
-      start_date: isRecurring && recurringStartDate ? recurringStartDate : null,
-      end_after: isRecurring && recurringEndType === "occurrences" && recurringOccurrences
-                 ? Number(recurringOccurrences)
-                 : null,
-      end_date: isRecurring && recurringEndType === "date" && recurringEndDate
-                ? recurringEndDate
-                : null,
-
-      reminder: Boolean(sendReminders),
-      before_due_days: sendReminders && reminderDaysBefore ? Number(reminderDaysBefore) : null,
-      reminder_on_due_date: Boolean(sendReminders && reminderOnDueDate),
-      overdue_reminder_days: reminderAfterEnabled && reminderDaysAfter
-                             ? Number(reminderDaysAfter)
-                             : null,
-
-      type: formIsProforma ? "proforma" : "invoice",
-    };
-
-    console.log("🚀 FINAL PAYLOAD:", payload);
-
-    // ========================
-    // 6️⃣ API CALL
-    // ========================
-
-    let response: AxiosResponse<Invoice>;
-
-    if (selectedInvoice?.id) {
-      response = await axios.put(`/api/invoices/${selectedInvoice.id}`, payload);
-      setInvoices((prev) =>
-        prev.map((inv) => (inv.id === selectedInvoice.id ? response.data : inv))
-      );
-    } else {
-      response = await axios.post("/api/invoices", payload);
-      setInvoices((prev) => [...prev, response.data]);
-    }
-
-    // Save Recurring if enabled
-    if (isRecurring) {
-      try {
-        await saveRecurringInvoice(response.data);
-      } catch (recErr) {
-        console.warn("Recurring save warning:", recErr);
-      }
-    }
-
-    // Refresh both lists
-    await fetchInvoices();
-    await fetchRecurringInvoices();
-
-    // Success Message
-
-
-    // ========================
-    // 7️⃣ RESET
-    // ========================
-    setIsCreateDialogOpen(false);
-    setInvoiceItems([]);
-    setSelectedInvoice(null);
-    setIsRecurring(false);
-
-  } catch (error: any) {
-    console.error("❌ INVOICE SAVE ERROR:", error);
-    toast({
-      title: "Failed to save invoice",
-      description: getErrorMessage(error),
-      variant: "destructive",
-    });
-  }
-};
 
   useEffect(() => {
     fetchInvoices();
@@ -2496,41 +2681,41 @@ const handleSaveInvoice = async (
 
   const handleCustomerChange = (id) => {
     console.log("👉 Selected Customer ID:", id);
-  console.log("👉 ID type:", typeof id);
+    console.log("👉 ID type:", typeof id);
 
-  setCustomerId(id);
+    setCustomerId(id);
 
-const customer = customers.find(
-  c => String(c.id) === String(id)
-);
-
-  if (customer) {
-
-    setFormCustomerName(customer.customer_name || "");
-
-    setFormCustomerGSTIN(
-      customer.gst_number ||
-      customer.customer_gstin ||
-      customer.gstin ||
-      ""
+    const customer = customers.find(
+      c => String(c.id) === String(id)
     );
 
-    setFormCustomerAddress(
-      customer.billing_address ||
-      customer.address ||
-      ""
-    );
+    if (customer) {
 
-    setFormCustomerPhone(
-      customer.mobile ||
-      customer.phone ||
-      ""
-    );
+      setFormCustomerName(customer.customer_name || "");
 
-    setFormCustomerEmail(customer.email || "");
-    setFormContactPerson(customer.contact_person || "");
-  }
-};
+      setFormCustomerGSTIN(
+        customer.gst_number ||
+        customer.customer_gstin ||
+        customer.gstin ||
+        ""
+      );
+
+      setFormCustomerAddress(
+        customer.billing_address ||
+        customer.address ||
+        ""
+      );
+
+      setFormCustomerPhone(
+        customer.mobile ||
+        customer.phone ||
+        ""
+      );
+
+      setFormCustomerEmail(customer.email || "");
+      setFormContactPerson(customer.contact_person || "");
+    }
+  };
 
   const fetchInvoices = async () => {
     try {
@@ -2582,15 +2767,15 @@ const customer = customers.find(
         formNotes: inv.notes || "",
         formInternalRemarks: inv.remarks || "",
         recurringFrequency: inv.frequency || "",
-        recurringOccurrences:  inv.end_after || 0,
+        recurringOccurrences: inv.end_after || 0,
         recurringStartDate: inv.start_date || "",
         reminderDaysBefore: inv.before_due_days || 0,
         reminderOnDueDate: inv.reminder_on_due_date || false,
         reminderDaysAfter: inv.overdue_reminder_days || 0,
-         reminderAfterEnabled: inv.overdue_reminder_days ? true : false,
-         recurringEndType: inv.end_after ? "occurrences" : inv.end_date ? "date" : "",
-         recuringEndDate: inv.end_date || "",
-         reccuringEndAfter: inv.end_after || 0,
+        reminderAfterEnabled: inv.overdue_reminder_days ? true : false,
+        recurringEndType: inv.end_after ? "occurrences" : inv.end_date ? "date" : "",
+        recuringEndDate: inv.end_date || "",
+        reccuringEndAfter: inv.end_after || 0,
 
         cessPercentage: inv.cess_percentage || 0,
         tdsTotal: parseFloat(inv.tds_total || 0),
@@ -2600,10 +2785,11 @@ const customer = customers.find(
         formDeliveryDate: inv.delivery_date || "",
         formCurrency: inv.currency || "INR",
         formExchangeRate: inv.exchange_rate || 1,
+
         formDispatchVia: inv.dispatch_type || "",
         type: inv.type || null,
-  isProforma: inv.type === "proforma" || inv.is_proforma === true,
-  formIsProforma: inv.type === "proforma",
+        isProforma: inv.type === "proforma" || inv.is_proforma === true,
+        formIsProforma: inv.type === "proforma",
         payments: (inv.payments || []).map((p: any) => ({
           id: p.id,
           amount: parseFloat(p.amount),
@@ -2657,7 +2843,7 @@ const customer = customers.find(
                           {formIsProforma && (
                             <Badge variant="secondary" className="ml-1">Pro-forma</Badge>
                           )}
-                           </CardTitle>
+                        </CardTitle>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-muted-foreground">
                             {formIsProforma ? "Pro-forma Invoice" : "Standard Invoice"}
@@ -2680,57 +2866,57 @@ const customer = customers.find(
                         </div>
                       </CardHeader>
                       <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 p-4 sm:p-6 pt-0 sm:pt-0">
-                         <div className="space-y-2">
-                      <Label>Invoice No*</Label>
-                      <Input
-                        placeholder="INV/2025/001"
-                        value={invoiceNumber}
-                        readOnly
-                      />
-                    </div>
+                        <div className="space-y-2">
+                          <Label>Invoice No*</Label>
+                          <Input
+                            placeholder="INV/2025/001"
+                            value={invoiceNumber}
+                            readOnly
+                          />
+                        </div>
                         <div className="space-y-2">
                           <Label>Invoice Date</Label>
-<Input
-  type="date"
-  value={invoiceDate}
-  onChange={(e) => setInvoiceDate(e.target.value)}
-/>                        </div>
+                          <Input
+                            type="date"
+                            value={invoiceDate}
+                            onChange={(e) => setInvoiceDate(e.target.value)}
+                          />                        </div>
                         <div className="space-y-2">
                           <Label>Due Date</Label>
-<Input
-  type="date"
-  value={dueDate}
-  onChange={(e) => setDueDate(e.target.value)}
-/>                        </div>
+                          <Input
+                            type="date"
+                            value={dueDate}
+                            onChange={(e) => setDueDate(e.target.value)}
+                          />                        </div>
                         <div className="space-y-2">
                           <Label>Currency</Label>
                           <Select
                             value={formCurrency}
                             onValueChange={(v) => {
                               setFormCurrency(v);
-                              const cur = CURRENCY_OPTIONS.find((c) => c.code === v);
-                              if (cur) setFormExchangeRate(cur.rate);
                             }}
                           >
                             <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              {CURRENCY_OPTIONS.map((c) => (
-                                <SelectItem key={c.code} value={c.code}>
-                                  {c.sym} {c.code} — {c.name}
+                            <SelectContent className="max-h-80">
+                              {Object.entries(currencyData).map(([code, data]) => (
+                                <SelectItem key={code} value={code}>
+                                  {code} - {data.name}
                                 </SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
                         </div>
                         <div className="space-y-2">
-                          <Label>Exchange Rate (to INR)</Label>
+                          <Label>
+                            Exchange Rate (1 {currency} = ? {formCurrency})
+                          </Label>
                           <Input
                             type="number"
                             step="0.01"
                             min="0"
                             value={formExchangeRate}
                             onChange={(e) => setFormExchangeRate(parseFloat(e.target.value) || 0)}
-                            disabled={formCurrency === "INR"}
+                            disabled={formCurrency}
                             className="font-mono"
                           />
                         </div>
@@ -2753,26 +2939,26 @@ const customer = customers.find(
                             Bill To
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                           <div className="space-y-2">
-  <Label>Customer Name *</Label>
+                            <div className="space-y-2">
+                              <Label>Customer Name *</Label>
 
-  {/* ✅ Select Customer */}
-<Select value={customerId} onValueChange={handleCustomerChange}>
-    <SelectTrigger>
-      <SelectValue placeholder="Select Customer" />
-    </SelectTrigger>
+                              {/* ✅ Select Customer */}
+                              <Select value={customerId} onValueChange={handleCustomerChange}>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select Customer" />
+                                </SelectTrigger>
 
-    <SelectContent>
-      {customers.map((cust) => (
-        <SelectItem key={cust.id} value={cust.id}>
-          {cust.customer_name}
-        </SelectItem>
-      ))}
-    </SelectContent>
-  </Select>
+                                <SelectContent>
+                                  {customers.map((cust) => (
+                                    <SelectItem key={cust.id} value={cust.id}>
+                                      {cust.customer_name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
 
 
-</div>
+                            </div>
                             <div className="space-y-2">
                               <Label>GSTIN / VAT No.</Label>
                               <Input
@@ -2904,7 +3090,7 @@ const customer = customers.find(
                                   onChange={(e) => updateInvoiceItem(item.id, { discount: parseFloat(e.target.value) || 0 })}
                                 />
                                 <div className="text-right font-mono text-sm font-semibold">
-                                  {fmt(calcLineAmount(item))}
+                                  <Money value={(calcLineAmount(item))} />
                                 </div>
                                 <Button
                                   variant="ghost"
@@ -2986,17 +3172,17 @@ const customer = customers.find(
                           )}
                         </div>
 
-                {/* Tax breakdown */}
+                        {/* Tax breakdown */}
                         <div className="bg-muted/50 border rounded-md p-3 text-sm space-y-1">
                           {formTaxScheme === "gst" ? (
                             <>
                               <div className="flex justify-between">
                                 <span className="text-muted-foreground">CGST ({(effectiveTaxRate / 2).toFixed(2)}%)</span>
-                                <span className="font-mono">{fmt(formTaxAmount / 2)}</span>
+                                <span className="font-mono"><Money value={Math.round((formTaxAmount / 2) * 100) / 100} /></span>
                               </div>
                               <div className="flex justify-between">
                                 <span className="text-muted-foreground">SGST ({(effectiveTaxRate / 2).toFixed(2)}%)</span>
-                                <span className="font-mono">{fmt(formTaxAmount / 2)}</span>
+                                <span className="font-mono"><Money value={(formTaxAmount / 2)} /></span>
                               </div>
                             </>
                           ) : formTaxScheme === "none" ? (
@@ -3011,7 +3197,7 @@ const customer = customers.find(
                           )}
                         </div>
 
-               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div className="space-y-2">
                             <Label>Shipping / Freight</Label>
                             <Input
@@ -3101,29 +3287,29 @@ const customer = customers.find(
                           <div className="space-y-1.5">
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">Subtotal</span>
-                              <span className="font-mono">{fmt(formSubtotal)}</span>
+                              <span className="font-mono"><Money value={(formSubtotal)} /></span>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">Freight</span>
-                              <span className="font-mono">{fmt(Number(formFreight) || 0)}</span>
+                              <span className="font-mono"><Money value={(Number(formFreight) || 0)} /></span>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">Other</span>
-                              <span className="font-mono">{fmt(Number(formOtherCharges) || 0)}</span>
+                              <span className="font-mono"><Money value={(Number(formOtherCharges) || 0)} /></span>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-muted-foreground">
                                 Tax ({effectiveTaxRate}%)
                               </span>
-                              <span className="font-mono">{fmt(formTaxAmount)}</span>
+                              <span className="font-mono"><Money value={(formTaxAmount)} /></span>
                             </div>
                             <div className="border-t mt-2 pt-2 flex justify-between text-base font-bold">
                               <span>Total</span>
-                              <span className="font-mono">{fmt(formGrandTotal)}</span>
+                              <span className="font-mono"><Money value={(formGrandTotal)} /></span>
                             </div>
-                            {formCurrency !== "INR" && (
+                            {formCurrency && (
                               <div className="text-xs text-muted-foreground text-right">
-                                ≈ ₹{(formGrandTotal * (Number(formExchangeRate) || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                                ≈ {currencySym} {(formGrandTotal * (Number(formExchangeRate) || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                               </div>
                             )}
                           </div>
@@ -3136,28 +3322,31 @@ const customer = customers.find(
                         <CardTitle className="text-base">💱 Currency</CardTitle>
                       </CardHeader>
                       <CardContent className="p-4 pt-0 text-sm space-y-1.5">
-                        {formCurrency === "INR" ? (
-                          <div className="text-muted-foreground">INR — No conversion</div>
-                        ) : (
-                          <>
-                            <div className="flex justify-between border-b pb-1">
-                              <span className="text-muted-foreground">Currency</span>
-                              <span className="font-mono font-semibold">
-                                {formCurrency} {currencySym}
-                              </span>
-                            </div>
-                            <div className="flex justify-between border-b pb-1">
-                              <span className="text-muted-foreground">Exchange Rate</span>
-                              <span className="font-mono">1 {formCurrency} = ₹{formExchangeRate}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Total in INR</span>
-                              <span className="font-mono font-semibold">
-                                ₹{(formGrandTotal * (Number(formExchangeRate) || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                              </span>
-                            </div>
-                          </>
-                        )}
+                        <div className="flex justify-between border-b pb-1">
+                          <span className="text-muted-foreground">Currency</span>
+                          <span className="font-mono font-semibold">
+                            {formCurrency} {currencySym}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between border-b pb-1">
+                          <span className="text-muted-foreground">Exchange Rate</span>
+                          <span className="font-mono">
+                            1 {formCurrency} = {currencySym} {Number(formExchangeRate).toFixed(2)}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground"> Total in {formCurrency}</span>
+                          <span className="font-mono font-semibold">
+                            {currencySym} {(
+                              formGrandTotal * (Number(formExchangeRate) || 0)
+                            ).toLocaleString("en-IN", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </span>
+                        </div>
                       </CardContent>
                     </Card>
                   </div>
@@ -3331,7 +3520,7 @@ const customer = customers.find(
           </Dialog>
         </div>
 
-         <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="invoices">All Invoices</TabsTrigger>
             <TabsTrigger value="proforma">
@@ -3353,614 +3542,690 @@ const customer = customers.find(
 
           <TabsContent value="invoices" className="space-y-4 sm:space-y-6">
 
-        {/* Filters Section */}
-        <Card>
-          <Collapsible open={isFiltersOpen} onOpenChange={setIsFiltersOpen}>
-            <CollapsibleTrigger asChild>
-              <CardHeader className="cursor-pointer flex flex-row items-center justify-between py-4">
-                <div className="flex items-center gap-2">
-                  {isFiltersOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                  <CardTitle className="text-base">Filters</CardTitle>
-                </div>
-                {(filterStatus !== "All" || filterClient || filterStartDate || filterEndDate) && (
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={(e) => {
-                    e.stopPropagation();
-                    setFilterStatus("All");
-                    setFilterClient("");
-                    setFilterStartDate("");
-                    setFilterEndDate("");
-                  }}>
-                    <X className="h-3 w-3 mr-1" /> Clear All Filters
-                  </Button>
-                )}
-              </CardHeader>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <CardContent className="pt-0 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-sm text-muted-foreground">Select Invoice Status</Label>
-                    <Select value={filterStatus} onValueChange={setFilterStatus}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="All" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="All">All</SelectItem>
-                        <SelectItem value="Draft">Draft</SelectItem>
-                        <SelectItem value="Sent">Sent</SelectItem>
-                        <SelectItem value="Paid">Paid</SelectItem>
-                        <SelectItem value="Pending">Pending</SelectItem>
-                        <SelectItem value="Overdue">Overdue</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-sm text-muted-foreground">Search Client</Label>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="All Clients"
-                        className="pl-10"
-                        value={filterClient}
-                        onChange={(e) => setFilterClient(e.target.value)}
-                      />
+            {/* Filters Section */}
+            <Card>
+              <Collapsible open={isFiltersOpen} onOpenChange={setIsFiltersOpen}>
+                <CollapsibleTrigger asChild>
+                  <CardHeader className="cursor-pointer flex flex-row items-center justify-between py-4">
+                    <div className="flex items-center gap-2">
+                      {isFiltersOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      <CardTitle className="text-base">Filters</CardTitle>
                     </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-sm text-muted-foreground">Select Date Range</Label>
-                    <div className="flex gap-2">
-                      <Input type="date" placeholder="Start date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} />
-                      <Input type="date" placeholder="End date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} />
-                    </div>
-                  </div>
-                </div>
-                {(filterStatus !== "All" || filterClient || filterStartDate || filterEndDate) && (
-                  <div className="text-sm text-muted-foreground">
-                    Applied Filters: {filterStatus !== "All" && <Badge variant="secondary" className="mr-1">{filterStatus}</Badge>}
-                    {filterClient && <Badge variant="secondary" className="mr-1">{filterClient}</Badge>}
-                    {(filterStartDate || filterEndDate) && <Badge variant="secondary">{filterStartDate} - {filterEndDate}</Badge>}
-                  </div>
-                )}
-                <Button size="sm" className="bg-primary">Apply Filters</Button>
-              </CardContent>
-            </CollapsibleContent>
-          </Collapsible>
-        </Card>
-
-        {/* Invoice Summary */}
-        <Card>
-          <Collapsible open={isSummaryOpen} onOpenChange={setIsSummaryOpen}>
-            <CollapsibleTrigger asChild>
-              <CardHeader className="cursor-pointer flex flex-row items-center gap-2 py-4">
-                {isSummaryOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                <CardTitle className="text-base">Invoice Summary</CardTitle>
-              </CardHeader>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <CardContent className="pt-0">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                  {(() => {
-                    const totalAmount = filteredInvoices.reduce((s, i) => s + i.total, 0);
-                    const amountDue = filteredInvoices.reduce((s, i) => s + (i.total - i.amountPaid), 0);
-                    const paymentReceived = filteredInvoices.reduce((s, i) => s + i.amountPaid, 0);
-                    const gstAmount = filteredInvoices.reduce(
-                      (s, i) =>
-                        s + (i.items?.reduce(
-                          (sum, item) => sum +
-                            (Number(item.sgst_amount || 0) +
-                              Number(item.cgst_amount || 0) +
-                              Number(item.igst_amount || 0) +
-                              Number(item.vat_amount || 0) +
-                              Number(item.sales_tax_amount || 0)),
-                          0
-                        ) || 0),
-                      0
-                    );
-                    const tdsAmount = filteredInvoices.reduce(
-                      (s, i) => s + (i.items?.reduce((sum, item) => sum + Number(item.tds_amount || 0), 0) || 0),
-                      0
-                    );
-                    return (
-                      <>
-                        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                          <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                            <Receipt className="h-5 w-5 text-blue-600" />
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">Invoices</p>
-                            <p className="text-lg font-bold">{filteredInvoices.length}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                          <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                            <IndianRupee className="h-5 w-5 text-blue-600" />
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">Total Amount</p>
-                            <p className="text-lg font-bold">₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                          <div className="h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center">
-                            <AlertCircle className="h-5 w-5 text-orange-600" />
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">Amount Due</p>
-                            <p className="text-lg font-bold text-orange-600">₹{amountDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                          <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
-                            <CheckCircle2 className="h-5 w-5 text-green-600" />
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">Payment Received</p>
-                            <p className="text-lg font-bold text-green-600">₹{paymentReceived.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                          <div className="h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center">
-                            <span className="text-xs font-bold text-yellow-700">GST</span>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">GST Amount</p>
-                            <p className="text-lg font-bold">₹{gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                          <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
-                            <span className="text-xs font-bold text-amber-700">TDS</span>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">TDS</p>
-                            <p className="text-lg font-bold">₹{tdsAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                          </div>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              </CardContent>
-            </CollapsibleContent>
-          </Collapsible>
-        </Card>
-
-        {/* Invoice Graph */}
-        <Card>
-          <Collapsible open={isGraphOpen} onOpenChange={setIsGraphOpen}>
-            <CollapsibleTrigger asChild>
-              <CardHeader className="cursor-pointer flex flex-row items-center gap-2 py-4">
-                {isGraphOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                <CardTitle className="text-base">Invoice Graph</CardTitle>
-              </CardHeader>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <CardContent className="pt-0">
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={filteredInvoices.map(inv => ({
-                      name: inv.invoiceNo,
-                      total: inv.total,
-                      paid: inv.amountPaid,
-                      due: inv.total - inv.amountPaid,
-                    }))}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" fontSize={11} />
-                      <YAxis fontSize={11} />
-                      <Tooltip  formatter={(value?: number) => `₹${(value ?? 0).toLocaleString('en-IN')}`} />
-                      <Legend />
-                      <Bar dataKey="total" fill="hsl(var(--primary))" name="Total" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="paid" fill="hsl(142, 76%, 36%)" name="Paid" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="due" fill="hsl(25, 95%, 53%)" name="Due" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </CollapsibleContent>
-          </Collapsible>
-        </Card>
-
-
-        {/* Invoices Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>All Invoices</CardTitle>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <Table className="min-w-[800px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Invoice No</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Invoice Date</TableHead>
-                  <TableHead>Due Date</TableHead>
-                  <TableHead>Total Amount</TableHead>
-                  <TableHead>TDS</TableHead>
-                  <TableHead>Paid</TableHead>
-                  <TableHead>Due</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-
-              <TableBody>
-                {filteredInvoices.map((invoice) => {
-                  const currentStatus = calculateInvoiceStatus(invoice);
-                  const amountDue = invoice.total - invoice.amountPaid;
-                  return (
-                    <TableRow key={invoice.id}>
-                      <TableCell className="font-medium">{invoice.invoiceNo}</TableCell>
-                      <TableCell>{invoice.customerName}</TableCell>
-                      <TableCell>{(invoice.invoiceDate ?? "").split("T")[0]}</TableCell>
-<TableCell>{(invoice.dueDate ?? "").split("T")[0]}</TableCell>
-                      <TableCell className="font-semibold">
-                        ₹{(invoice.total ?? 0).toLocaleString()}
-                      </TableCell>
-                      <TableCell className="text-amber-600">
-                        ₹{(invoice.tdsTotal || 0).toLocaleString()}
-                      </TableCell>
-                      <TableCell className="text-green-600">
-                        ₹{(invoice.amountPaid ?? 0).toLocaleString()}
-                      </TableCell>
-                      <TableCell className="text-red-600">
-                        ₹{((invoice.total ?? 0) - (invoice.amountPaid ?? 0)).toLocaleString()}
-                      </TableCell>
-                      <TableCell>{getStatusBadge(currentStatus)}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleViewInvoice(invoice)}
-                            title="View"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                           onClick={() => {
-                              const status = (invoice.status || "").toLowerCase();
-
-                              if (status === "partially paid" || status === "paid") {
-                                toast({
-                                  title: "Cannot Edit Invoice",
-                                  description: "This invoice is partially or fully paid and cannot be edited.",
-                                  variant: "destructive",
-                                });
-                                return;
-                              }
-
-                              openEditInvoice(invoice);
-                            }}
-                            title="Edit"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDownloadInvoice(invoice)}
-                            title="Download"
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
-                          <Button
-      variant="ghost"
-      size="icon"
-      onClick={() => handleDownloadPDF(invoice)}
-      title="Download PDF"
-      className="text-blue-600 hover:text-blue-700"
-    >
-      <FileText className="h-4 w-4" />
-    </Button>
-                          {currentStatus !== "Paid" && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => openPaymentDialog(invoice)}
-                              title="Record Payment"
-                              className="text-green-600 hover:text-green-700"
-                            >
-                              <DollarSign className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        {/* Record Payment Dialog */}
-        <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Record Payment</DialogTitle>
-            </DialogHeader>
-            {selectedInvoice && (
-              <div className="space-y-4">
-                <div className="bg-muted p-4 rounded-lg space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Invoice:</span>
-                    <span className="font-medium">{selectedInvoice.invoiceNo}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Customer:</span>
-                    <span className="font-medium">{selectedInvoice.customerName}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Total Amount:</span>
-                    <span className="font-medium">₹{selectedInvoice.total.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Amount Paid:</span>
-                    <span className="font-medium text-green-600">₹{selectedInvoice.amountPaid.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between text-sm pt-2 border-t">
-                    <span className="text-muted-foreground">Amount Due:</span>
-                    <span className="font-bold text-red-600">
-                      ₹{(selectedInvoice.total - selectedInvoice.amountPaid).toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Payment Amount*</Label>
-                  <Input
-                    type="number"
-                    placeholder="Enter amount"
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value)}
-                    max={selectedInvoice.total - selectedInvoice.amountPaid}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Payment Method*</Label>
-                  <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select payment method" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="cash">Cash</SelectItem>
-                      <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                      <SelectItem value="cheque">Cheque</SelectItem>
-                      <SelectItem value="upi">UPI</SelectItem>
-                      <SelectItem value="card">Card</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Reference Number</Label>
-                  <Input
-                    placeholder="Transaction reference (optional)"
-                    value={paymentReference}
-                    onChange={(e) => setPaymentReference(e.target.value)}
-                  />
-                </div>
-
-                {selectedInvoice.payments.length > 0 && (
-                  <div className="space-y-2">
-                    <Label>Payment History</Label>
-                    <div className="border rounded-lg overflow-hidden">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-muted/50">
-                            <TableHead className="text-xs">Date</TableHead>
-                            <TableHead className="text-xs">Amount</TableHead>
-                            <TableHead className="text-xs">Method</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {selectedInvoice.payments.map((payment) => (
-                            <TableRow key={payment.id}>
-                              <TableCell className="text-xs">{payment.date}</TableCell>
-                              <TableCell className="text-xs">₹{payment.amount.toLocaleString()}</TableCell>
-                              <TableCell className="text-xs capitalize">{payment.method}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex justify-end gap-2 pt-4">
-                  <Button variant="outline" onClick={() => setIsPaymentDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button onClick={handleRecordPayment}>
-                    Record Payment
-                  </Button>
-                </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
-
-
-
-        {/* Configure Tax Dialog */}
-        <Dialog open={taxConfigOpen} onOpenChange={setTaxConfigOpen}>
-          <DialogContent className="max-w-md p-0">
-            <div className="flex items-center justify-between px-6 py-4 border-b">
-              <DialogTitle className="text-lg font-semibold">Configure Tax</DialogTitle>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                onClick={() => setTaxConfigOpen(false)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <div className="px-6 py-4 space-y-6">
-              {/* 1. Select Tax Type */}
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">
-                  1. Select Tax Type<span className="text-destructive">*</span>
-                </Label>
-                <Select
-                  value={invoiceTaxConfig.taxType}
-                  onValueChange={(v) => setInvoiceTaxConfig(prev => ({ ...prev, taxType: v }))}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select tax type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="None">None / Tax Exempt</SelectItem>
-                    <SelectItem value="GST (India)">GST (India)</SelectItem>
-                     <SelectItem value="IGST (Inter-state)">IGST (Inter-state India)</SelectItem>
-                    <SelectItem value="VAT">VAT (International)</SelectItem>
-                    <SelectItem value="Sales Tax">Sales Tax</SelectItem>
-                    <SelectItem value="Custom">Custom Tax</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {invoiceTaxConfig.taxType === "GST (India)" && (
-                <>
-                  {/* 2. Place of Supply */}
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">
-                      2. Place of Supply<span className="text-destructive">*</span>
-                    </Label>
-                    <Select
-                      value={invoiceTaxConfig.placeOfSupply}
-                      onValueChange={(v) => setInvoiceTaxConfig(prev => ({ ...prev, placeOfSupply: v }))}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select state" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Tamil Nadu">Tamil Nadu</SelectItem>
-                        <SelectItem value="Karnataka">Karnataka</SelectItem>
-                        <SelectItem value="Maharashtra">Maharashtra</SelectItem>
-                        <SelectItem value="Gujarat">Gujarat</SelectItem>
-                        <SelectItem value="Delhi">Delhi</SelectItem>
-                        <SelectItem value="Kerala">Kerala</SelectItem>
-                        <SelectItem value="Andhra Pradesh">Andhra Pradesh</SelectItem>
-                        <SelectItem value="Telangana">Telangana</SelectItem>
-                        <SelectItem value="West Bengal">West Bengal</SelectItem>
-                        <SelectItem value="Uttar Pradesh">Uttar Pradesh</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* 3. GST Type */}
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">
-                      3. GST Type<span className="text-destructive">*</span>
-                    </Label>
-                    <RadioGroup
-                      value={invoiceTaxConfig.gstType}
-                      onValueChange={(v: "IGST" | "CGST_SGST") => setInvoiceTaxConfig(prev => ({ ...prev, gstType: v }))}
-                      className="flex gap-6"
-                    >
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="IGST" id="inv-igst" />
-                        <Label htmlFor="inv-igst" className="text-sm font-normal cursor-pointer">IGST</Label>
+                    {(filterStatus !== "All" || filterClient || filterStartDate || filterEndDate) && (
+                      <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={(e) => {
+                        e.stopPropagation();
+                        setFilterStatus("All");
+                        setFilterClient("");
+                        setFilterStartDate("");
+                        setFilterEndDate("");
+                      }}>
+                        <X className="h-3 w-3 mr-1" /> Clear All Filters
+                      </Button>
+                    )}
+                  </CardHeader>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <CardContent className="pt-0 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-sm text-muted-foreground">Select Invoice Status</Label>
+                        <Select value={filterStatus} onValueChange={setFilterStatus}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="All" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="All">All</SelectItem>
+                            <SelectItem value="Draft">Draft</SelectItem>
+                            <SelectItem value="Sent">Sent</SelectItem>
+                            <SelectItem value="Paid">Paid</SelectItem>
+                            <SelectItem value="Pending">Pending</SelectItem>
+                            <SelectItem value="Overdue">Overdue</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <RadioGroupItem value="CGST_SGST" id="inv-cgst-sgst" />
-                        <Label htmlFor="inv-cgst-sgst" className="text-sm font-normal cursor-pointer">CGST & SGST</Label>
+                      <div className="space-y-2">
+                        <Label className="text-sm text-muted-foreground">Search Client</Label>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            placeholder="All Clients"
+                            className="pl-10"
+                            value={filterClient}
+                            onChange={(e) => setFilterClient(e.target.value)}
+                          />
+                        </div>
                       </div>
-                    </RadioGroup>
-
-                    <Button
-                      variant="link"
-                      className="text-sm text-primary p-0 h-auto"
-                      onClick={() => setInvoiceTaxConfig(prev => ({ ...prev, addCess: !prev.addCess }))}
-                    >
-                      + Add Cess
-                    </Button>
-
-                    {invoiceTaxConfig.addCess && (
-                      <div className="flex items-center gap-2 mt-2">
-                        <Label className="text-sm">Cess %:</Label>
-                        <Input
-                          type="number"
-                          value={invoiceTaxConfig.cessPercent}
-                          onChange={(e) => setInvoiceTaxConfig(prev => ({ ...prev, cessPercent: Number(e.target.value) }))}
-                          className="w-20 h-8"
-                          min={0}
-                          step={0.5}
-                        />
+                      <div className="space-y-2">
+                        <Label className="text-sm text-muted-foreground">Select Date Range</Label>
+                        <div className="flex gap-2">
+                          <Input type="date" placeholder="Start date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} />
+                          <Input type="date" placeholder="End date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} />
+                        </div>
+                      </div>
+                    </div>
+                    {(filterStatus !== "All" || filterClient || filterStartDate || filterEndDate) && (
+                      <div className="text-sm text-muted-foreground">
+                        Applied Filters: {filterStatus !== "All" && <Badge variant="secondary" className="mr-1">{filterStatus}</Badge>}
+                        {filterClient && <Badge variant="secondary" className="mr-1">{filterClient}</Badge>}
+                        {(filterStartDate || filterEndDate) && <Badge variant="secondary">{filterStartDate} - {filterEndDate}</Badge>}
                       </div>
                     )}
+                    <Button size="sm" className="bg-primary">Apply Filters</Button>
+                  </CardContent>
+                </CollapsibleContent>
+              </Collapsible>
+            </Card>
+
+            {/* Invoice Summary */}
+            <Card>
+              <Collapsible open={isSummaryOpen} onOpenChange={setIsSummaryOpen}>
+                <CollapsibleTrigger asChild>
+                  <CardHeader className="cursor-pointer flex flex-row items-center gap-2 py-4">
+                    {isSummaryOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    <CardTitle className="text-base">Invoice Summary</CardTitle>
+                  </CardHeader>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <CardContent className="pt-0">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+                      {(() => {
+                        const totalAmount = filteredInvoices.reduce((s, i) => s + i.total, 0);
+                        const amountDue = filteredInvoices.reduce((s, i) => s + (i.total - i.amountPaid), 0);
+                        const paymentReceived = filteredInvoices.reduce((s, i) => s + i.amountPaid, 0);
+                        const gstAmount = filteredInvoices.reduce(
+                          (s, i) =>
+                            s + (i.items?.reduce(
+                              (sum, item) => sum +
+                                (Number(item.sgst_amount || 0) +
+                                  Number(item.cgst_amount || 0) +
+                                  Number(item.igst_amount || 0) +
+                                  Number(item.vat_amount || 0) +
+                                  Number(item.sales_tax_amount || 0)),
+                              0
+                            ) || 0),
+                          0
+                        );
+                        const tdsAmount = filteredInvoices.reduce(
+                          (s, i) => s + (i.items?.reduce((sum, item) => sum + Number(item.tds_amount || 0), 0) || 0),
+                          0
+                        );
+                        return (
+                          <>
+                            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                                <Receipt className="h-5 w-5 text-blue-600" />
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Invoices</p>
+                                <p className="text-lg font-bold">{filteredInvoices.length}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                                <IndianRupee className="h-5 w-5 text-blue-600" />
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Total Amount</p>
+                                <p className="text-lg font-bold"><Money value={totalAmount} /></p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                              <div className="h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center">
+                                <AlertCircle className="h-5 w-5 text-orange-600" />
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Amount Due</p>
+                                <p className="text-lg font-bold text-orange-600"> <Money value={amountDue} /></p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                              <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
+                                <CheckCircle2 className="h-5 w-5 text-green-600" />
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Payment Received</p>
+                                <p className="text-lg font-bold text-green-600"><Money value={paymentReceived} /></p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                              <div className="h-10 w-10 rounded-full bg-yellow-100 flex items-center justify-center">
+                                <span className="text-xs font-bold text-yellow-700">GST</span>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">GST Amount</p>
+                                <p className="text-lg font-bold"><Money value={gstAmount} /></p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                              <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
+                                <span className="text-xs font-bold text-amber-700">TDS</span>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">TDS</p>
+                                <p className="text-lg font-bold"><Money value={tdsAmount} /></p>
+                              </div>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </CardContent>
+                </CollapsibleContent>
+              </Collapsible>
+            </Card>
+
+            {/* Invoice Graph */}
+            <Card>
+              <Collapsible open={isGraphOpen} onOpenChange={setIsGraphOpen}>
+                <CollapsibleTrigger asChild>
+                  <CardHeader className="cursor-pointer flex flex-row items-center gap-2 py-4">
+                    {isGraphOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    <CardTitle className="text-base">Invoice Graph</CardTitle>
+                  </CardHeader>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <CardContent className="pt-0">
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={filteredInvoices.map(inv => ({
+                          name: inv.invoiceNo,
+                          total: inv.total,
+                          paid: inv.amountPaid,
+                          due: inv.total - inv.amountPaid,
+                        }))}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="name" fontSize={11} />
+                          <YAxis fontSize={11} />
+                          <Tooltip formatter={(value?: number) => `₹${(value ?? 0).toLocaleString('en-IN')}`} />
+                          <Legend />
+                          <Bar dataKey="total" fill="hsl(var(--primary))" name="Total" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="paid" fill="hsl(142, 76%, 36%)" name="Paid" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="due" fill="hsl(25, 95%, 53%)" name="Due" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </CollapsibleContent>
+              </Collapsible>
+            </Card>
+
+
+            {/* Invoices Table */}
+            <Card>
+              <CardHeader>
+                <CardTitle>All Invoices</CardTitle>
+              </CardHeader>
+              <CardContent className="overflow-x-auto">
+                <Table className="min-w-[800px]">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Invoice No</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Invoice Date</TableHead>
+                      <TableHead>Due Date</TableHead>
+                      <TableHead>Total Amount</TableHead>
+                      <TableHead>TDS</TableHead>
+                      <TableHead>Paid</TableHead>
+                      <TableHead>Due</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+
+                  <TableBody>
+                    {filteredInvoices.map((invoice) => {
+                      const currentStatus = calculateInvoiceStatus(invoice);
+                      const amountDue = invoice.total - invoice.amountPaid;
+                      return (
+                        <TableRow key={invoice.id}>
+                          <TableCell className="font-medium">{invoice.invoiceNo}</TableCell>
+                          <TableCell>{invoice.customerName}</TableCell>
+                          <TableCell>{(invoice.invoiceDate ?? "").split("T")[0]}</TableCell>
+                          <TableCell>{(invoice.dueDate ?? "").split("T")[0]}</TableCell>
+                          <TableCell className="font-semibold">
+                            {invoice.currency !== currency ? (
+                              <>
+                                {currencySym}
+                                {(Number(invoice.total ?? 0) * (invoice.formExchangeRate || 1)).toLocaleString("en-US", {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                              </>
+                            ) : (
+                              <>
+                                ₹{(invoice.total ?? 0).toLocaleString("en-IN")}
+                              </>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-amber-600">
+                            {formCurrency !== currency ? (
+                              <>
+                                {currencySym}
+                                {((invoice.tdsTotal || 0) * (invoice.formExchangeRate || 1)).toLocaleString("en-US", {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                              </>
+                            ) : (
+                              <>₹{(invoice.tdsTotal || 0).toLocaleString("en-IN")}</>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-green-600">
+                            {formCurrency !== currency ? (
+                              <>
+                                {currencySym}
+                                {((invoice.amountPaid ?? 0) * (invoice.formExchangeRate || 1)).toLocaleString("en-US", {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                              </>
+                            ) : (
+                              <>₹{(invoice.amountPaid ?? 0).toLocaleString("en-IN")}</>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-red-600">
+                            {formCurrency !== currency ? (
+                              <>
+                                {currencySym}
+                                {(((invoice.total ?? 0) - (invoice.amountPaid ?? 0)) * (invoice.formExchangeRate || 1)).toLocaleString("en-US", {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                              </>
+                            ) : (
+                              <>
+                                ₹{((invoice.total ?? 0) - (invoice.amountPaid ?? 0)).toLocaleString("en-IN")}
+                              </>
+                            )}
+                          </TableCell>
+                          <TableCell>{getStatusBadge(currentStatus)}</TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleViewInvoice(invoice)}
+                                title="View"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  const status = (invoice.status || "").toLowerCase();
+
+                                  if (status === "partially paid" || status === "paid") {
+                                    toast({
+                                      title: "Cannot Edit Invoice",
+                                      description: "This invoice is partially or fully paid and cannot be edited.",
+                                      variant: "destructive",
+                                    });
+                                    return;
+                                  }
+
+                                  openEditInvoice(invoice);
+                                }}
+                                title="Edit"
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDownloadInvoice(invoice)}
+                                title="Download"
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDownloadPDF(invoice)}
+                                title="Download PDF"
+                                className="text-blue-600 hover:text-blue-700"
+                              >
+                                <FileText className="h-4 w-4" />
+                              </Button>
+                              {currentStatus !== "Paid" && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => openPaymentDialog(invoice)}
+                                  title="Record Payment"
+                                  className="text-green-600 hover:text-green-700"
+                                >
+                                  <DollarSign className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            {/* Record Payment Dialog */}
+            <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Record Payment</DialogTitle>
+                </DialogHeader>
+                {selectedInvoice && (
+                  <div className="space-y-4">
+                    <div className="bg-muted p-4 rounded-lg space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Invoice:</span>
+                        <span className="font-medium">{selectedInvoice.invoiceNo}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Customer:</span>
+                        <span className="font-medium">{selectedInvoice.customerName}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Total Amount:</span>
+                        <span className="font-medium">
+                          {currencySym}
+                          {(
+                            formCurrency !== currency
+                              ? (Number(selectedInvoice.total || 0) * Number(selectedInvoice.formExchangeRate || 1))
+                              : Number(selectedInvoice.total || 0)
+                          ).toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Amount Paid:</span>
+                        <span className="font-medium text-green-600">
+                          {currencySym}
+                          {(
+                            formCurrency !== currency
+                              ? Number(selectedInvoice.amountPaid || 0) * Number(selectedInvoice.formExchangeRate || 1)
+                              : Number(selectedInvoice.amountPaid || 0)
+                          ).toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm pt-2 border-t">
+                        <span className="text-muted-foreground">Amount Due:</span>
+                        <span className="font-bold text-red-600">
+                          {currencySym}
+                          {(
+                            formCurrency !== currency
+                              ? (
+                                Number(selectedInvoice.total || 0) * Number(selectedInvoice.formExchangeRate || 1)
+                              ) - (
+                                Number(selectedInvoice.amountPaid || 0) * Number(selectedInvoice.formExchangeRate || 1)
+                              )
+                              : (Number(selectedInvoice.total || 0) - Number(selectedInvoice.amountPaid || 0))
+                          ).toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Payment Amount*</Label>
+                      <Input
+                        type="number"
+                        placeholder="Enter amount"
+                        value={paymentAmount}
+                        onChange={(e) => setPaymentAmount(e.target.value)}
+                        max={selectedInvoice.total - selectedInvoice.amountPaid}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Payment Method*</Label>
+                      <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select payment method" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="cash">Cash</SelectItem>
+                          <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                          <SelectItem value="cheque">Cheque</SelectItem>
+                          <SelectItem value="upi">UPI</SelectItem>
+                          <SelectItem value="card">Card</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Reference Number</Label>
+                      <Input
+                        placeholder="Transaction reference (optional)"
+                        value={paymentReference}
+                        onChange={(e) => setPaymentReference(e.target.value)}
+                      />
+                    </div>
+
+                    {selectedInvoice.payments.length > 0 && (
+                      <div className="space-y-2">
+                        <Label>Payment History</Label>
+                        <div className="border rounded-lg overflow-hidden">
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="bg-muted/50">
+                                <TableHead className="text-xs">Date</TableHead>
+                                <TableHead className="text-xs">Amount</TableHead>
+                                <TableHead className="text-xs">Method</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {selectedInvoice.payments.map((payment) => (
+                                <TableRow key={payment.id}>
+                                  <TableCell className="text-xs">{payment.date}</TableCell>
+                                  <TableCell className="text-xs">₹{payment.amount.toLocaleString()}</TableCell>
+                                  <TableCell className="text-xs capitalize">{payment.method}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-2 pt-4">
+                      <Button variant="outline" onClick={() => setIsPaymentDialogOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button onClick={handleRecordPayment}>
+                        Record Payment
+                      </Button>
+                    </div>
                   </div>
-                </>
-              )}
+                )}
+              </DialogContent>
+            </Dialog>
 
-              {/* 4. Other Options */}
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">4. Other Options</Label>
-                <p className="text-sm text-muted-foreground">Additional tax options can be configured here.</p>
-              </div>
-            </div>
 
-            <div className="flex items-center justify-between px-6 py-4 border-t">
-              <Button
-                variant="ghost"
-                onClick={() => setTaxConfigOpen(false)}
-                className="text-sm"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={() => {
-                  // Recalculate all invoice items with new tax config
-                  setInvoiceItems(invoiceItems.map(item => {
-                    const lineSubtotal = item.quantity * item.rate;
-                    const gstRate = 0.18;
-                    const gstAmount = lineSubtotal * gstRate;
 
-                    if (invoiceTaxConfig.taxType === "GST (India)" && invoiceTaxConfig.gstType === "CGST_SGST") {
-                      return {
-                        ...item,
-                        amount: lineSubtotal,
-                        sgst: gstAmount / 2,
-                        cgst: gstAmount / 2,
-                        cost: lineSubtotal + gstAmount,
-                      };
-                    } else if (invoiceTaxConfig.taxType === "GST (India)" && invoiceTaxConfig.gstType === "IGST") {
-                      return {
-                        ...item,
-                        amount: lineSubtotal,
-                        sgst: 0,
-                        cgst: 0,
-                        cost: lineSubtotal + gstAmount,
-                      };
-                    } else {
-                      return {
-                        ...item,
-                        amount: lineSubtotal,
-                        sgst: 0,
-                        cgst: 0,
-                        cost: lineSubtotal,
-                      };
-                    }
-                  }));
-                  setTaxConfigOpen(false);
-                  toast({
-                    title: "Tax Configuration Saved",
-                    description: "Tax settings have been applied to the invoice.",
-                  });
-                }}
-              >
-                Save Changes
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+            {/* Configure Tax Dialog */}
+            <Dialog open={taxConfigOpen} onOpenChange={setTaxConfigOpen}>
+              <DialogContent className="max-w-md p-0">
+                <div className="flex items-center justify-between px-6 py-4 border-b">
+                  <DialogTitle className="text-lg font-semibold">Configure Tax</DialogTitle>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0"
+                    onClick={() => setTaxConfigOpen(false)}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
 
-         </TabsContent>
+                <div className="px-6 py-4 space-y-6">
+                  {/* 1. Select Tax Type */}
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">
+                      1. Select Tax Type<span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={invoiceTaxConfig.taxType}
+                      onValueChange={(v) => setInvoiceTaxConfig(prev => ({ ...prev, taxType: v }))}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select tax type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="None">None / Tax Exempt</SelectItem>
+                        <SelectItem value="GST (India)">GST (India)</SelectItem>
+                        <SelectItem value="IGST (Inter-state)">IGST (Inter-state India)</SelectItem>
+                        <SelectItem value="VAT">VAT (International)</SelectItem>
+                        <SelectItem value="Sales Tax">Sales Tax</SelectItem>
+                        <SelectItem value="Custom">Custom Tax</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {invoiceTaxConfig.taxType === "GST (India)" && (
+                    <>
+                      {/* 2. Place of Supply */}
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">
+                          2. Place of Supply<span className="text-destructive">*</span>
+                        </Label>
+                        <Select
+                          value={invoiceTaxConfig.placeOfSupply}
+                          onValueChange={(v) => setInvoiceTaxConfig(prev => ({ ...prev, placeOfSupply: v }))}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select state" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Tamil Nadu">Tamil Nadu</SelectItem>
+                            <SelectItem value="Karnataka">Karnataka</SelectItem>
+                            <SelectItem value="Maharashtra">Maharashtra</SelectItem>
+                            <SelectItem value="Gujarat">Gujarat</SelectItem>
+                            <SelectItem value="Delhi">Delhi</SelectItem>
+                            <SelectItem value="Kerala">Kerala</SelectItem>
+                            <SelectItem value="Andhra Pradesh">Andhra Pradesh</SelectItem>
+                            <SelectItem value="Telangana">Telangana</SelectItem>
+                            <SelectItem value="West Bengal">West Bengal</SelectItem>
+                            <SelectItem value="Uttar Pradesh">Uttar Pradesh</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* 3. GST Type */}
+                      <div className="space-y-3">
+                        <Label className="text-sm font-medium">
+                          3. GST Type<span className="text-destructive">*</span>
+                        </Label>
+                        <RadioGroup
+                          value={invoiceTaxConfig.gstType}
+                          onValueChange={(v: "IGST" | "CGST_SGST") => setInvoiceTaxConfig(prev => ({ ...prev, gstType: v }))}
+                          className="flex gap-6"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="IGST" id="inv-igst" />
+                            <Label htmlFor="inv-igst" className="text-sm font-normal cursor-pointer">IGST</Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="CGST_SGST" id="inv-cgst-sgst" />
+                            <Label htmlFor="inv-cgst-sgst" className="text-sm font-normal cursor-pointer">CGST & SGST</Label>
+                          </div>
+                        </RadioGroup>
+
+                        <Button
+                          variant="link"
+                          className="text-sm text-primary p-0 h-auto"
+                          onClick={() => setInvoiceTaxConfig(prev => ({ ...prev, addCess: !prev.addCess }))}
+                        >
+                          + Add Cess
+                        </Button>
+
+                        {invoiceTaxConfig.addCess && (
+                          <div className="flex items-center gap-2 mt-2">
+                            <Label className="text-sm">Cess %:</Label>
+                            <Input
+                              type="number"
+                              value={invoiceTaxConfig.cessPercent}
+                              onChange={(e) => setInvoiceTaxConfig(prev => ({ ...prev, cessPercent: Number(e.target.value) }))}
+                              className="w-20 h-8"
+                              min={0}
+                              step={0.5}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* 4. Other Options */}
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">4. Other Options</Label>
+                    <p className="text-sm text-muted-foreground">Additional tax options can be configured here.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between px-6 py-4 border-t">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setTaxConfigOpen(false)}
+                    className="text-sm"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      // Recalculate all invoice items with new tax config
+                      setInvoiceItems(invoiceItems.map(item => {
+                        const lineSubtotal = item.quantity * item.rate;
+                        const gstRate = 0.18;
+                        const gstAmount = lineSubtotal * gstRate;
+
+                        if (invoiceTaxConfig.taxType === "GST (India)" && invoiceTaxConfig.gstType === "CGST_SGST") {
+                          return {
+                            ...item,
+                            amount: lineSubtotal,
+                            sgst: gstAmount / 2,
+                            cgst: gstAmount / 2,
+                            cost: lineSubtotal + gstAmount,
+                          };
+                        } else if (invoiceTaxConfig.taxType === "GST (India)" && invoiceTaxConfig.gstType === "IGST") {
+                          return {
+                            ...item,
+                            amount: lineSubtotal,
+                            sgst: 0,
+                            cgst: 0,
+                            cost: lineSubtotal + gstAmount,
+                          };
+                        } else {
+                          return {
+                            ...item,
+                            amount: lineSubtotal,
+                            sgst: 0,
+                            cgst: 0,
+                            cost: lineSubtotal,
+                          };
+                        }
+                      }));
+                      setTaxConfigOpen(false);
+                      toast({
+                        title: "Tax Configuration Saved",
+                        description: "Tax settings have been applied to the invoice.",
+                      });
+                    }}
+                  >
+                    Save Changes
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+          </TabsContent>
 
           <TabsContent value="recurring" className="space-y-4 sm:space-y-6">
             <div className="flex items-center justify-between">
@@ -4061,91 +4326,91 @@ const customer = customers.find(
             )}
           </TabsContent>
 
-         <TabsContent value="proforma" className="space-y-4 sm:space-y-6">
-  <Card>
-    <CardHeader className="flex flex-row items-center justify-between">
-      <CardTitle className="text-base sm:text-lg">Pro-forma Invoices</CardTitle>
-      <Button
-        size="sm"
-        onClick={() => {
-          setFormIsProforma(true);
-          setIsCreateDialogOpen(true);
-        }}
-      >
-        <Plus className="h-4 w-4 mr-2" /> New Pro-forma
-      </Button>
-    </CardHeader>
-    <CardContent>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Invoice #</TableHead>
-            <TableHead>Customer</TableHead>
-            <TableHead>Date</TableHead>
-            <TableHead>Currency</TableHead>
-            <TableHead className="text-right">Amount</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {invoices.filter(i => i.type === "proforma" || i.formIsProforma === true || i.formIsProforma === "proforma").length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
-                No pro-forma invoices found.<br />
-                Toggle "Pro-forma Invoice" when creating a new invoice.
-              </TableCell>
-            </TableRow>
-          ) : (
-            invoices
-              .filter(i => i.type === "proforma" || i.formIsProforma === true || i.formIsProforma === "proforma")
-              .map((inv) => (
-                <TableRow key={inv.id}>
-                  <TableCell className="font-medium">{inv.invoiceNo}</TableCell>
-                  <TableCell>{inv.customerName}</TableCell>
-                  <TableCell>{inv.invoiceDate?.split("T")[0] || "-"}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{inv.formCurrency || "INR"}</Badge>
-                  </TableCell>
-                  <TableCell className="text-right font-mono font-semibold">
-                    ₹{Number(inv.total || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                  </TableCell>
-                  <TableCell>{getStatusBadge(calculateInvoiceStatus(inv))}</TableCell>
-                  <TableCell className="text-right space-x-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-  console.log("clicked proforma:", inv);
-  setViewInvoice({ ...inv });
-}}   // ← Use the existing function
-                      title="View Invoice"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => openEditInvoice(inv)}
-                      title="Edit"
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-          )}
-        </TableBody>
-      </Table>
-    </CardContent>
-  </Card>
-</TabsContent>
+          <TabsContent value="proforma" className="space-y-4 sm:space-y-6">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="text-base sm:text-lg">Pro-forma Invoices</CardTitle>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setFormIsProforma(true);
+                    setIsCreateDialogOpen(true);
+                  }}
+                >
+                  <Plus className="h-4 w-4 mr-2" /> New Pro-forma
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Invoice #</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Currency</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {invoices.filter(i => i.type === "proforma" || i.formIsProforma === true || i.formIsProforma === "proforma").length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                          No pro-forma invoices found.<br />
+                          Toggle "Pro-forma Invoice" when creating a new invoice.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      invoices
+                        .filter(i => i.type === "proforma" || i.formIsProforma === true || i.formIsProforma === "proforma")
+                        .map((inv) => (
+                          <TableRow key={inv.id}>
+                            <TableCell className="font-medium">{inv.invoiceNo}</TableCell>
+                            <TableCell>{inv.customerName}</TableCell>
+                            <TableCell>{inv.invoiceDate?.split("T")[0] || "-"}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{inv.formCurrency || "INR"}</Badge>
+                            </TableCell>
+                            <TableCell className="text-right font-mono font-semibold">
+                              ₹{Number(inv.total || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                            </TableCell>
+                            <TableCell>{getStatusBadge(calculateInvoiceStatus(inv))}</TableCell>
+                            <TableCell className="text-right space-x-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  console.log("clicked proforma:", inv);
+                                  setViewInvoice({ ...inv });
+                                }}   // ← Use the existing function
+                                title="View Invoice"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => openEditInvoice(inv)}
+                                title="Edit"
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           <TabsContent value="reports" className="space-y-4 sm:space-y-6">
             <InvoiceReports invoices={invoices as any} />
           </TabsContent>
         </Tabs>
- {/* View Invoice Dialog */}
+        {/* View Invoice Dialog */}
         <Dialog open={!!viewInvoice} onOpenChange={(open) => !open && setViewInvoice(null)}>
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
@@ -4192,80 +4457,200 @@ const customer = customers.find(
                   </CardContent>
                 </Card>
 
-              <Card>
-  <CardHeader>
-    <CardTitle>Amount Details</CardTitle>
-  </CardHeader>
-  <CardContent className="space-y-2">
-    <div className="flex justify-between">
-      <span>Subtotal:</span>
-      <span className="font-semibold">₹{viewInvoice.subtotal.toLocaleString()}</span>
-    </div>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Amount Details</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="flex justify-between">
+                      <span>Subtotal:</span>
+                      <span className="font-semibold">
+                        {formCurrency !== currency ? (
+                          <>
+                            {currencySym}
+                            {(Number(viewInvoice.subtotal || 0) * (formExchangeRate || 1)).toLocaleString("en-US", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </>
+                        ) : (
+                          <>{currencySym}{(viewInvoice.subtotal || 0).toLocaleString("en-IN")}</>
+                        )}
+                      </span>
+                    </div>
 
-    {/* Show SGST & CGST if GST (CGST/SGST) */}
-    {viewInvoice.taxType === "GST (India)" && viewInvoice.gstType === "CGST_SGST" && (
-      <>
-        <div className="flex justify-between">
-          <span>SGST:</span>
-          <span className="font-semibold">₹{viewInvoice.sgstTotal.toLocaleString()}</span>
-        </div>
-        <div className="flex justify-between">
-          <span>CGST:</span>
-          <span className="font-semibold">₹{viewInvoice.cgstTotal.toLocaleString()}</span>
-        </div>
-      </>
-    )}
+                    {/* Show SGST & CGST if GST (CGST/SGST) */}
+                    {viewInvoice.taxType === "GST (India)" && viewInvoice.gstType === "CGST_SGST" && (
+                      <>
+                        <div className="flex justify-between">
+                          <span>SGST:</span>
+                          <span className="font-semibold">
+                            {formCurrency !== currency ? (
+                              <>
+                                {currencySym}
+                                {(Number(viewInvoice.sgstTotal || 0) * (formExchangeRate || 1)).toLocaleString("en-US", {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                              </>
+                            ) : (
+                              <>{currencySym}{(viewInvoice.sgstTotal || 0).toLocaleString("en-IN")}</>
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>CGST:</span>
+                          <span className="font-semibold">
+                            {formCurrency !== currency ? (
+                              <>
+                                {currencySym}
+                                {(Number(viewInvoice.cgstTotal || 0) * (formExchangeRate || 1)).toLocaleString("en-US", {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                              </>
+                            ) : (
+                              <>{currencySym}{(viewInvoice.cgstTotal || 0).toLocaleString("en-IN")}</>
+                            )}
+                          </span>
+                        </div>
+                      </>
+                    )}
 
-  {/* Show IGST if GST (IGST) */}
-{viewInvoice.taxType === "GST (India)" && viewInvoice.gstType === "IGST" && (
-  <div className="flex justify-between">
-    <span>IGST:</span>
-    <span className="font-semibold">
-      ₹{viewInvoice.items
-        .reduce((total, item) => (item.igst_amount ?? 0), 0)
-        .toLocaleString()}
-    </span>
-  </div>
-)}
+                    {/* Show IGST if GST (IGST) */}
+                    {viewInvoice.taxType === "GST (India)" && viewInvoice.gstType === "IGST" && (
+                      <div className="flex justify-between">
+                        <span>IGST:</span>
+                        <span className="font-semibold">
+                          {formCurrency !== currency ? (
+                            <>
+                              {currencySym}
+                              {(
+                                viewInvoice.items.reduce(
+                                  (total, item) => total + (item.igst_amount ?? 0),
+                                  0
+                                ) * (formExchangeRate || 1)
+                              ).toLocaleString("en-US", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </>
+                          ) : (
+                            <>
+                              {currencySym}
+                              {viewInvoice.items
+                                .reduce((total, item) => total + (item.igst_amount ?? 0), 0)
+                                .toLocaleString("en-IN")}
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    )}
 
-    {/* Show VAT */}
-   {viewInvoice.taxType === "VAT" && (
-  <div className="flex justify-between">
-    <span>VAT:</span>
-    <span className="font-semibold">
-      ₹{viewInvoice.items
-        .reduce((total, item) => (item.vat_amount ?? 0), 0)
-        .toLocaleString()}
-    </span>
-  </div>
-)}
+                    {/* Show VAT */}
+                    {viewInvoice.taxType === "VAT" && (
+                      <div className="flex justify-between">
+                        <span>VAT:</span>
+                        <span className="font-semibold">
+                          {formCurrency !== currency ? (
+                            <>
+                              {currencySym}
+                              {(
+                                viewInvoice.items.reduce(
+                                  (total, item) => total + (item.vat_amount ?? 0),
+                                  0
+                                ) * (formExchangeRate || 1)
+                              ).toLocaleString("en-US", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </>
+                          ) : (
+                            <>
+                              ₹
+                              {viewInvoice.items
+                                .reduce((total, item) => total + (item.vat_amount ?? 0), 0)
+                                .toLocaleString("en-IN")}
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    )}
 
-  {/* Show Sales Tax */}
-{viewInvoice.taxType === "Sales Tax" && (
-  <div className="flex justify-between">
-    <span>Sales Tax:</span>
-    <span className="font-semibold">
-      ₹{viewInvoice.items
-        .reduce((total, item) =>  (item.sales_tax_amount ?? 0), 0)
-        .toLocaleString()}
-    </span>
-  </div>
-)}
+                    {/* Show Sales Tax */}
+                    {viewInvoice.taxType === "Sales Tax" && (
+                      <div className="flex justify-between">
+                        <span>Sales Tax:</span>
+                        <span className="font-semibold">
+                          {formCurrency !== currency ? (
+                            <>
+                              {currencySym}
+                              {(
+                                viewInvoice.items.reduce(
+                                  (total, item) => total + (item.sales_tax_amount ?? 0),
+                                  0
+                                ) * (formExchangeRate || 1)
+                              ).toLocaleString("en-US", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </>
+                          ) : (
+                            <>
+                              {currencySym}
+                              {viewInvoice.items
+                                .reduce((total, item) => total + (item.sales_tax_amount ?? 0), 0)
+                                .toLocaleString("en-IN")}
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    )}
 
-    <div className="flex justify-between text-lg border-t pt-2">
-      <span className="font-bold">Total:</span>
-      <span className="font-bold">₹{viewInvoice.total.toLocaleString()}</span>
-    </div>
-    <div className="flex justify-between text-green-600">
-      <span>Amount Paid:</span>
-      <span className="font-semibold">₹{viewInvoice.amountPaid.toLocaleString()}</span>
-    </div>
-    <div className="flex justify-between text-red-600 text-lg border-t pt-2">
-      <span className="font-bold">Amount Due:</span>
-      <span className="font-bold">₹{(viewInvoice.total - viewInvoice.amountPaid).toLocaleString()}</span>
-    </div>
-  </CardContent>
-</Card>
+                    <div className="flex justify-between text-lg border-t pt-2">
+                      <span className="font-bold">Total:</span>
+                      <span className="font-bold">
+                        {formCurrency !== currency ? (
+                          <>
+                            {currencySym}
+                            {(Number(viewInvoice.total || 0) * (formExchangeRate || 1)).toLocaleString("en-US", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </>
+                        ) : (
+                          <> {currencySym}{(viewInvoice.total || 0).toLocaleString("en-IN")}</>
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-green-600">
+                      <span>Amount Paid:</span>
+                      <span className="font-semibold">
+                        {currencySym}
+                        {(Number(viewInvoice.amountPaid || 0) * (formExchangeRate || 1)).toLocaleString(
+                          "en-IN",
+                          {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          }
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-red-600 text-lg border-t pt-2">
+                      <span className="font-bold">Amount Due:</span>
+                      <span className="font-bold">
+                        {currencySym}
+                        {(
+                          (Number(viewInvoice.total || 0) - Number(viewInvoice.amountPaid || 0)) *
+                          (formExchangeRate || 1)
+                        ).toLocaleString("en-IN", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
 
                 {viewInvoice.payments.length > 0 && (
                   <Card>
