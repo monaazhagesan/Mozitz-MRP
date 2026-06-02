@@ -253,6 +253,10 @@ const Invoices = () => {
   const [inventoryItems, setInventoryItems] = useState<{ id: number; itemName: string }[]>([]);
   const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
 
+const currencySymbol = getSymbolFromCurrency(
+  viewInvoice?.currency || selectedInvoice?.currency || "INR"
+);
+
   const [customers, setCustomers] = useState<{
     id: string;
     customer_name: string;
@@ -3696,15 +3700,7 @@ ${invoice.taxType === "Sales Tax"
                                 <p className="text-lg font-bold"><Money value={gstAmount} /></p>
                               </div>
                             </div>
-                            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                              <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
-                                <span className="text-xs font-bold text-amber-700">TDS</span>
-                              </div>
-                              <div>
-                                <p className="text-xs text-muted-foreground">TDS</p>
-                                <p className="text-lg font-bold"><Money value={tdsAmount} /></p>
-                              </div>
-                            </div>
+
                           </>
                         );
                       })()}
@@ -3764,7 +3760,7 @@ ${invoice.taxType === "Sales Tax"
                       <TableHead>Invoice Date</TableHead>
                       <TableHead>Due Date</TableHead>
                       <TableHead>Total Amount</TableHead>
-                      <TableHead>TDS</TableHead>
+
                       <TableHead>Paid</TableHead>
                       <TableHead>Due</TableHead>
                       <TableHead>Status</TableHead>
@@ -3797,19 +3793,7 @@ ${invoice.taxType === "Sales Tax"
                               </>
                             )}
                           </TableCell>
-                          <TableCell className="text-amber-600">
-                            {formCurrency !== currency ? (
-                              <>
-                                {currencySym}
-                                {((invoice.tdsTotal || 0) * (invoice.formExchangeRate || 1)).toLocaleString("en-US", {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                })}
-                              </>
-                            ) : (
-                              <>₹{(invoice.tdsTotal || 0).toLocaleString("en-IN")}</>
-                            )}
-                          </TableCell>
+
                           <TableCell className="text-green-600">
                             {formCurrency !== currency ? (
                               <>
@@ -3910,7 +3894,7 @@ ${invoice.taxType === "Sales Tax"
 
             {/* Record Payment Dialog */}
             <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
-              <DialogContent className="max-w-md">
+              <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>Record Payment</DialogTitle>
                 </DialogHeader>
@@ -3942,16 +3926,12 @@ ${invoice.taxType === "Sales Tax"
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Amount Paid:</span>
                         <span className="font-medium text-green-600">
-                          {currencySym}
-                          {(
-                            formCurrency !== currency
-                              ? Number(selectedInvoice.amountPaid || 0) * Number(selectedInvoice.formExchangeRate || 1)
-                              : Number(selectedInvoice.amountPaid || 0)
-                          ).toLocaleString("en-US", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          })}
-                        </span>
+  {currencySym}
+  {Number(selectedInvoice.amountPaid || 0).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}
+</span>
                       </div>
                       <div className="flex justify-between text-sm pt-2 border-t">
                         <span className="text-muted-foreground">Amount Due:</span>
@@ -4464,19 +4444,13 @@ ${invoice.taxType === "Sales Tax"
                   <CardContent className="space-y-2">
                     <div className="flex justify-between">
                       <span>Subtotal:</span>
-                      <span className="font-semibold">
-                        {formCurrency !== currency ? (
-                          <>
-                            {currencySym}
-                            {(Number(viewInvoice.subtotal || 0) * (formExchangeRate || 1)).toLocaleString("en-US", {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </>
-                        ) : (
-                          <>{currencySym}{(viewInvoice.subtotal || 0).toLocaleString("en-IN")}</>
-                        )}
-                      </span>
+                     <span className="font-semibold">
+  {currencySym}
+  {(Number(viewInvoice.subtotal || 0) * Number(viewInvoice.formExchangeRate || 1)).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}
+</span>
                     </div>
 
                     {/* Show SGST & CGST if GST (CGST/SGST) */}
@@ -4484,35 +4458,23 @@ ${invoice.taxType === "Sales Tax"
                       <>
                         <div className="flex justify-between">
                           <span>SGST:</span>
-                          <span className="font-semibold">
-                            {formCurrency !== currency ? (
-                              <>
-                                {currencySym}
-                                {(Number(viewInvoice.sgstTotal || 0) * (formExchangeRate || 1)).toLocaleString("en-US", {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                })}
-                              </>
-                            ) : (
-                              <>{currencySym}{(viewInvoice.sgstTotal || 0).toLocaleString("en-IN")}</>
-                            )}
-                          </span>
+                         <span className="font-semibold">
+  {currencySym}
+  {(Number(viewInvoice.sgstTotal || 0) * Number(viewInvoice.formExchangeRate || 1)).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}
+</span>
                         </div>
                         <div className="flex justify-between">
                           <span>CGST:</span>
-                          <span className="font-semibold">
-                            {formCurrency !== currency ? (
-                              <>
-                                {currencySym}
-                                {(Number(viewInvoice.cgstTotal || 0) * (formExchangeRate || 1)).toLocaleString("en-US", {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                })}
-                              </>
-                            ) : (
-                              <>{currencySym}{(viewInvoice.cgstTotal || 0).toLocaleString("en-IN")}</>
-                            )}
-                          </span>
+                         <span className="font-semibold">
+  {currencySym}
+  {(Number(viewInvoice.cgstTotal || 0) * Number(viewInvoice.formExchangeRate || 1)).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}
+</span>
                         </div>
                       </>
                     )}
@@ -4521,29 +4483,18 @@ ${invoice.taxType === "Sales Tax"
                     {viewInvoice.taxType === "GST (India)" && viewInvoice.gstType === "IGST" && (
                       <div className="flex justify-between">
                         <span>IGST:</span>
-                        <span className="font-semibold">
-                          {formCurrency !== currency ? (
-                            <>
-                              {currencySym}
-                              {(
-                                viewInvoice.items.reduce(
-                                  (total, item) => total + (item.igst_amount ?? 0),
-                                  0
-                                ) * (formExchangeRate || 1)
-                              ).toLocaleString("en-US", {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}
-                            </>
-                          ) : (
-                            <>
-                              {currencySym}
-                              {viewInvoice.items
-                                .reduce((total, item) => total + (item.igst_amount ?? 0), 0)
-                                .toLocaleString("en-IN")}
-                            </>
-                          )}
-                        </span>
+                       <span className="font-semibold">
+  {currencySym}
+  {(
+    viewInvoice.items.reduce(
+      (total, item) => total + (item.igst_amount ?? 0),
+      0
+    ) * Number(viewInvoice.formExchangeRate || 1)
+  ).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}
+</span>
                       </div>
                     )}
 
@@ -4552,28 +4503,17 @@ ${invoice.taxType === "Sales Tax"
                       <div className="flex justify-between">
                         <span>VAT:</span>
                         <span className="font-semibold">
-                          {formCurrency !== currency ? (
-                            <>
-                              {currencySym}
-                              {(
-                                viewInvoice.items.reduce(
-                                  (total, item) => total + (item.vat_amount ?? 0),
-                                  0
-                                ) * (formExchangeRate || 1)
-                              ).toLocaleString("en-US", {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}
-                            </>
-                          ) : (
-                            <>
-                              ₹
-                              {viewInvoice.items
-                                .reduce((total, item) => total + (item.vat_amount ?? 0), 0)
-                                .toLocaleString("en-IN")}
-                            </>
-                          )}
-                        </span>
+  {currencySym}
+  {(
+    viewInvoice.items.reduce(
+      (total, item) => total + (item.vat_amount ?? 0),
+      0
+    ) * Number(viewInvoice.formExchangeRate || 1)
+  ).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}
+</span>
                       </div>
                     )}
 
@@ -4581,53 +4521,36 @@ ${invoice.taxType === "Sales Tax"
                     {viewInvoice.taxType === "Sales Tax" && (
                       <div className="flex justify-between">
                         <span>Sales Tax:</span>
-                        <span className="font-semibold">
-                          {formCurrency !== currency ? (
-                            <>
-                              {currencySym}
-                              {(
-                                viewInvoice.items.reduce(
-                                  (total, item) => total + (item.sales_tax_amount ?? 0),
-                                  0
-                                ) * (formExchangeRate || 1)
-                              ).toLocaleString("en-US", {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}
-                            </>
-                          ) : (
-                            <>
-                              {currencySym}
-                              {viewInvoice.items
-                                .reduce((total, item) => total + (item.sales_tax_amount ?? 0), 0)
-                                .toLocaleString("en-IN")}
-                            </>
-                          )}
-                        </span>
+                       <span className="font-semibold">
+  {currencySym}
+  {(
+    viewInvoice.items.reduce(
+      (total, item) => total + (item.sales_tax_amount ?? 0),
+      0
+    ) * Number(viewInvoice.formExchangeRate || 1)
+  ).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}
+</span>
                       </div>
                     )}
 
                     <div className="flex justify-between text-lg border-t pt-2">
                       <span className="font-bold">Total:</span>
-                      <span className="font-bold">
-                        {formCurrency !== currency ? (
-                          <>
-                            {currencySym}
-                            {(Number(viewInvoice.total || 0) * (formExchangeRate || 1)).toLocaleString("en-US", {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
-                          </>
-                        ) : (
-                          <> {currencySym}{(viewInvoice.total || 0).toLocaleString("en-IN")}</>
-                        )}
-                      </span>
+                     <span className="font-bold">
+  {currencySym}
+  {(Number(viewInvoice.total || 0) * Number(viewInvoice.formExchangeRate || 1)).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}
+</span>
                     </div>
                     <div className="flex justify-between text-green-600">
                       <span>Amount Paid:</span>
                       <span className="font-semibold">
                         {currencySym}
-                        {(Number(viewInvoice.amountPaid || 0) * (formExchangeRate || 1)).toLocaleString(
+                        {(Number(viewInvoice.amountPaid || 0) * Number(viewInvoice.formExchangeRate || 1)).toLocaleString(
                           "en-IN",
                           {
                             minimumFractionDigits: 2,
@@ -4642,7 +4565,7 @@ ${invoice.taxType === "Sales Tax"
                         {currencySym}
                         {(
                           (Number(viewInvoice.total || 0) - Number(viewInvoice.amountPaid || 0)) *
-                          (formExchangeRate || 1)
+                          Number(viewInvoice.formExchangeRate || 1)
                         ).toLocaleString("en-IN", {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,

@@ -1572,10 +1572,6 @@ window.onload = async function () {
             <Menu className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem>Sort by</DropdownMenuItem>
-          <DropdownMenuItem>Export Packages</DropdownMenuItem>
-        </DropdownMenuContent>
       </DropdownMenu>
     </div>
   );

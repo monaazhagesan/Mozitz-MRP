@@ -1116,7 +1116,7 @@ const Vendors = () => {
                           <DialogTrigger asChild>
                             <Button variant="ghost" size="sm"><Eye className="h-4 w-4" /></Button>
                           </DialogTrigger>
-                          <DialogContent className="max-w-4xl">
+                          <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-auto">
                             <DialogHeader>
                               <DialogTitle className="text-2xl">
                                 {vendor.company} - Vendor Details

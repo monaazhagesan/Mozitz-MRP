@@ -9,6 +9,7 @@ import Auth from "./pages/Auth";
 import Index from "./pages/Index";
 import Inventory from "./pages/Inventory";
 import Orders from "./pages/Orders";
+import Analytics from "./pages/Analytics";
 import BOM from "./pages/BOM";
 import Planning from "./pages/Planning";
 /*import Assembly from "./pages/Assembly";  */
@@ -40,7 +41,7 @@ import CreditNotes from "./pages/CreditNotes";
 //import AccountingAI from "./pages/AccountingAI";
 import PitchDeck from "./pages/PitchDeck";
 import ForgotPassword from "./pages/ForgotPassword";
-import NotFound from "./pages/NotFound"; 
+import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
@@ -54,9 +55,10 @@ const App = () => (
           <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
-               <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />  
+               <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
             <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
             <Route path="/bom" element={<ProtectedRoute><BOM /></ProtectedRoute>} />
+            <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>}/>
          {/*  <Route path="/barcode" element={<ProtectedRoute><Barcode /></ProtectedRoute>} />  */}
             <Route path="/planning" element={<ProtectedRoute><Planning /></ProtectedRoute>} />
           {/*   <Route path="/assembly" element={<ProtectedRoute><Assembly /></ProtectedRoute>} /> */}
@@ -66,8 +68,8 @@ const App = () => (
             <Route path="/accounting/customers" element={<ProtectedRoute><Customers /></ProtectedRoute>} />
            <Route path="/accounting/invoices" element={<ProtectedRoute><Invoices /></ProtectedRoute>} />
             <Route path="/accounting/ledger" element={<ProtectedRoute><Ledger /></ProtectedRoute>} />
-            <Route path="/accounting/supplier-payables" element={<ProtectedRoute><SupplierPayables /></ProtectedRoute>} /> 
-            <Route path="/accounting/credit-notes" element={<ProtectedRoute><CreditNotes /></ProtectedRoute>} /> 
+            <Route path="/accounting/supplier-payables" element={<ProtectedRoute><SupplierPayables /></ProtectedRoute>} />
+            <Route path="/accounting/credit-notes" element={<ProtectedRoute><CreditNotes /></ProtectedRoute>} />
          {/*       <Route path="/accounting/ai-insights" element={<ProtectedRoute><AccountingAI /></ProtectedRoute>} />  */}
             <Route path="/purchase/vendors" element={<ProtectedRoute><Vendors /></ProtectedRoute>} />
               <Route path="/purchase/purchase-orders" element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} />
@@ -87,7 +89,7 @@ const App = () => (
             <Route path="/tax-configuration" element={<ProtectedRoute><TaxConfiguration /></ProtectedRoute>} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/pitch-deck" element={<PitchDeck />} />
-            <Route path="*" element={<NotFound />} /> 
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
       </BrowserRouter>

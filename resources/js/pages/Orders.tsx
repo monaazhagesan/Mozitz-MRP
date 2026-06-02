@@ -340,12 +340,12 @@ const Orders = () => {
   const currency = useCurrency();
 
   const formatPrintMoney = (value: number) => {
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency, // ✅ now it's being used
-    maximumFractionDigits: 2,
-  }).format(Number(value || 0));
-};
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency, // ✅ now it's being used
+      maximumFractionDigits: 2,
+    }).format(Number(value || 0));
+  };
 
 
   const [regularForm, setRegularForm] = useState({
@@ -1211,54 +1211,54 @@ const Orders = () => {
   };
 
 
- const confirmCancelOrder = async () => {
-  if (!cancelOrder) return;
+  const confirmCancelOrder = async () => {
+    if (!cancelOrder) return;
 
-  try {
-    setCancelling(true);
+    try {
+      setCancelling(true);
 
-    const cancelRes = await axios.post(
-      `/api/orders/${cancelOrder.id}/cancel`
-    );
+      const cancelRes = await axios.post(
+        `/api/orders/${cancelOrder.id}/cancel`
+      );
 
-    if (!cancelRes.data.success) {
-      throw new Error(cancelRes.data.message || "Cancel failed");
-    }
+      if (!cancelRes.data.success) {
+        throw new Error(cancelRes.data.message || "Cancel failed");
+      }
 
-    // UI update only
-    setOrders((prev) =>
-      prev.map((order) =>
-        order.id === cancelOrder.id
-          ? {
+      // UI update only
+      setOrders((prev) =>
+        prev.map((order) =>
+          order.id === cancelOrder.id
+            ? {
               ...order,
               status: "Cancelled",
               delivery_status: "Cancelled",
             }
-          : order
-      )
-    );
+            : order
+        )
+      );
 
-    toast({
-      title: "Order Cancelled",
-      description: cancelRes.data.should_return_stock
-        ? "Stock returned successfully."
-        : "Order cancelled (no stock return).",
-    });
+      toast({
+        title: "Order Cancelled",
+        description: cancelRes.data.should_return_stock
+          ? "Stock returned successfully."
+          : "Order cancelled (no stock return).",
+      });
 
-    setCancelDialogOpen(false);
-    setCancelOrder(null);
-    closeOrderSheet();
+      setCancelDialogOpen(false);
+      setCancelOrder(null);
+      closeOrderSheet();
 
-  } catch (error) {
-    toast({
-      title: "Cancel failed",
-      description: error.response?.data?.message || error.message,
-      variant: "destructive",
-    });
-  } finally {
-    setCancelling(false);
-  }
-};
+    } catch (error) {
+      toast({
+        title: "Cancel failed",
+        description: error.response?.data?.message || error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setCancelling(false);
+    }
+  };
 
 
   const fetchOrders = async () => {
@@ -1388,6 +1388,7 @@ const Orders = () => {
       fetchOrders();
     }
   }, [mainTab]);
+
 
   const sortedOrders = useMemo(() => {
     const data = [...filteredOrders];
@@ -2445,7 +2446,10 @@ const Orders = () => {
             <button
               key={view.id}
               type="button"
-              onClick={() => setWorkspaceView(view.id)}
+              onClick={() => {
+                setMainTab("orders");   
+                setWorkspaceView(view.id);
+              }}
               className={cn(
                 "flex min-w-fit items-center gap-3 rounded-md border px-3 py-2 text-left text-sm transition-colors lg:w-full",
                 active
@@ -3299,15 +3303,15 @@ const Orders = () => {
                         {order.customer}
                       </div>
 
-                     <div className="mt-1 text-xs text-muted-foreground">
-  {order.order_type} • {order.items.length} lines •{" "}
-  <Money
-    value={order.items.reduce(
-      (sum, item) => sum + Number(item.total_amount || 0),
-      0
-    )}
-  />
-</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {order.order_type} • {order.items.length} lines •{" "}
+                        <Money
+                          value={order.items.reduce(
+                            (sum, item) => sum + Number(item.total_amount || 0),
+                            0
+                          )}
+                        />
+                      </div>
                     </div>
                   </button>
                 );
@@ -3379,11 +3383,11 @@ const Orders = () => {
                           </TableCell>
 
                           <TableCell className="text-right">
-                           <Money value={Number(item.rate) || 0} />
+                            <Money value={Number(item.rate) || 0} />
                           </TableCell>
 
                           <TableCell className="text-right">
-                           <Money value={Number(item.total_amount) || 0} />
+                            <Money value={Number(item.total_amount) || 0} />
                           </TableCell>
                         </TableRow>
                       ))}
@@ -3745,15 +3749,15 @@ const Orders = () => {
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Items to Purchase</div><div className="mt-2 text-2xl font-semibold text-primary">{purchaseNeeds.length}</div></div>
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Estimated Value</div><div className="mt-2 text-2xl font-semibold text-warning">
           <Money
-  value={purchaseNeeds.reduce(
-    (sum, row) =>
-      sum +
-      row.assessment.gap *
-        Number(row.assessment.inventory?.unit_cost || row.item.rate || 0),
-    0
-  )}
-/>
-</div></div>
+            value={purchaseNeeds.reduce(
+              (sum, row) =>
+                sum +
+                row.assessment.gap *
+                Number(row.assessment.inventory?.unit_cost || row.item.rate || 0),
+              0
+            )}
+          />
+        </div></div>
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Urgent Buys</div><div className="mt-2 text-2xl font-semibold text-destructive">{purchaseNeeds.filter((row) => ["High", "Critical"].includes(row.order.priority)).length}</div></div>
       </div>
 
@@ -3816,14 +3820,14 @@ const Orders = () => {
                         return gap > 0 ? gap : "—";
                       })()}
                     </TableCell>
-                   <TableCell className="text-right">
-  <Money
-    value={
-      assessment.gap *
-      Number(assessment.inventory?.unit_cost || item.rate || 0)
-    }
-  />
-</TableCell>
+                    <TableCell className="text-right">
+                      <Money
+                        value={
+                          assessment.gap *
+                          Number(assessment.inventory?.unit_cost || item.rate || 0)
+                        }
+                      />
+                    </TableCell>
                     <TableCell>{renderValidationBadge(order.priority === "Critical" ? "missing" : order.priority === "High" ? "partial" : "available", order.priority)}</TableCell>
 
                     <TableCell className="text-right">
@@ -3844,17 +3848,17 @@ const Orders = () => {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Excess Items</div><div className="mt-2 text-2xl font-semibold text-primary">{excessRows.length}</div></div>
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Excess Qty Total</div><div className="mt-2 text-2xl font-semibold text-success">{excessRows.reduce((sum, row) => sum + row.excessQty, 0)}</div></div>
-<div className="rounded-lg border bg-card p-4 shadow-sm">
-  <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-    Excess Value
-  </div>
+        <div className="rounded-lg border bg-card p-4 shadow-sm">
+          <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            Excess Value
+          </div>
 
-  <div className="mt-2 text-2xl font-semibold text-warning">
-    <Money
-      value={excessRows.reduce((sum, row) => sum + row.excessValue, 0)}
-    />
-  </div>
-</div>
+          <div className="mt-2 text-2xl font-semibold text-warning">
+            <Money
+              value={excessRows.reduce((sum, row) => sum + row.excessValue, 0)}
+            />
+          </div>
+        </div>
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Reusable</div><div className="mt-2 text-2xl font-semibold text-accent">{excessRows.filter((row) => row.type !== "Product").length}</div></div>
       </div>
 
@@ -3933,13 +3937,13 @@ const Orders = () => {
                       <TableCell className="font-mono text-xs text-primary">{order.order_no}</TableCell>
                       <TableCell>{order.customer}</TableCell>
                       <TableCell>
-  <Money
-    value={(order.items || []).reduce(
-      (sum, item) => sum + (Number(item.total_amount) || 0),
-      0
-    )}
-  />
-</TableCell>
+                        <Money
+                          value={(order.items || []).reduce(
+                            (sum, item) => sum + (Number(item.total_amount) || 0),
+                            0
+                          )}
+                        />
+                      </TableCell>
                       <TableCell>{order.status}</TableCell>
                     </TableRow>
                   ))}
@@ -4013,7 +4017,7 @@ const Orders = () => {
                 <TabsList>
                   <TabsTrigger value="orders">Orders</TabsTrigger>
                   <TabsTrigger value="packages">Packages</TabsTrigger>
-                  {/*   <TabsTrigger value="refunds">Refunds</TabsTrigger> */}
+
                 </TabsList>
               </Tabs>
             </div>
@@ -4217,7 +4221,7 @@ const Orders = () => {
                 <Button
                   variant="destructive"
                   disabled={
-                    ["Delivered",  "Cancelled"].includes(viewOrder.status) ||
+                    ["Delivered", "Cancelled"].includes(viewOrder.status) ||
                     viewOrder.delivery_status === "Delivered" ||
                     viewOrder.delivery_status === "Shipped" ||
                     viewOrder.delivery_status === "Partially Fulfilled"
@@ -4225,7 +4229,7 @@ const Orders = () => {
                   onClick={() => {
                     setCancelOrder(viewOrder);
                     setCancelDialogOpen(true);
-                     setCancelling(true);
+                    setCancelling(true);
                   }}
                 >
                   <XCircle className="mr-2 h-4 w-4" />
@@ -4250,37 +4254,37 @@ const Orders = () => {
         </DialogContent>
       </Dialog>
 
-     <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
-  <DialogContent className="max-w-md">
-    <DialogHeader>
-      <DialogTitle className="text-red-600">
-        Cancel Order
-      </DialogTitle>
-    </DialogHeader>
+      <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-red-600">
+              Cancel Order
+            </DialogTitle>
+          </DialogHeader>
 
-    <div className="space-y-4 py-2">
-      <p className="text-sm text-muted-foreground">
-        This action cannot be undone. The order will be permanently cancelled.
-      </p>
-    </div>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              This action cannot be undone. The order will be permanently cancelled.
+            </p>
+          </div>
 
-    <DialogFooter className="gap-2">
-      <Button
-        variant="outline"
-        onClick={() => setCancelDialogOpen(false)}
-      >
-        Keep Order
-      </Button>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setCancelDialogOpen(false)}
+            >
+              Keep Order
+            </Button>
 
-      <Button
-        variant="destructive"
-        onClick={confirmCancelOrder}
-      >
-        Yes, Cancel Order
-      </Button>
-    </DialogFooter>
-  </DialogContent>
-</Dialog>
+            <Button
+              variant="destructive"
+              onClick={confirmCancelOrder}
+            >
+              Yes, Cancel Order
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <RefundDialog open={refundDialogOpen} onOpenChange={setRefundDialogOpen} order={refundOrder} onRefundCreated={(refund) => setRefunds((prev) => [refund, ...prev])} />
     </Layout>
   );
