@@ -136,7 +136,7 @@
     <!-- INTRO -->
     <div>
         <p>Dear Sir/Madam,</p>
-        <p>Greetings from <strong>{{ $company?->name ?? 'N/A' }}</strong>.</p>
+        <p>Greetings from <strong>{{ $company?->company ?? 'N/A' }}</strong>.</p>
         <p>Please find below the details of our RFQ.</p>
     </div>
 
@@ -204,8 +204,8 @@
 
         <p>
              Best Regards,<br>
-    
-    {{ $company?->name ?? 'N/A' }}<br>
+
+    {{ $company?->company ?? 'N/A' }}<br>
     Email: {{ $company?->email ?? 'N/A' }}<br>
     Phone: {{ $company?->phone ?? 'N/A' }}
 </p>

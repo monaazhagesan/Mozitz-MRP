@@ -49,7 +49,7 @@ export default function RFQForm({ initialItem, onSuccess }: RFQFormProps) {
         item_name: initialItem.item_name,
         description: initialItem.description || "",
         quantity: initialItem.quantity.toString(),
-        required_date: new Date().toISOString().split('T')[0],
+        required_date: "",
       }]
       : [{ item_code: "", item_name: "", description: "", quantity: "", required_date: "" }]
   );
@@ -154,6 +154,28 @@ if (validItems.length === 0) {
   toast({
     title: "Validation Error",
     description: "Please select item with valid quantity (> 0)",
+    variant: "destructive",
+  });
+  return;
+}
+
+const missingRequiredDateItems = items.filter(item => {
+  const qty = Number(item.quantity);
+
+  return (
+    item.item_code &&
+    item.item_name &&
+    item.quantity !== "" &&
+    !isNaN(qty) &&
+    qty > 0 &&
+    (!item.required_date || item.required_date.trim() === "")
+  );
+});
+
+if (missingRequiredDateItems.length > 0) {
+  toast({
+    title: "Validation Error",
+    description: "Please select Required Date for all items",
     variant: "destructive",
   });
   return;

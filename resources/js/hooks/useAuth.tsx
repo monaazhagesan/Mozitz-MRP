@@ -17,7 +17,7 @@ interface Session {
 interface AuthContextType {
   user: User | null;
   session: Session | null;
-  signUp: (email: string, password: string, first_name?: string, last_name?: string, company?: string,  country?: string, currency?: string) => Promise<any>;
+  signUp: (email: string, password: string, first_name?: string, last_name?: string, company?: string,   phone?: string, country?: string, currency?: string) => Promise<any>;
   signIn: (email: string, password: string) => Promise<any>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<any>;
@@ -64,6 +64,7 @@ const signUp = async (
   first_name?: string,
   last_name?: string,
   company?: string,
+   phone?: string,
    country?: string,
   currency?: string
 ) => {
@@ -76,6 +77,7 @@ const signUp = async (
       first_name,
       last_name,
       company,
+      phone,
       country,
       currency,
     });

@@ -15,6 +15,19 @@ use Laravel\Sanctum\HasApiTokens;
 
 class AuthController extends Controller
 {
+
+public function getProfile()
+{
+    $user = Auth::user();
+
+    if (!$user) {
+        return response()->json([
+            'message' => 'Unauthenticated'
+        ], 401);
+    }
+
+    return response()->json($user);
+}
     // Register
     public function register(Request $request)
 {
@@ -24,6 +37,7 @@ class AuthController extends Controller
         'first_name' => 'nullable|string|max:255',
         'last_name' => 'nullable|string|max:255',
         'company' => 'nullable|string|max:255',
+        'phone' => 'nullable|string|max:20',
         'country' => 'nullable|string|max:100',
         'currency' => 'nullable|string|max:10',
     ]);
@@ -36,6 +50,7 @@ class AuthController extends Controller
         'first_name' => $request->first_name,
         'last_name' => $request->last_name,
         'company' => $request->company,
+         'phone' => $request->phone,
          'country' => $request->country,
         'currency' => $request->currency,
     ]);
@@ -46,6 +61,88 @@ class AuthController extends Controller
         'user' => $user
     ]);
 }
+
+
+public function updateProfile(Request $request)
+{
+    /** @var \App\Models\User $user */
+$user = Auth::user();
+
+    if (!$user) {
+        return response()->json([
+            'message' => 'Unauthenticated user'
+        ], 401);
+    }
+
+    $request->validate([
+        'first_name' => 'nullable|string|max:255',
+        'last_name' => 'nullable|string|max:255',
+        'company' => 'nullable|string|max:255',
+        'country' => 'nullable|string|max:100',
+        'currency' => 'nullable|string|max:10',
+        'phone' => 'nullable|string|max:20',
+        'gstin' => 'nullable|string|max:50',
+        'pan' => 'nullable|string|max:50',
+        'address' => 'nullable|string|max:255',
+        'bank_account_name' => 'nullable|string|max:255',
+        'bank_account_number' => 'nullable|string|max:50',
+        'ifsc' => 'nullable|string|max:20',
+        'account_type' => 'nullable|string|max:50',
+        'bank_name' => 'nullable|string|max:255',
+        'branch' => 'nullable|string|max:255',
+    ]);
+
+     if ($request->filled('password')) {
+
+    // 1. current password required
+    if (!$request->filled('current_password')) {
+        return response()->json([
+            'message' => 'Current password is required'
+        ], 422);
+    }
+
+    // 2. check current password
+    if (!Hash::check($request->current_password, $user->password)) {
+        return response()->json([
+            'message' => 'Current password is incorrect'
+        ], 422);
+    }
+
+    // 3. check confirm password match
+    if ($request->password !== $request->confirm_password) {
+        return response()->json([
+            'message' => 'New password and confirm password do not match'
+        ], 422);
+    }
+
+    // 4. update password
+    $user->password = Hash::make($request->password);
+}
+
+    $user->update($request->only([
+        'first_name',
+        'last_name',
+        'company',
+        'country',
+        'currency',
+        'phone',
+        'gstin',
+        'pan',
+        'address',
+        'bank_account_name',
+        'bank_account_number',
+        'ifsc',
+        'account_type',
+        'bank_name',
+        'branch',
+    ]));
+
+    return response()->json([
+        'message' => 'Profile updated successfully',
+        'user' => $user
+    ]);
+}
+
     // Login
     public function login(Request $request)
     {

@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import axios from 'axios';
-
+import { toast } from 'sonner';
 
 const userSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -27,6 +27,7 @@ const userSchema = z.object({
 });
 
 const navigationItems = [
+  { id: "profile", label: "Profile" },
   { id: "general", label: "General" },
   { id: "units", label: "Units of measure" },
   { id: "tax-rates", label: "Tax rates" },
@@ -41,7 +42,6 @@ const navigationItems = [
   { id: "warehouse-app", label: "Warehouse app" },
   { id: "manufacturing", label: "Manufacturing" },
   { id: "team", label: "Team Management" },
-  { id: "company", label: "Company Details" },
 ];
 
 // Component for individual location bin section
@@ -130,43 +130,66 @@ const Settings = () => {
 
   const { toast } = useToast();
   const [companyDetails, setCompanyDetails] = useState({
-    name: "",
+    first_name: "",
+    last_name: "",
+    company: "",
+    email: "",
+    country: "",
+    currency: "",
+
+    phone: "",
     gstin: "",
     pan: "",
     address: "",
-    phone: "",
-    email: "",
-    bankAccountName: "",
-    bankAccountNumber: "",
+
+    bank_account_name: "",
+    bank_account_number: "",
     ifsc: "",
-    accountType: "",
-    bankName: "",
+    account_type: "",
+    bank_name: "",
     branch: "",
+
+    current_password: "",
+    password: "",
+    confirm_password: "",
   });
 
-   useEffect(() => {
+  useEffect(() => {
     const fetchCompanyDetails = async () => {
       try {
-        const { data } = await axios.get("/api/company");
+        const { data } = await axios.get("/api/profile");
+
         if (data) {
           setCompanyDetails({
-            name: data.name || "",
+            first_name: data.first_name || "",
+            last_name: data.last_name || "",
+            company: data.company || "",
+
+            country: data.country || "",
+            currency: data.currency || "",
+
             gstin: data.gstin || "",
             pan: data.pan || "",
             address: data.address || "",
             phone: data.phone || "",
             email: data.email || "",
-            bankAccountName: data.bank_account_name || "",
-            bankAccountNumber: data.bank_account_number || "",
+
+            bank_account_name: data.bank_account_name || "",
+            bank_account_number: data.bank_account_number || "",
             ifsc: data.ifsc || "",
-            accountType: data.account_type || "",
-            bankName: data.bank_name || "",
+            account_type: data.account_type || "",
+            bank_name: data.bank_name || "",
             branch: data.branch || "",
+
+            // password fields (never load real password)
+            current_password: "",
+            password: "",
+            confirm_password: "",
           });
         }
       } catch (error: any) {
         toast({
-          title: "Error loading company info",
+          title: "Error loading profile",
           description: error.response?.data?.message || error.message,
           variant: "destructive",
         });
@@ -177,48 +200,77 @@ const Settings = () => {
   }, []);
 
   const handleSaveCompany = async () => {
-    
+
+   if (!/^\d{10}$/.test(companyDetails.phone.trim())) {
+  toast({
+    title: "Invalid phone number",
+    description: "Phone number must be exactly 10 digits",
+    variant: "destructive",
+  });
+  return;
+}
+
     try {
       const payload = {
-        name: companyDetails.name,
-        email: companyDetails.email,
+        first_name: companyDetails.first_name,
+        last_name: companyDetails.last_name,
+        company: companyDetails.company,
+        country: companyDetails.country,
+        currency: companyDetails.currency,
+
         phone: companyDetails.phone,
         gstin: companyDetails.gstin,
         pan: companyDetails.pan,
         address: companyDetails.address,
-        bank_account_name: companyDetails.bankAccountName,
-        bank_account_number: companyDetails.bankAccountNumber,
+
+        bank_account_name: companyDetails.bank_account_name,
+        bank_account_number: companyDetails.bank_account_number,
         ifsc: companyDetails.ifsc,
-        account_type: companyDetails.accountType,
-        bank_name: companyDetails.bankName,
+        account_type: companyDetails.account_type,
+        bank_name: companyDetails.bank_name,
         branch: companyDetails.branch,
+
+        // password only if user enters it
+        current_password: companyDetails.current_password,
+        password: companyDetails.password,
+        confirm_password: companyDetails.confirm_password,
       };
 
-      const { data } = await axios.post('/api/company', payload);
+      const { data } = await axios.post('/api/update-profile', payload);
 
       toast({
-        title: "Company info saved",
-        description: "Company details updated successfully",
-        variant: "destructive",
+        title: "Profile info saved",
+        description: "Profile details updated successfully",
+
       });
 
       setCompanyDetails({
-        name: data.name || "",
-        email: data.email || "",
-        phone: data.phone || "",
-        gstin: data.gstin || "",
-        pan: data.pan || "",
-        address: data.address || "",
-        bankAccountName: data.bank_account_name || "",
-        bankAccountNumber: data.bank_account_number || "",
-        ifsc: data.ifsc || "",
-        accountType: data.account_type || "",
-        bankName: data.bank_name || "",
-        branch: data.branch || "",
+        first_name: data.user.first_name || "",
+        last_name: data.user.last_name || "",
+        company: data.user.company || "",
+        country: data.user.country || "",
+        currency: data.user.currency || "",
+
+        email: data.user.email || "",
+        phone: data.user.phone || "",
+        gstin: data.user.gstin || "",
+        pan: data.user.pan || "",
+        address: data.user.address || "",
+
+        bank_account_name: data.user.bank_account_name || "",
+        bank_account_number: data.user.bank_account_number || "",
+        ifsc: data.user.ifsc || "",
+        account_type: data.user.account_type || "",
+        bank_name: data.user.bank_name || "",
+        branch: data.user.branch || "",
+
+        current_password: "",
+        password: "",
+        confirm_password: "",
       });
     } catch (error: any) {
       toast({
-        title: "Error saving company info",
+        title: "Error saving Profile info",
         description: error.response?.data?.message || error.message,
         variant: "destructive",
       });
@@ -233,7 +285,7 @@ const Settings = () => {
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("all");
-  const [activeSection, setActiveSection] = useState<string>("general");
+  const [activeSection, setActiveSection] = useState<string>("profile");
 
 
   // Location states
@@ -243,10 +295,10 @@ const Settings = () => {
   const [locationTab, setLocationTab] = useState<string>("warehouse");
   const [newLocationName, setNewLocationName] = useState("");
   const [newLegalName, setNewLegalName] = useState("");
-const [newAddress, setNewAddress] = useState("");
-const [newSellEnabled, setNewSellEnabled] = useState(true);
-const [newMakeEnabled, setNewMakeEnabled] = useState(true);
-const [newBuyEnabled, setNewBuyEnabled] = useState(true);
+  const [newAddress, setNewAddress] = useState("");
+  const [newSellEnabled, setNewSellEnabled] = useState(true);
+  const [newMakeEnabled, setNewMakeEnabled] = useState(true);
+  const [newBuyEnabled, setNewBuyEnabled] = useState(true);
 
   useEffect(() => {
     fetchUsersWithRoles();
@@ -477,46 +529,46 @@ const [newBuyEnabled, setNewBuyEnabled] = useState(true);
 
   // Location management functions
   const loadLocations = async () => {
-  try {
-    const response = await fetch('/api/locations');
+    try {
+      const response = await fetch('/api/locations');
 
-    if (!response.ok) throw new Error('Failed to load locations');
+      if (!response.ok) throw new Error('Failed to load locations');
 
-    const data = await response.json();
+      const data = await response.json();
 
-    setLocations(Array.isArray(data) ? data : data.data);
+      setLocations(Array.isArray(data) ? data : data.data);
 
-  } catch (error) {
-    console.error("Error loading locations:", error);
-  }
-};
+    } catch (error) {
+      console.error("Error loading locations:", error);
+    }
+  };
 
   const loadStorageBins = async () => {
-  try {
-    const response = await fetch("/api/storage-bins", {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    try {
+      const response = await fetch("/api/storage-bins", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
 
-    if (!response.ok) {
-      throw new Error(`Failed to load storage bins: ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`Failed to load storage bins: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // safety check (optional but recommended)
+      if (!Array.isArray(data)) {
+        throw new Error("Invalid storage bins response format");
+      }
+
+      setStorageBins(data);
+    } catch (error) {
+      console.error("Error loading storage bins:", error);
+      setStorageBins([]); // fallback to empty state
     }
-
-    const data = await response.json();
-
-    // safety check (optional but recommended)
-    if (!Array.isArray(data)) {
-      throw new Error("Invalid storage bins response format");
-    }
-
-    setStorageBins(data);
-  } catch (error) {
-    console.error("Error loading storage bins:", error);
-    setStorageBins([]); // fallback to empty state
-  }
-};
+  };
 
   const loadDefaultLocations = async () => {
     try {
@@ -538,83 +590,83 @@ const [newBuyEnabled, setNewBuyEnabled] = useState(true);
   };
 
   const handleAddLocation = async () => {
-  const name = newLocationName.trim();
+    const name = newLocationName.trim();
 
-  if (!name) return;
+    if (!name) return;
 
-  try {
-    const res = await axios.post("/api/locations", {
-      location_name: name,
-      legal_name: newLegalName.trim(),
-      address: newAddress.trim(),
-      sell_enabled: true,
-      make_enabled: true,
-      buy_enabled: true,
-    });
+    try {
+      const res = await axios.post("/api/locations", {
+        location_name: name,
+        legal_name: newLegalName.trim(),
+        address: newAddress.trim(),
+        sell_enabled: true,
+        make_enabled: true,
+        buy_enabled: true,
+      });
 
-    const data = res.data;
+      const data = res.data;
 
-    setLocations(prev => [...prev, data]);
+      setLocations(prev => [...prev, data]);
 
-    setNewLocationName("");
-    setNewLegalName("");
-    setNewAddress("");
+      setNewLocationName("");
+      setNewLegalName("");
+      setNewAddress("");
 
-    toast({
-      title: "Location Added",
-      description: `${data.location_name} has been added`,
-    });
+      toast({
+        title: "Location Added",
+        description: `${data.location_name} has been added`,
+      });
 
-  } catch (error: any) {
-    console.error("Error adding location:", error);
+    } catch (error: any) {
+      console.error("Error adding location:", error);
 
-    toast({
-      title: "Error",
-      description:
-        error.response?.data?.message || "Failed to add location",
-      variant: "destructive",
-    });
-  }
-};
-
-
- const handleUpdateLocation = async (
-  id: string,
-  field: string,
-  value: any
-) => {
-  try {
-    const response = await fetch(`/api/locations/${id}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify({ [field]: value }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || 'Failed to update location');
+      toast({
+        title: "Error",
+        description:
+          error.response?.data?.message || "Failed to add location",
+        variant: "destructive",
+      });
     }
+  };
 
-    // ✅ safer state update (avoids stale state bug)
-    setLocations((prev) =>
-      prev.map((loc) =>
-        loc.id === id ? { ...loc, [field]: value } : loc
-      )
-    );
 
-  } catch (error: any) {
-    console.error("Error updating location:", error);
+  const handleUpdateLocation = async (
+    id: string,
+    field: string,
+    value: any
+  ) => {
+    try {
+      const response = await fetch(`/api/locations/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ [field]: value }),
+      });
 
-    toast({
-      title: "Error",
-      description: error.message || "Failed to update location",
-      variant: "destructive",
-    });
-  }
-};
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to update location');
+      }
+
+      // ✅ safer state update (avoids stale state bug)
+      setLocations((prev) =>
+        prev.map((loc) =>
+          loc.id === id ? { ...loc, [field]: value } : loc
+        )
+      );
+
+    } catch (error: any) {
+      console.error("Error updating location:", error);
+
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update location",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleDeleteLocation = async (id: string) => {
     try {
@@ -1392,198 +1444,198 @@ const [newBuyEnabled, setNewBuyEnabled] = useState(true);
                   <a href="#" className="text-primary hover:underline">Read more</a>
                 </p>
 
-               <Card>
-  <CardContent className="p-0">
+                <Card>
+                  <CardContent className="p-0">
 
-    {/* ================= HEADER ================= */}
-    <div className="grid grid-cols-12 gap-2 px-4 py-3 border-b bg-muted/50 text-xs font-medium text-muted-foreground">
-      
-      <div className="col-span-1 flex items-center justify-left">
-        <GripVertical className="h-4 w-4" />
-      </div>
+                    {/* ================= HEADER ================= */}
+                    <div className="grid grid-cols-12 gap-2 px-4 py-3 border-b bg-muted/50 text-xs font-medium text-muted-foreground">
 
-      <div className="col-span-2">Location</div>
-      <div className="col-span-2">Legal</div>
-      <div className="col-span-3">Address</div>
-      <div className="col-span-3">Functions</div>
-      <div className="col-span-1"></div>
-    </div>
+                      <div className="col-span-1 flex items-center justify-left">
+                        <GripVertical className="h-4 w-4" />
+                      </div>
 
-    {/* ================= ROWS ================= */}
-    <div className="divide-y">
-      {locations.map((location) => (
-        <div
-          key={location.id}
-          className="grid grid-cols-12 gap-2 px-4 py-2 items-center hover:bg-muted/30"
-        >
+                      <div className="col-span-2">Location</div>
+                      <div className="col-span-2">Legal</div>
+                      <div className="col-span-3">Address</div>
+                      <div className="col-span-3">Functions</div>
+                      <div className="col-span-1"></div>
+                    </div>
 
-          {/* GRIP */}
-          <div className="col-span-1 flex justify-left">
-            <GripVertical className="h-4 w-4 text-muted-foreground cursor-move" />
-          </div>
+                    {/* ================= ROWS ================= */}
+                    <div className="divide-y">
+                      {locations.map((location) => (
+                        <div
+                          key={location.id}
+                          className="grid grid-cols-12 gap-2 px-4 py-2 items-center hover:bg-muted/30"
+                        >
 
-          {/* LOCATION NAME */}
-          <div className="col-span-2">
-            <Input
-              value={location.location_name}
-              onChange={(e) =>
-                handleUpdateLocation(location.id, "location_name", e.target.value)
-              }
-              className="h-8"
-            />
-          </div>
+                          {/* GRIP */}
+                          <div className="col-span-1 flex justify-left">
+                            <GripVertical className="h-4 w-4 text-muted-foreground cursor-move" />
+                          </div>
 
-          {/* LEGAL NAME */}
-          <div className="col-span-2">
-            <Input
-              value={location.legal_name || ""}
-              onChange={(e) =>
-                handleUpdateLocation(location.id, "legal_name", e.target.value)
-              }
-              className="h-8"
-            />
-          </div>
+                          {/* LOCATION NAME */}
+                          <div className="col-span-2">
+                            <Input
+                              value={location.location_name}
+                              onChange={(e) =>
+                                handleUpdateLocation(location.id, "location_name", e.target.value)
+                              }
+                              className="h-8"
+                            />
+                          </div>
 
-          {/* ADDRESS */}
-          <div className="col-span-3">
-            <Input
-              value={location.address || ""}
-              onChange={(e) =>
-                handleUpdateLocation(location.id, "address", e.target.value)
-              }
-              className="h-8"
-              placeholder="Address"
-            />
-          </div>
+                          {/* LEGAL NAME */}
+                          <div className="col-span-2">
+                            <Input
+                              value={location.legal_name || ""}
+                              onChange={(e) =>
+                                handleUpdateLocation(location.id, "legal_name", e.target.value)
+                              }
+                              className="h-8"
+                            />
+                          </div>
 
-          {/* FUNCTIONS */}
-          <div className="col-span-3 flex gap-3 text-sm">
-            <label className="flex items-center gap-1">
-              <Checkbox
-                checked={location.sell_enabled}
-                onCheckedChange={(v) =>
-                  handleUpdateLocation(location.id, "sell_enabled", v)
-                }
-              />
-              Sell
-            </label>
+                          {/* ADDRESS */}
+                          <div className="col-span-3">
+                            <Input
+                              value={location.address || ""}
+                              onChange={(e) =>
+                                handleUpdateLocation(location.id, "address", e.target.value)
+                              }
+                              className="h-8"
+                              placeholder="Address"
+                            />
+                          </div>
 
-            <label className="flex items-center gap-1">
-              <Checkbox
-                checked={location.make_enabled}
-                onCheckedChange={(v) =>
-                  handleUpdateLocation(location.id, "make_enabled", v)
-                }
-              />
-              Make
-            </label>
+                          {/* FUNCTIONS */}
+                          <div className="col-span-3 flex gap-3 text-sm">
+                            <label className="flex items-center gap-1">
+                              <Checkbox
+                                checked={location.sell_enabled}
+                                onCheckedChange={(v) =>
+                                  handleUpdateLocation(location.id, "sell_enabled", v)
+                                }
+                              />
+                              Sell
+                            </label>
 
-            <label className="flex items-center gap-1">
-              <Checkbox
-                checked={location.buy_enabled}
-                onCheckedChange={(v) =>
-                  handleUpdateLocation(location.id, "buy_enabled", v)
-                }
-              />
-              Buy
-            </label>
-          </div>
+                            <label className="flex items-center gap-1">
+                              <Checkbox
+                                checked={location.make_enabled}
+                                onCheckedChange={(v) =>
+                                  handleUpdateLocation(location.id, "make_enabled", v)
+                                }
+                              />
+                              Make
+                            </label>
 
-          {/* ACTION */}
-          <div className="col-span-1 flex justify-end">
-            <Button variant="ghost" size="sm">
-              <Lock className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      ))}
-    </div>
+                            <label className="flex items-center gap-1">
+                              <Checkbox
+                                checked={location.buy_enabled}
+                                onCheckedChange={(v) =>
+                                  handleUpdateLocation(location.id, "buy_enabled", v)
+                                }
+                              />
+                              Buy
+                            </label>
+                          </div>
 
-    {/* ================= ADD NEW LOCATION ================= */}
-    <div className="px-4 py-4 border-t bg-muted/30">
+                          {/* ACTION */}
+                          <div className="col-span-1 flex justify-end">
+                            <Button variant="ghost" size="sm">
+                              <Lock className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
 
-      <div className="grid grid-cols-12 gap-2 items-center">
+                    {/* ================= ADD NEW LOCATION ================= */}
+                    <div className="px-4 py-4 border-t bg-muted/30">
 
-        {/* GRIP EMPTY */}
-        <div className="col-span-1 flex justify-left">
-          <GripVertical className="h-4 w-4 text-muted-foreground opacity-40" />
-        </div>
+                      <div className="grid grid-cols-12 gap-2 items-center">
 
-        <div className="col-span-2">
-          <Input
-            placeholder="Location name"
-            value={newLocationName}
-            onChange={(e) => setNewLocationName(e.target.value)}
-          />
-        </div>
+                        {/* GRIP EMPTY */}
+                        <div className="col-span-1 flex justify-left">
+                          <GripVertical className="h-4 w-4 text-muted-foreground opacity-40" />
+                        </div>
 
-        <div className="col-span-2">
-          <Input
-            placeholder="Legal name"
-            value={newLegalName}
-            onChange={(e) => setNewLegalName(e.target.value)}
-          />
-        </div>
+                        <div className="col-span-2">
+                          <Input
+                            placeholder="Location name"
+                            value={newLocationName}
+                            onChange={(e) => setNewLocationName(e.target.value)}
+                          />
+                        </div>
 
-        <div className="col-span-3">
-          <Input
-            placeholder="Address"
-            value={newAddress}
-            onChange={(e) => setNewAddress(e.target.value)}
-          />
-        </div>
+                        <div className="col-span-2">
+                          <Input
+                            placeholder="Legal name"
+                            value={newLegalName}
+                            onChange={(e) => setNewLegalName(e.target.value)}
+                          />
+                        </div>
 
-        <div className="col-span-3 flex gap-4 text-sm items-center">
+                        <div className="col-span-3">
+                          <Input
+                            placeholder="Address"
+                            value={newAddress}
+                            onChange={(e) => setNewAddress(e.target.value)}
+                          />
+                        </div>
 
-  <label className="flex items-center gap-2 cursor-pointer">
-    <Checkbox
-      checked={newSellEnabled}
-      onCheckedChange={(val) => setNewSellEnabled(!!val)}
-    />
-    Sell
-  </label>
+                        <div className="col-span-3 flex gap-4 text-sm items-center">
 
-  <label className="flex items-center gap-2 cursor-pointer">
-    <Checkbox
-      checked={newMakeEnabled}
-      onCheckedChange={(val) => setNewMakeEnabled(!!val)}
-    />
-    Make
-  </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <Checkbox
+                              checked={newSellEnabled}
+                              onCheckedChange={(val) => setNewSellEnabled(!!val)}
+                            />
+                            Sell
+                          </label>
 
-  <label className="flex items-center gap-2 cursor-pointer">
-    <Checkbox
-      checked={newBuyEnabled}
-      onCheckedChange={(val) => setNewBuyEnabled(!!val)}
-    />
-    Buy
-  </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <Checkbox
+                              checked={newMakeEnabled}
+                              onCheckedChange={(val) => setNewMakeEnabled(!!val)}
+                            />
+                            Make
+                          </label>
 
-</div>
-        <td className="px-4 py-3">
-                                <div className="flex items-center gap-2">
-                                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                    <User className="h-4 w-4 text-muted-foreground" />
-                                  </Button>
-                                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                    <Lock className="h-4 w-4 text-muted-foreground" />
-                                  </Button>
-                                </div>
-                              </td>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <Checkbox
+                              checked={newBuyEnabled}
+                              onCheckedChange={(val) => setNewBuyEnabled(!!val)}
+                            />
+                            Buy
+                          </label>
 
-        <div className="col-span-1 flex justify-end">
-          <Button onClick={handleAddLocation}>
-            <Plus className="h-4 w-4 mr-1" />
-            Add
-          </Button>
-        </div>
+                        </div>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                              <User className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                              <Lock className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                          </div>
+                        </td>
 
-      </div>
-    </div>
+                        <div className="col-span-1 flex justify-end">
+                          <Button onClick={handleAddLocation}>
+                            <Plus className="h-4 w-4 mr-1" />
+                            Add
+                          </Button>
+                        </div>
 
-  </CardContent>
-</Card>
-</TabsContent>
+                      </div>
+                    </div>
+
+                  </CardContent>
+                </Card>
+              </TabsContent>
 
               <TabsContent value="storage-bins" className="mt-6 space-y-4">
                 <p className="text-sm text-muted-foreground">
@@ -2236,38 +2288,180 @@ const [newBuyEnabled, setNewBuyEnabled] = useState(true);
           </div>
         );
 
-      case "company":
+      case "profile":
         return (
           <div className="space-y-6">
+
+            {/* HEADER */}
             <div>
-              <h2 className="text-2xl font-semibold text-foreground mb-2">Company Details</h2>
+              <h2 className="text-2xl font-semibold text-foreground mb-2">
+                Profile Details
+              </h2>
               <p className="text-muted-foreground">
-                Configure your company’s basic information and banking details
+                Manage your personal information and account settings
               </p>
             </div>
 
-            {/* Company Information */}
+            {/* ================= PERSONAL INFO (ADDED MISSING FIELDS) ================= */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Personal Information</CardTitle>
+              </CardHeader>
+
+              <CardContent className="space-y-4">
+
+                <div className="grid grid-cols-2 gap-6">
+
+                  {/* First Name */}
+                  <div className="space-y-1">
+                    <Label>First Name </Label>
+                    <Input
+                      placeholder="Enter first name"
+                      value={companyDetails.first_name}
+                      onChange={(e) =>
+                        setCompanyDetails({
+                          ...companyDetails,
+                          first_name: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  {/* Last Name */}
+                  <div className="space-y-1">
+                    <Label>Last Name </Label>
+                    <Input
+                      placeholder="Enter last name"
+                      value={companyDetails.last_name}
+                      onChange={(e) =>
+                        setCompanyDetails({
+                          ...companyDetails,
+                          last_name: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  {/* Country */}
+                  <div className="space-y-1">
+                    <Label>Country </Label>
+                    <Input
+                      placeholder="Enter country"
+                      value={companyDetails.country}
+                      onChange={(e) =>
+                        setCompanyDetails({
+                          ...companyDetails,
+                          country: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  {/* Currency */}
+                  <div className="space-y-1">
+                    <Label>Currency </Label>
+                    <Input
+                      placeholder="Enter currency"
+                      value={companyDetails.currency}
+                      onChange={(e) =>
+                        setCompanyDetails({
+                          ...companyDetails,
+                          currency: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Security (Change Password)</CardTitle>
+              </CardHeader>
+
+              <CardContent className="space-y-4">
+
+                <div className="grid grid-cols-2 gap-6">
+
+                  {/* Current Password */}
+                  <div className="space-y-1">
+                    <Label>Current Password</Label>
+                    <Input
+                      type="password"
+                      placeholder="Enter current password"
+                      value={companyDetails.current_password}
+                      onChange={(e) =>
+                        setCompanyDetails({
+                          ...companyDetails,
+                          current_password: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  {/* New Password */}
+                  <div className="space-y-1">
+                    <Label>New Password</Label>
+                    <Input
+                      type="password"
+                      placeholder="Enter new password"
+                      value={companyDetails.password}
+                      onChange={(e) =>
+                        setCompanyDetails({
+                          ...companyDetails,
+                          password: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  {/* Confirm Password */}
+                  <div className="space-y-1">
+                    <Label>Confirm Password</Label>
+                    <Input
+                      type="password"
+                      placeholder="Confirm new password"
+                      value={companyDetails.confirm_password}
+                      onChange={(e) =>
+                        setCompanyDetails({
+                          ...companyDetails,
+                          confirm_password: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                </div>
+
+              </CardContent>
+            </Card>
+
+
+            {/* ================= COMPANY INFORMATION ================= */}
             <Card>
               <CardHeader>
                 <CardTitle>Company Information</CardTitle>
               </CardHeader>
+
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-6">
+
                   <div className="space-y-2">
-                    <Label htmlFor="company-name">Company Name *</Label>
+                    <Label>Company Name *</Label>
                     <Input
-                      id="company-name"
                       placeholder="Enter company name"
-                      value={companyDetails.name}
+                      value={companyDetails.company}
                       onChange={(e) =>
-                        setCompanyDetails({ ...companyDetails, name: e.target.value })
+                        setCompanyDetails({ ...companyDetails, company: e.target.value })
                       }
                     />
                   </div>
+
                   <div className="space-y-2">
-                    <Label htmlFor="gstin">GSTIN</Label>
+                    <Label>GSTIN</Label>
                     <Input
-                      id="gstin"
                       placeholder="Enter GSTIN"
                       value={companyDetails.gstin}
                       onChange={(e) =>
@@ -2275,10 +2469,10 @@ const [newBuyEnabled, setNewBuyEnabled] = useState(true);
                       }
                     />
                   </div>
+
                   <div className="space-y-2">
-                    <Label htmlFor="pan">PAN</Label>
+                    <Label>PAN</Label>
                     <Input
-                      id="pan"
                       placeholder="Enter PAN"
                       value={companyDetails.pan}
                       onChange={(e) =>
@@ -2286,10 +2480,10 @@ const [newBuyEnabled, setNewBuyEnabled] = useState(true);
                       }
                     />
                   </div>
+
                   <div className="space-y-2">
-                    <Label htmlFor="phone">Phone</Label>
+                    <Label>Phone</Label>
                     <Input
-                      id="phone"
                       placeholder="Enter phone number"
                       value={companyDetails.phone}
                       onChange={(e) =>
@@ -2297,10 +2491,10 @@ const [newBuyEnabled, setNewBuyEnabled] = useState(true);
                       }
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
+
+                  <div className="space-y-2 col-span-2">
+                    <Label>Email</Label>
                     <Input
-                      id="email"
                       placeholder="Enter email address"
                       value={companyDetails.email}
                       onChange={(e) =>
@@ -2308,10 +2502,10 @@ const [newBuyEnabled, setNewBuyEnabled] = useState(true);
                       }
                     />
                   </div>
-                  <div className="col-span-2 space-y-2">
-                    <Label htmlFor="address">Address *</Label>
+
+                  <div className="space-y-2 col-span-2">
+                    <Label>Address *</Label>
                     <Input
-                      id="address"
                       placeholder="Enter company address"
                       value={companyDetails.address}
                       onChange={(e) =>
@@ -2319,45 +2513,51 @@ const [newBuyEnabled, setNewBuyEnabled] = useState(true);
                       }
                     />
                   </div>
+
                 </div>
-
-
               </CardContent>
             </Card>
 
-            {/* Bank Details */}
+            {/* ================= BANK DETAILS ================= */}
             <Card>
               <CardHeader>
                 <CardTitle>Bank Details</CardTitle>
               </CardHeader>
+
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-6">
+
                   <div className="space-y-2">
-                    <Label htmlFor="account-name">Account Name</Label>
+                    <Label>Account Name</Label>
                     <Input
-                      id="account-name"
                       placeholder="Enter account name"
-                      value={companyDetails.bankAccountName}
+                      value={companyDetails.bank_account_name}
                       onChange={(e) =>
-                        setCompanyDetails({ ...companyDetails, bankAccountName: e.target.value })
+                        setCompanyDetails({
+                          ...companyDetails,
+                          bank_account_name: e.target.value,
+                        })
                       }
                     />
                   </div>
+
                   <div className="space-y-2">
-                    <Label htmlFor="account-number">Account Number</Label>
+                    <Label>Account Number</Label>
                     <Input
-                      id="account-number"
                       placeholder="Enter account number"
-                      value={companyDetails.bankAccountNumber}
+                      value={companyDetails.bank_account_number}
                       onChange={(e) =>
-                        setCompanyDetails({ ...companyDetails, bankAccountNumber: e.target.value })
+                        setCompanyDetails({
+                          ...companyDetails,
+                          bank_account_number: e.target.value,
+                        })
                       }
                     />
                   </div>
+
                   <div className="space-y-2">
-                    <Label htmlFor="ifsc">IFSC</Label>
+                    <Label>IFSC</Label>
                     <Input
-                      id="ifsc"
                       placeholder="Enter IFSC code"
                       value={companyDetails.ifsc}
                       onChange={(e) =>
@@ -2365,15 +2565,16 @@ const [newBuyEnabled, setNewBuyEnabled] = useState(true);
                       }
                     />
                   </div>
+
                   <div className="space-y-2">
-                    <Label htmlFor="account-type">Account Type</Label>
+                    <Label>Account Type</Label>
                     <Select
-                      value={companyDetails.accountType}
+                      value={companyDetails.account_type}
                       onValueChange={(value) =>
-                        setCompanyDetails({ ...companyDetails, accountType: value })
+                        setCompanyDetails({ ...companyDetails, account_type: value })
                       }
                     >
-                      <SelectTrigger id="account-type">
+                      <SelectTrigger>
                         <SelectValue placeholder="Select account type" />
                       </SelectTrigger>
                       <SelectContent>
@@ -2383,21 +2584,21 @@ const [newBuyEnabled, setNewBuyEnabled] = useState(true);
                       </SelectContent>
                     </Select>
                   </div>
+
                   <div className="space-y-2">
-                    <Label htmlFor="bank-name">Bank Name</Label>
+                    <Label>Bank Name</Label>
                     <Input
-                      id="bank-name"
                       placeholder="Enter bank name"
-                      value={companyDetails.bankName}
+                      value={companyDetails.bank_name}
                       onChange={(e) =>
-                        setCompanyDetails({ ...companyDetails, bankName: e.target.value })
+                        setCompanyDetails({ ...companyDetails, bank_name: e.target.value })
                       }
                     />
                   </div>
+
                   <div className="space-y-2">
-                    <Label htmlFor="branch">Branch</Label>
+                    <Label>Branch</Label>
                     <Input
-                      id="branch"
                       placeholder="Enter branch"
                       value={companyDetails.branch}
                       onChange={(e) =>
@@ -2405,11 +2606,15 @@ const [newBuyEnabled, setNewBuyEnabled] = useState(true);
                       }
                     />
                   </div>
+
                 </div>
 
-                <Button onClick={handleSaveCompany}>Save Details</Button>
+                <Button onClick={handleSaveCompany}>
+                  Save Details
+                </Button>
               </CardContent>
             </Card>
+
           </div>
         );
 

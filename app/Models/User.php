@@ -19,6 +19,17 @@ class User extends Authenticatable
         'company',
          'country',
          'currency',
+
+         'phone',
+    'gstin',
+    'pan',
+    'address',
+    'bank_account_name',
+    'bank_account_number',
+    'ifsc',
+    'account_type',
+    'bank_name',
+    'branch',
     ];
 
     protected $hidden = [

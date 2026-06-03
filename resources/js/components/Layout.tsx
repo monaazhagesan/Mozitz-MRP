@@ -203,7 +203,7 @@ const Layout = ({ children }: LayoutProps) => {
       <style>{`
         /* ── Reset scoped to layout ── */
         .lyt-root *, .lyt-root *::before, .lyt-root *::after { box-sizing: border-box; }
-        .lyt-root { display:flex; flex-direction:column; height:100vh; font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif; }
+        .lyt-root { display:flex; flex-direction:column;  position: relative;   z-index: 0; height:100vh; font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif; }
 
         /* ── Topnav ── */
         .lyt-topnav {
@@ -382,7 +382,13 @@ const Layout = ({ children }: LayoutProps) => {
         .lyt-sub-dropdown-item.active svg { color:#1d4ed8; }
 
         /* main */
-        .lyt-main { flex:1; overflow:auto; background:#f4f5f7; }
+       .lyt-main {
+  flex: 1;
+  overflow: auto;
+  background: #f4f5f7;
+  position: relative;
+  z-index: 1;
+}
 
         @media (max-width:768px) {
           .lyt-nav-link span { display:none; }

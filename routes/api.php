@@ -64,6 +64,8 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 
 Route::middleware('web')->group(function () {
 Route::post('/register', [AuthController::class, 'register']);
+Route::post('/update-profile', [AuthController::class, 'updateProfile']);
+Route::get('/profile', [AuthController::class, 'getProfile']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout']);
 Route::get('/user', [AuthController::class, 'user']);

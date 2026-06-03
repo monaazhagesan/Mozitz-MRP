@@ -10,7 +10,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
-
+use Illuminate\Support\Facades\Mail;
+use App\Mail\OrderStatusUpdated;
 
 class OrderController extends Controller
 {
@@ -309,16 +310,23 @@ class OrderController extends Controller
     public function updateStatus(Request $request, $id)
     {
         $request->validate([
-            'status' => 'required|string|in:Pending,Confirmed,Approved,Processing,Packed,Shipped,Delivered,Cancelled,
-        Partially Fulfilled',
+            'status' => 'required|string|in:Pending,Confirmed,Approved,Processing,Packed,Shipped,Delivered,Cancelled,Partially Fulfilled',
         ]);
 
         $order = Order::where('id', $id)
             ->where('user_id', Auth::id())
             ->firstOrFail();
 
+        $oldStatus = $order->status;
+
         $order->status = $request->status;
         $order->save();
+
+        // ✅ SEND EMAIL ONLY WHEN CONFIRMED
+        if ($request->status === 'Confirmed' && $oldStatus !== 'Confirmed') {
+            Mail::to($order->email)->send(new OrderStatusUpdated($order));
+        }
+
 
         return response()->json([
             'success' => true,
@@ -539,73 +547,72 @@ class OrderController extends Controller
         ]);
     }
 
-   public function cancel($id)
-{
-    DB::beginTransaction();
+    public function cancel($id)
+    {
+        DB::beginTransaction();
 
-    try {
+        try {
 
-        $order = Order::with('items')
-            ->where('id', $id)
-            ->where('user_id', Auth::id())
-            ->firstOrFail();
+            $order = Order::with('items')
+                ->where('id', $id)
+                ->where('user_id', Auth::id())
+                ->firstOrFail();
 
-        if ($order->status === 'Cancelled') {
+            if ($order->status === 'Cancelled') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order already cancelled'
+                ], 400);
+            }
+
+            $shouldReturnStock = in_array($order->status, ['Confirmed']);
+
+            foreach ($order->items as $item) {
+
+                $qty = (float) $item->quantity;
+
+                // 1. reduce allocated stock
+                if ($shouldReturnStock) {
+                    InventoryStock::where('item_code', $item->item_code)
+                        ->update([
+                            'allocated_quantity' => DB::raw(
+                                "GREATEST(0, COALESCE(allocated_quantity,0) - {$qty})"
+                            )
+                        ]);
+
+                    // 2. CREATE STOCK TRANSACTION (IMPORTANT PART)
+                    StockTransaction::create([
+                        'item_code' => $item->item_code,
+                        'transaction_type' => 'ORDER_CANCELLED',
+                        'reference_type'  => 'Order',
+                        'quantity' => $qty,
+                        'unit_cost' => $item->rate ?? 0,
+                        'reference_number' => $order->order_no,
+                        'notes' => 'Returned from cancelled order',
+                        'user_id' => Auth::id(),
+                    ]);
+                }
+            }
+
+            $order->status = 'Cancelled';
+            $order->delivery_status = 'Cancelled';
+            $order->save();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Order cancelled successfully',
+                'should_return_stock' => $shouldReturnStock,
+                'order_no' => $order->order_no
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
             return response()->json([
                 'success' => false,
-                'message' => 'Order already cancelled'
-            ], 400);
+                'message' => $e->getMessage()
+            ], 500);
         }
-
-        $shouldReturnStock = in_array($order->status, ['Confirmed']);
-
-        foreach ($order->items as $item) {
-
-            $qty = (float) $item->quantity;
-
-            // 1. reduce allocated stock
-            if ($shouldReturnStock) {
-                InventoryStock::where('item_code', $item->item_code)
-                    ->update([
-                        'allocated_quantity' => DB::raw(
-                            "GREATEST(0, COALESCE(allocated_quantity,0) - {$qty})"
-                        )
-                    ]);
-
-                // 2. CREATE STOCK TRANSACTION (IMPORTANT PART)
-                StockTransaction::create([
-                    'item_code' => $item->item_code,
-                    'transaction_type' => 'ORDER_CANCELLED',
-                    'reference_type'  => 'Order',
-                    'quantity' => $qty,
-                    'unit_cost' => $item->rate ?? 0,
-                    'reference_number' => $order->order_no,
-                    'notes' => 'Returned from cancelled order',
-                    'user_id' => Auth::id(),
-                ]);
-            }
-        }
-
-        $order->status = 'Cancelled';
-        $order->delivery_status = 'Cancelled';
-        $order->save();
-
-        DB::commit();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Order cancelled successfully',
-            'should_return_stock' => $shouldReturnStock,
-            'order_no' => $order->order_no
-        ]);
-
-    } catch (\Exception $e) {
-        DB::rollBack();
-
-        return response()->json([
-            'success' => false,
-            'message' => $e->getMessage()
-        ], 500);
     }
-}
 }

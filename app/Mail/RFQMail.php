@@ -6,7 +6,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Queue\SerializesModels;
 use Barryvdh\DomPDF\Facade\Pdf;
-use App\Models\CompanyDetail;
+use App\Models\User;
 
 class RFQMail extends Mailable
 {
@@ -27,8 +27,8 @@ class RFQMail extends Mailable
 
    public function build()
 {
-     $company = CompanyDetail::first(); 
-
+    $company = User::find($this->rfq->user_id);
+    
     // Generate PDF
     $pdf = Pdf::loadView('rfq.pdf', [
         'rfq' => $this->rfq,

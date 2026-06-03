@@ -18,7 +18,7 @@
 
         <p>Dear Sir/Madam,</p>
 
-        <p>Greetings from <strong>{{ $company?->name ?? 'N/A' }}</strong>.</p>
+        <p>Greetings from <strong>{{ $company?->company ?? 'N/A' }}</strong>.</p>
 
         <p>
             We would like to request a quotation for the following items:
@@ -31,7 +31,7 @@
             <tr><td><strong>RFQ No</strong></td><td>{{ $rfq['rfq_number'] }}</td></tr>
             <tr><td><strong>RFQ Date</strong></td><td>{{ $rfq->created_at->format('d-m-Y') }}</td></tr>
             <tr><td><strong>Required Date</strong></td><td>{{ $rfq->items->first()->required_date ?? 'N/A' }}</td></tr>
-            
+
         </table>
 
         <!-- Items -->
@@ -74,8 +74,8 @@
 
         <p>
     Best Regards,<br>
-    
-    {{ $company?->name ?? 'N/A' }}<br>
+
+    {{ $company?->company ?? 'N/A' }}<br>
     Email: {{ $company?->email ?? 'N/A' }}<br>
     Phone: {{ $company?->phone ?? 'N/A' }}
 </p>

@@ -2447,7 +2447,7 @@ const Orders = () => {
               key={view.id}
               type="button"
               onClick={() => {
-                setMainTab("orders");   
+                setMainTab("orders");
                 setWorkspaceView(view.id);
               }}
               className={cn(

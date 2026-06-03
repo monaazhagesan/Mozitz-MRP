@@ -11,7 +11,7 @@ import { useEffect } from 'react';
 import { z } from 'zod';
 import {
   Mail, Lock, User, Building2, Eye, EyeOff,
-  ArrowRight, ArrowLeft, UserPlus, Send, Check, MailCheck, Globe, Coins
+  ArrowRight, ArrowLeft, UserPlus, Send, Check, MailCheck, Globe, Coins, Phone
 } from 'lucide-react';
 import countries from "world-countries";
 import currencyCodes from "currency-codes";
@@ -153,6 +153,7 @@ const Auth = () => {
   const [last, setLast] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [company, setCompany] = useState('');
+  const [phone, setPhone] = useState('');
   const [regPw, setRegPw] = useState('');
   const [showRegPw, setShowRegPw] = useState(false);
   const [terms, setTerms] = useState(false);
@@ -193,6 +194,16 @@ const Auth = () => {
       return;
     }
 
+    if (!phone.trim()) {
+  toast.error('Please enter your phone number');
+  return;
+}
+
+if (!/^\d{10}$/.test(phone.trim())) {
+  toast.error('Phone number must be exactly 10 digits');
+  return;
+}
+
     if (!country.trim()) {
       toast.error('Please enter your country');
       return;
@@ -226,6 +237,7 @@ const Auth = () => {
       first,
       last,
       company,
+       phone,
       country,
       currency
     );
@@ -253,7 +265,7 @@ const Auth = () => {
       setRegEmail("");
       setRegPw("");
       setCompany("");
-
+      setPhone('');
       setCountry("");
       setCountryQuery("");
 
@@ -429,6 +441,18 @@ const Auth = () => {
             <Field label="Company" htmlFor="reg-company">
               <InputWrap id="reg-company" icon={Building2} value={company} onChange={setCompany} placeholder="Acme Manufacturing" autoComplete="organization" />
             </Field>
+
+            <Field label="Phone Number" htmlFor="reg-phone">
+  <InputWrap
+    id="reg-phone"
+    icon={Phone}
+    type="tel"
+    value={phone}
+    onChange={setPhone}
+    placeholder="+91 9876543210"
+    autoComplete="tel"
+  />
+</Field>
             <Field label="Country" htmlFor="reg-country">
               <div className="relative">
                 <InputWrap

@@ -108,7 +108,7 @@ interface OrderPackagesTabProps {
   orders: Order[];
 }
 
-const OrderPackagesTab = ({ orders }: OrderPackagesTabProps) => {
+const OrderPackagesTab = ({ orders: propOrders }: OrderPackagesTabProps) => {
   const [packages, setPackages] = useState<OrderPackage[]>([]);
   const [selectedPackages, setSelectedPackages] = useState<Set<string>>(new Set());
   const [newPackageOpen, setNewPackageOpen] = useState(false);
@@ -137,7 +137,7 @@ const [companyLoading, setCompanyLoading] = useState(false);
   const [packageItems, setPackageItems] = useState<PackageItem[]>([]);
   const [internalNotes, setInternalNotes] = useState("");
 
-
+const [orders, setOrders] = useState<Order[]>([]);
   // Get confirmed/approved orders only
  const confirmedOrders = useMemo(() => {
   return orders.filter(order =>
@@ -145,6 +145,7 @@ const [companyLoading, setCompanyLoading] = useState(false);
     order.status === "Approved" ||
     order.status === "Processing" ||
     order.status === "In Progress" ||
+    order.status === "Not Shipped" ||
 
     // ✅ ADD PARTIAL STATUSES
     order.status === "Partially Shipped" ||
@@ -164,25 +165,46 @@ const [companyLoading, setCompanyLoading] = useState(false);
     return `PKG-${new Date().getFullYear()}-${String(count).padStart(5, "0")}`;
   };
 
+const fetchOrders = async () => {
+  try {
+    const res = await axios.get("/api/orders");
+
+    setOrders(res.data.data || []);
+  } catch (err: any) {
+    console.error("❌ Failed to fetch orders:", err?.response?.data || err);
+    toast.error("Failed to fetch orders");
+  }
+};
+
+useEffect(() => {
+  fetchOrders();
+}, []);
+
+
   const getPackedMap = (orderNumber: string) => {
   const map: Record<string, number> = {};
 
-  packages.forEach(pkg => {
+  packages.forEach((pkg) => {
     if (String(pkg.order_number) !== String(orderNumber)) return;
 
     let items: any[] = [];
 
     try {
-      items =
-        typeof pkg.items === "string"
-          ? JSON.parse(pkg.items)
-          : pkg.items || [];
+      items = typeof pkg.items === "string"
+        ? JSON.parse(pkg.items)
+        : pkg.items || [];
     } catch {
       items = [];
     }
 
     items.forEach((item: any) => {
-      const key = `${item.item_code}_${item.line_id}`;
+      const code = String(item.item_code || item.itemCode)
+        .trim()
+        .toLowerCase();
+
+      const lineId = item.line_id ?? 0;
+
+      const key = `${code}_${lineId}`;
 
       const qty = Number(item.packed_quantity || 0);
 
@@ -198,7 +220,7 @@ const [companyLoading, setCompanyLoading] = useState(false);
     try {
       setCompanyLoading(true);
 
-      const res = await axios.get("/api/company");
+      const res = await axios.get("/api/profile");
 
       if (!res.data) {
         console.warn("⚠️ No company data returned from API");
@@ -233,38 +255,34 @@ const [companyLoading, setCompanyLoading] = useState(false);
 
 
 
-          const items: PackageItem[] = order.items.map((item, idx) => {
-            const itemCode = String(
-  item.itemCode || item.item_code
-).trim().toLowerCase();
+         const items: PackageItem[] = order.items.map((item, idx) => {
+  const itemCode = String(item.itemCode || item.item_code)
+    .trim()
+    .toLowerCase();
 
-const lineId = item.line_id ?? idx;
+  const lineId = item.line_id ?? idx;
 
-const mapKey = `${itemCode}_${lineId}`;
+  const key = `${itemCode}_${lineId}`;
 
-const orderedQty = Number(
-  item.quantityOrdered || item.quantity || 0
-);
+  const orderedQty = Number(item.quantityOrdered || item.quantity || 0);
+  const alreadyPacked = packedMap[key] || 0;
 
-const alreadyPacked = packedMap[mapKey] || 0;
+  const remainingQty = Math.max(orderedQty - alreadyPacked, 0);
 
-const remainingQty = Math.max(
-  orderedQty - alreadyPacked,
-  0
-);
+  return {
+    id: `pkg-item-${idx}`,
+    line_id: lineId,
+    itemName: item.itemName || item.item_name,
+    itemCode,
+    ordered: orderedQty,
+    packed: alreadyPacked,
+    quantityToPack: remainingQty,
+    uom: item.uom || "pcs",
+  };
+})
+.filter(item => item.quantityToPack > 0); // 🔥 IMPORTANT FIX
 
-            return {
-              id: `pkg-item-${idx}`,
-              line_id: item.line_id ?? idx,
-              itemName: item.itemName || item.item_name,
-              itemCode,
-              ordered: orderedQty,
-              description: "",
-              packed: alreadyPacked,
-              quantityToPack: remainingQty,// ✅ IMPORTANT FIX
-              uom: item.uom || "pcs",
-            };
-          });
+setPackageItems(items);
           console.log("Mapped package items:", items);
           setPackageItems(items); // ✅ should populate state
         }
@@ -280,15 +298,18 @@ const remainingQty = Math.max(
       order.orderNo || order.order_number || order.order_no
     );
 
-    const isFullyPacked = order.items?.every((item) => {
-      const code = String(item.itemCode || item.item_code).trim().toLowerCase();
-      const orderedQty = Number(item.quantityOrdered || item.quantity || 0);
-      const packedQty = packedMap[code] || 0;
+    return order.items?.some((item, idx) => {
+      const code = String(item.itemCode || item.item_code)
+        .trim()
+        .toLowerCase();
 
-      return packedQty >= orderedQty;
+      const key = `${code}_${item.line_id ?? idx}`;
+
+      const ordered = Number(item.quantityOrdered || item.quantity || 0);
+      const packed = packedMap[key] || 0;
+
+      return ordered > packed;
     });
-
-    return !isFullyPacked; // ❗ keep only NOT fully packed orders
   });
 }, [confirmedOrders, packages]);
 
@@ -488,6 +509,8 @@ if (orderNumber) {
     order_number: orderNumber,
   });
 }
+
+await fetchOrders();
       // Update frontend state
       setPackages((prevPackages) =>
         prevPackages.map((pkg) =>
@@ -546,6 +569,7 @@ if (orderNumber) {
       order_number: orderNumber,
     });
 
+    await fetchOrders();
     toast.success("Package marked as delivered");
   } catch (error: any) {
     toast.error(error.response?.data?.message || "Failed to update package status");
@@ -582,6 +606,7 @@ if (orderNumber) {
         order_number: orderNumber,
       });
     }
+    await fetchOrders();
 
     toast.success("Package status updated to Not Shipped");
   } catch (error: any) {
@@ -715,6 +740,8 @@ if (order) {
  await axios.put(`/api/orders/recalculate-status`, {
     order_number: orderNumber,
   });
+
+  await fetchOrders();
 
       setPackageItems(prev =>
         prev.map(item => ({
@@ -1263,7 +1290,7 @@ ${css}
 
   <div>
     <div class="company-name">
-  ${company.name || "Company Name"}
+  ${company.company || "Company Name"}
 </div>
 
 
