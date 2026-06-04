@@ -337,6 +337,7 @@ const Orders = () => {
   const [cancelOrder, setCancelOrder] = useState<any>(null);
   const [cancelling, setCancelling] = useState(false);
 
+  const [statusLoading, setStatusLoading] = useState(false);
   const currency = useCurrency();
 
   const formatPrintMoney = (value: number) => {
@@ -1844,6 +1845,13 @@ const Orders = () => {
     const current = orders.find((order) => order.id === orderId);
     if (!current) return;
 
+    setStatusLoading(true);
+
+     toast({
+    title: "Processing...",
+    description: `Updating ${current.order_no} status...`,
+  });
+
     try {
       /**
        * =========================
@@ -1865,22 +1873,6 @@ const Orders = () => {
           const unitCost = Number(
             item.unitCost || item.unit_cost || item.rate || 0
           );
-          // ✅ Allocate stock (CORRECT API YOU ALREADY HAVE)
-          await axios.post("/api/inventory-stock/allocate", {
-            itemCode: itemCode,
-            quantity: qty,
-          });
-
-          // ✅ Stock transaction log
-          await axios.post("/api/stock-transactions", {
-            item_code: itemCode,
-            transaction_type: "Order Allocation",
-            quantity: qty,
-            unit_cost: unitCost,
-            reference_type: "Order",
-            reference_number: current.order_no,
-            notes: `Stock allocated for order ${current.order_no}`,
-          });
         }
       }
 
@@ -1966,7 +1958,9 @@ const Orders = () => {
         title: "Error",
         description: "Failed to update order status.",
       });
-    }
+    }finally {
+    setStatusLoading(false);
+  }
   };
 
   const calculateNextOrderDate = (currentDate: string, frequency: string) => {

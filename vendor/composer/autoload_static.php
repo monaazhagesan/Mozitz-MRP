@@ -120,6 +120,7 @@ class ComposerStaticInitbfe12996eeecb6fdc8713a9fd9d431f8
         'a1cfe24d14977df6878b9bf804af2d1c' => __DIR__ . '/..' . '/nunomaduro/collision/src/Adapters/Phpunit/Autoload.php',
         'ec07570ca5a812141189b1fa81503674' => __DIR__ . '/..' . '/phpunit/phpunit/src/Framework/Assert/Functions.php',
         '320163ac6b93aebe3dc25b60a0533d56' => __DIR__ . '/..' . '/spatie/laravel-ignition/src/helpers.php',
+        'e6f80710fc98529845de6b88d9acb164' => __DIR__ . '/../..' . '/app/Helpers/currency.php',
     );
 
     public static $prefixLengthsPsr4 = array (
@@ -403,13 +404,13 @@ class ComposerStaticInitbfe12996eeecb6fdc8713a9fd9d431f8
         ),
         'Spatie\\LaravelIgnition\\' => 
         array (
-            0 => __DIR__ . '/..' . '/spatie/error-solutions/legacy/laravel-ignition',
-            1 => __DIR__ . '/..' . '/spatie/laravel-ignition/src',
+            0 => __DIR__ . '/..' . '/spatie/laravel-ignition/src',
+            1 => __DIR__ . '/..' . '/spatie/error-solutions/legacy/laravel-ignition',
         ),
         'Spatie\\Ignition\\' => 
         array (
-            0 => __DIR__ . '/..' . '/spatie/error-solutions/legacy/ignition',
-            1 => __DIR__ . '/..' . '/spatie/ignition/src',
+            0 => __DIR__ . '/..' . '/spatie/ignition/src',
+            1 => __DIR__ . '/..' . '/spatie/error-solutions/legacy/ignition',
         ),
         'Spatie\\FlareClient\\' => 
         array (
@@ -692,6 +693,7 @@ class ComposerStaticInitbfe12996eeecb6fdc8713a9fd9d431f8
         'App\\Http\\Controllers\\RfqItemController' => __DIR__ . '/../..' . '/app/Http/Controllers/RfqItemController.php',
         'App\\Http\\Controllers\\RfqVendorController' => __DIR__ . '/../..' . '/app/Http/Controllers/RfqVendorController.php',
         'App\\Http\\Controllers\\StockAdjustmentController' => __DIR__ . '/../..' . '/app/Http/Controllers/StockAdjustmentController.php',
+        'App\\Http\\Controllers\\StockReceiptController' => __DIR__ . '/../..' . '/app/Http/Controllers/StockReceiptController.php',
         'App\\Http\\Controllers\\StockTransactionController' => __DIR__ . '/../..' . '/app/Http/Controllers/StockTransactionController.php',
         'App\\Http\\Controllers\\StocktakeController' => __DIR__ . '/../..' . '/app/Http/Controllers/StocktakeController.php',
         'App\\Http\\Controllers\\StorageBinController' => __DIR__ . '/../..' . '/app/Http/Controllers/StorageBinController.php',
@@ -709,7 +711,10 @@ class ComposerStaticInitbfe12996eeecb6fdc8713a9fd9d431f8
         'App\\Http\\Middleware\\TrustProxies' => __DIR__ . '/../..' . '/app/Http/Middleware/TrustProxies.php',
         'App\\Http\\Middleware\\ValidateSignature' => __DIR__ . '/../..' . '/app/Http/Middleware/ValidateSignature.php',
         'App\\Http\\Middleware\\VerifyCsrfToken' => __DIR__ . '/../..' . '/app/Http/Middleware/VerifyCsrfToken.php',
+        'App\\Mail\\OrderStatusUpdated' => __DIR__ . '/../..' . '/app/Mail/OrderStatusUpdated.php',
         'App\\Mail\\RFQMail' => __DIR__ . '/../..' . '/app/Mail/RFQMail.php',
+        'App\\Mail\\ShipmentDeliveredMail' => __DIR__ . '/../..' . '/app/Mail/ShipmentDeliveredMail.php',
+        'App\\Mail\\ShipmentShippedMail' => __DIR__ . '/../..' . '/app/Mail/ShipmentShippedMail.php',
         'App\\Mail\\UserResetPasswordMail' => __DIR__ . '/../..' . '/app/Mail/UserResetPasswordMail.php',
         'App\\Models\\BomComponent' => __DIR__ . '/../..' . '/app/Models/BomComponent.php',
         'App\\Models\\BomDeletionLog' => __DIR__ . '/../..' . '/app/Models/BomDeletionLog.php',
@@ -757,6 +762,7 @@ class ComposerStaticInitbfe12996eeecb6fdc8713a9fd9d431f8
         'App\\Models\\RfqVendor' => __DIR__ . '/../..' . '/app/Models/RfqVendor.php',
         'App\\Models\\StockAdjustment' => __DIR__ . '/../..' . '/app/Models/StockAdjustment.php',
         'App\\Models\\StockAdjustmentItem' => __DIR__ . '/../..' . '/app/Models/StockAdjustmentItem.php',
+        'App\\Models\\StockReceipt' => __DIR__ . '/../..' . '/app/Models/StockReceipt.php',
         'App\\Models\\StockTransaction' => __DIR__ . '/../..' . '/app/Models/StockTransaction.php',
         'App\\Models\\Stocktake' => __DIR__ . '/../..' . '/app/Models/Stocktake.php',
         'App\\Models\\StorageBin' => __DIR__ . '/../..' . '/app/Models/StorageBin.php',

@@ -138,6 +138,8 @@ const [companyLoading, setCompanyLoading] = useState(false);
   const [internalNotes, setInternalNotes] = useState("");
 
 const [orders, setOrders] = useState<Order[]>([]);
+
+const [loading, setLoading] = useState(false);
   // Get confirmed/approved orders only
  const confirmedOrders = useMemo(() => {
   return orders.filter(order =>
@@ -470,6 +472,7 @@ const isOrderFullyPacked = (order: Order, packages: OrderPackage[]) => {
 
   // Confirm shipment (single or bulk)
   const confirmShipment = async () => {
+
     if (!selectedCarrier) {
       toast.error("Please select a carrier");
       return;
@@ -478,6 +481,10 @@ const isOrderFullyPacked = (order: Order, packages: OrderPackage[]) => {
       toast.error("Please enter a tracking number");
       return;
     }
+
+ setLoading(true);
+
+     const toastId = toast.loading("Processing Shipment...");
 
     try {
       const packagesToShip = isBulkShipment
@@ -522,6 +529,8 @@ await fetchOrders();
 
        await fetchPackages();
 
+        toast.dismiss(toastId);
+
       // Toast feedback
       if (isBulkShipment) {
         toast.success(`${packagesToShip.length} package(s) marked as shipped via ${selectedCarrier}`);
@@ -535,9 +544,17 @@ await fetchOrders();
       setSelectedPackageForShipment(null);
       setSelectedCarrier("");
       setTrackingNumber("");
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || "Error updating shipment");
-    }
+    }  catch (error: any) {
+    toast.dismiss(toastId);
+
+    toast.error(
+      error.response?.data?.message ||
+        error.message ||
+        "Error updating shipment"
+    );
+    }finally {
+    setLoading(false);
+  }
   };
 
   const selectedOrderData = useMemo(() => {
@@ -550,6 +567,11 @@ await fetchOrders();
 
   // Mark package as delivered
  const markAsDelivered = async (packageId: string) => {
+
+   setLoading(true);
+
+ const toastId = toast.loading("Processing Delivery...");
+
   try {
     // 1. Update package
     const res = await axios.put(`/api/order-packages/${packageId}`, {
@@ -570,9 +592,17 @@ await fetchOrders();
     });
 
     await fetchOrders();
+
+     toast.dismiss(toastId);
     toast.success("Package marked as delivered");
   } catch (error: any) {
-    toast.error(error.response?.data?.message || "Failed to update package status");
+    toast.dismiss(toastId);
+    toast.error(
+      error.response?.data?.message ||
+        "Failed to update package status"
+    );
+  }finally {
+    setLoading(false);
   }
 };
 
@@ -800,9 +830,11 @@ if (order) {
   };
 
   // Call fetchPackages once on component mount
-  useEffect(() => {
+ useEffect(() => {
+  if (orders.length > 0) {
     fetchPackages();
-  }, []);
+  }
+}, [orders]);
 
   // Print shipping label
  const printShippingLabel = (pkg: OrderPackage) => {
@@ -1326,17 +1358,35 @@ ${css}
         ${pkg.order?.customer || pkg.customer_name || ""}
       </div>
 
-      <div class="field-sub">
-        ${pkg.order?.contact_person || ""}<br/>
-        ${pkg.order?.contact_number || ""}<br/>
-        ${pkg.order?.email || ""}<br/>
-        ${
-          pkg.order?.shipping_address ||
-          pkg.order?.shippingAddress ||
-          pkg.shipping_address ||
-          ""
-        }
-      </div>
+     <div class="field-sub">
+  ${
+    pkg.contact_person ||
+    pkg.order?.contact_person ||
+    pkg.order?.customerData?.contact_person ||
+    ""
+  }<br/>
+
+  ${
+    pkg.contact_number ||
+    pkg.order?.contact_number ||
+    pkg.order?.customerData?.phone ||
+    ""
+  }<br/>
+
+  ${
+    pkg.email ||
+    pkg.order?.email ||
+    pkg.order?.customerData?.email ||
+    ""
+  }<br/>
+
+  ${
+    pkg.shipping_address ||
+    pkg.order?.shipping_address ||
+    pkg.order?.customerData?.shipping_address ||
+    ""
+  }
+</div>
     </div>
 
     <div class="tracking-col">
@@ -2139,7 +2189,7 @@ window.onload = async function () {
           </div>
           <div className="flex justify-end gap-3">
             <Button variant="outline" onClick={() => setShipmentDialogOpen(false)}>Cancel</Button>
-            <Button onClick={confirmShipment}>Confirm Shipment</Button>
+            <Button onClick={confirmShipment} disabled={loading}>Confirm Shipment</Button>
           </div>
         </DialogContent>
       </Dialog>

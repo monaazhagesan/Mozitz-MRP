@@ -571,27 +571,6 @@ class OrderController extends Controller
 
                 $qty = (float) $item->quantity;
 
-                // 1. reduce allocated stock
-                if ($shouldReturnStock) {
-                    InventoryStock::where('item_code', $item->item_code)
-                        ->update([
-                            'allocated_quantity' => DB::raw(
-                                "GREATEST(0, COALESCE(allocated_quantity,0) - {$qty})"
-                            )
-                        ]);
-
-                    // 2. CREATE STOCK TRANSACTION (IMPORTANT PART)
-                    StockTransaction::create([
-                        'item_code' => $item->item_code,
-                        'transaction_type' => 'ORDER_CANCELLED',
-                        'reference_type'  => 'Order',
-                        'quantity' => $qty,
-                        'unit_cost' => $item->rate ?? 0,
-                        'reference_number' => $order->order_no,
-                        'notes' => 'Returned from cancelled order',
-                        'user_id' => Auth::id(),
-                    ]);
-                }
             }
 
             $order->status = 'Cancelled';

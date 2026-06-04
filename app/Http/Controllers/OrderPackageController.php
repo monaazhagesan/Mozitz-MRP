@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\OrderPackage;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\ShipmentShippedMail;
 
 class OrderPackageController extends Controller
 {
@@ -105,6 +107,10 @@ class OrderPackageController extends Controller
             ]);
         }
 
+         $oldStatus = $package->status;
+
+         $newStatus = $request->status ?? $package->status;
+
          $package->update([
             'order_id' => $request->order_id ?? $package->order_id,
             'order_number' => $request->order_number ?? $package->order_number,
@@ -124,6 +130,24 @@ class OrderPackageController extends Controller
                 : $package->items,
         ]);
 
+       if ($oldStatus !== $newStatus) {
+
+    if (in_array($newStatus, ['shipped', 'delivered'])) {
+
+        $email = \App\Models\Order::where('order_no', $package->order_number)
+            ->where('user_id', $package->user_id)
+            ->value('email');
+
+        if ($email) {
+
+            $mailClass = $newStatus === 'shipped'
+                ? new \App\Mail\ShipmentShippedMail($package)
+                : new \App\Mail\ShipmentDeliveredMail($package);
+
+            \Illuminate\Support\Facades\Mail::to($email)->queue($mailClass);
+        }
+    }
+}
 
         return response()->json([
             'status' => true,

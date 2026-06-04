@@ -109,6 +109,40 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
 
+  const [orders, setOrders] = useState<any[]>([]);
+const [customers, setCustomers] = useState<any[]>([]);
+const [invoices, setInvoices] = useState<any[]>([]);
+const [totalRevenue, setTotalRevenue] = useState<number>(0);
+
+useEffect(() => {
+  const fetchDashboardData = async () => {
+    try {
+      const [ordersRes, customersRes, invoicesRes] = await Promise.all([
+        axios.get("/api/orders"),
+        axios.get("/api/customers"),
+        axios.get("/api/invoices"),
+      ]);
+
+      const ordersData = ordersRes.data?.data ?? ordersRes.data ?? [];
+      const customersData = customersRes.data?.data ?? customersRes.data ?? [];
+      const invoicesData = invoicesRes.data?.data ?? invoicesRes.data ?? [];
+
+      console.log("ORDERS DATA:", ordersData);
+      console.log("CUSTOMERS DATA:", customersData);
+      console.log("INVOICES DATA:", invoicesData);
+
+      setOrders(ordersData);
+      setCustomers(customersData);
+      setInvoices(invoicesData);
+
+    } catch (err) {
+      console.error("Dashboard fetch error:", err);
+    }
+  };
+
+  fetchDashboardData();
+}, []);
+
   useEffect(() => {
     const fetchLowStockItems = async () => {
       try {
@@ -142,6 +176,11 @@ const Dashboard = () => {
     };
     fetchLowStockItems();
   }, []);
+
+  const totalOrders = orders.length;
+const totalCustomers = customers.length;
+
+
 
   return (
     <Layout>
@@ -290,25 +329,63 @@ const Dashboard = () => {
         </div>
 
         {/* ── KPI Cards ── */}
-        <div className="kpi-grid">
-          {[
-            { color: "blue",  icon: "₹", label: "Total Revenue",     value: "₹1.9M",  sub: "vs ₹1.69M last month", badge: "↑ 12.5%", up: true },
-            { color: "green", icon: "🛒", label: "Total Orders",      value: "342",    sub: "8 new today",          badge: "↑ 8.2%",  up: true },
-            { color: "amber", icon: "👥", label: "Active Customers",  value: "68",     sub: "5 added this week",    badge: "↑ 5 new", up: true },
-            { color: "red",   icon: "⏱", label: "Pending Invoices",   value: "12",     sub: "overdue amount",       badge: "↓ ₹2.4L", up: false },
-          ].map((k) => (
-            <div className="kpi-card" key={k.label}>
-              <div className="kpi-top">
-                <div className={`kpi-icon ${k.color}`} style={{ fontSize: 15 }}>{k.icon}</div>
-                <span className={`kpi-badge ${k.up ? "up" : "down"}`}>{k.badge}</span>
-              </div>
-              <div className="kpi-label">{k.label}</div>
-              <div className="kpi-value">{k.value}</div>
-              <div className="kpi-sub">{k.sub}</div>
-              <div className={`kpi-accent ${k.color}`} />
-            </div>
-          ))}
+       <div className="kpi-grid">
+  {[
+    {
+      color: "blue",
+      icon: "₹",
+      label: "Total Revenue",
+      value: `₹${(totalRevenue / 100000).toFixed(1)}L`,
+      sub: "From invoices",
+      badge: "live",
+      up: true,
+    },
+    {
+      color: "green",
+      icon: "🛒",
+      label: "Total Orders",
+      value: orders.length,
+      sub: "All orders",
+      badge: "live",
+      up: true,
+    },
+    {
+      color: "amber",
+      icon: "👥",
+      label: "Active Customers",
+      value: customers.length,
+      sub: "Registered users",
+      badge: "live",
+      up: true,
+    },
+    {
+      color: "red",
+      icon: "⏱",
+      label: "Pending Invoices",
+      value: invoices.filter(i => i.status !== "paid").length,
+      sub: "Unpaid invoices",
+      badge: "live",
+      up: false,
+    },
+  ].map((k) => (
+    <div className="kpi-card" key={k.label}>
+      <div className="kpi-top">
+        <div className={`kpi-icon ${k.color}`} style={{ fontSize: 15 }}>
+          {k.icon}
         </div>
+        <span className={`kpi-badge ${k.up ? "up" : "down"}`}>
+          {k.badge}
+        </span>
+      </div>
+
+      <div className="kpi-label">{k.label}</div>
+      <div className="kpi-value">{k.value}</div>
+      <div className="kpi-sub">{k.sub}</div>
+
+      <div className={`kpi-accent ${k.color}`} />
+    </div>
+  ))}
+</div>
 
         {/* ── Charts ── */}
         <div className="sec-label">Performance overview</div>
