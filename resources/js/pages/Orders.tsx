@@ -385,6 +385,16 @@ const Orders = () => {
     fetchRegularOrders();
   }, []);
 
+
+useEffect(() => {
+    const interval = setInterval(() => {
+        fetchOrders();
+        fetchRegularOrders();
+    }, 5 * 60 * 1000);
+
+    return () => clearInterval(interval);
+}, []);
+
   const fetchRegularOrders = async () => {
     try {
       const res = await axios.get("/api/regular-template");
@@ -3396,18 +3406,68 @@ const Orders = () => {
     );
   };
 
-  const renderRegularOrders = () => (
+ const renderRegularOrders = () => {
+  const today = todayISO();
+
+  const getTemplateStatus = (template: any) => {
+    const nextDate = template.next_order_date;
+    const lastOrdered = template.last_ordered;
+
+    if (lastOrdered === today) {
+      return { label: "Fired Today", state: "available" as ValidationState };
+    }
+    if (nextDate < today) {
+      return { label: "Overdue", state: "missing" as ValidationState };
+    }
+    if (nextDate === today) {
+      return { label: "Due Today", state: "partial" as ValidationState };
+    }
+    return { label: "Upcoming", state: "produce" as ValidationState };
+  };
+
+  return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-4 shadow-sm">
         <div>
           <h3 className="text-sm font-semibold">Regular / Repeat Orders</h3>
-          <p className="mt-1 text-xs text-muted-foreground">Save recurring demand patterns and fire them into new orders.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Templates auto-fire daily via the Laravel scheduler. The status
+            below reflects each template's current trigger state.
+          </p>
         </div>
+
+        {/* Stats row */}
+        <div className="flex gap-3">
+          <div className="rounded-md border bg-muted/40 px-3 py-2 text-center">
+            <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Total</div>
+            <div className="text-lg font-semibold text-foreground">{regularOrders.length}</div>
+          </div>
+          <div className="rounded-md border border-warning/20 bg-warning/10 px-3 py-2 text-center">
+            <div className="text-[11px] uppercase tracking-wide text-warning">Due Today</div>
+            <div className="text-lg font-semibold text-warning">
+              {regularOrders.filter((t) => t.next_order_date === today && t.last_ordered !== today).length}
+            </div>
+          </div>
+          <div className="rounded-md border border-success/20 bg-success/10 px-3 py-2 text-center">
+            <div className="text-[11px] uppercase tracking-wide text-success">Fired Today</div>
+            <div className="text-lg font-semibold text-success">
+              {regularOrders.filter((t) => t.last_ordered === today).length}
+            </div>
+          </div>
+          <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-center">
+            <div className="text-[11px] uppercase tracking-wide text-destructive">Overdue</div>
+            <div className="text-lg font-semibold text-destructive">
+              {regularOrders.filter((t) => t.next_order_date < today && t.last_ordered !== today).length}
+            </div>
+          </div>
+        </div>
+
+        {/* Keep only the Create Template button */}
         <Dialog open={regularDialogOpen} onOpenChange={setRegularDialogOpen}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
-              Create Regular Order
+              New Template
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -3417,16 +3477,13 @@ const Orders = () => {
             <div className="grid gap-4 py-2 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>Customer *</Label>
-
                 <select
                   value={regularForm.customer_id}
                   onChange={(event) => {
                     const selectedId = event.target.value;
-
                     const selectedCustomer = customers.find(
                       (c) => String(c.id) === String(selectedId)
                     );
-
                     setRegularForm((prev) => ({
                       ...prev,
                       customer_id: selectedCustomer?.id || "",
@@ -3439,7 +3496,6 @@ const Orders = () => {
                   className="w-full border rounded-md p-2"
                 >
                   <option value="">Select Customer</option>
-
                   {customers?.length > 0 &&
                     customers.map((customer) => (
                       <option key={customer.id} value={customer.id}>
@@ -3450,20 +3506,13 @@ const Orders = () => {
               </div>
               <div className="space-y-2">
                 <Label>Product *</Label>
-
                 <select
                   value={regularForm.itemCode}
                   onChange={(event) => {
                     const code = event.target.value;
-
                     const selectedItem = inventoryItems.find(
                       (item) => String(item.itemCode) === String(code)
                     );
-
-                    console.log("👉 SELECTED CODE:", code);
-                    console.log("👉 INVENTORY ITEMS SAMPLE:", inventoryItems?.[0]);
-                    console.log("👉 MATCHED ITEM:", selectedItem);
-
                     setRegularForm((prev) => ({
                       ...prev,
                       itemCode: code,
@@ -3474,7 +3523,6 @@ const Orders = () => {
                   className="w-full border rounded-md p-2"
                 >
                   <option value="">Select Product</option>
-
                   {inventoryItems?.map((inventory) => (
                     <option
                       key={inventory.id || inventory.item_code}
@@ -3487,12 +3535,29 @@ const Orders = () => {
               </div>
               <div className="space-y-2">
                 <Label>Qty per Order</Label>
-                <Input type="number" min={1} value={regularForm.quantity} onChange={(event) => setRegularForm((prev) => ({ ...prev, quantity: Number(event.target.value) }))} />
+                <Input
+                  type="number"
+                  min={1}
+                  value={regularForm.quantity}
+                  onChange={(event) =>
+                    setRegularForm((prev) => ({
+                      ...prev,
+                      quantity: Number(event.target.value),
+                    }))
+                  }
+                />
               </div>
               <div className="space-y-2">
                 <Label>Frequency</Label>
-                <Select value={regularForm.frequency} onValueChange={(value) => setRegularForm((prev) => ({ ...prev, frequency: value }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                <Select
+                  value={regularForm.frequency}
+                  onValueChange={(value) =>
+                    setRegularForm((prev) => ({ ...prev, frequency: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Weekly">Weekly</SelectItem>
                     <SelectItem value="Fortnightly">Fortnightly</SelectItem>
@@ -3503,7 +3568,16 @@ const Orders = () => {
               </div>
               <div className="space-y-2">
                 <Label>Next Order Date</Label>
-                <Input type="date" value={regularForm.nextOrderDate} onChange={(event) => setRegularForm((prev) => ({ ...prev, nextOrderDate: event.target.value }))} />
+                <Input
+                  type="date"
+                  value={regularForm.nextOrderDate}
+                  onChange={(event) =>
+                    setRegularForm((prev) => ({
+                      ...prev,
+                      nextOrderDate: event.target.value,
+                    }))
+                  }
+                />
               </div>
               <div className="space-y-2">
                 <Label>Unit Price</Label>
@@ -3516,10 +3590,16 @@ const Orders = () => {
                       price: Number(event.target.value),
                     }))
                   }
-                />              </div>
+                />
+              </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setRegularDialogOpen(false)}>Cancel</Button>
+              <Button
+                variant="outline"
+                onClick={() => setRegularDialogOpen(false)}
+              >
+                Cancel
+              </Button>
               <Button
                 type="button"
                 onClick={createRegularTemplate}
@@ -3543,49 +3623,104 @@ const Orders = () => {
                 <TableHead>Frequency</TableHead>
                 <TableHead>Next Order Date</TableHead>
                 <TableHead>Last Ordered</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Template Status</TableHead>
+                <TableHead>Trigger Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {regularOrders.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">No regular order templates yet.</TableCell>
+                  <TableCell
+                    colSpan={9}
+                    className="py-12 text-center text-muted-foreground"
+                  >
+                    No regular order templates yet.
+                  </TableCell>
                 </TableRow>
               ) : (
-                regularOrders.map((template) => (
-                  <TableRow key={template.id}>
-                    <TableCell className="font-mono text-xs text-primary">{template.template_number}</TableCell>
-                    <TableCell>{template.customer}</TableCell>
-                    <TableCell>
-                      <div className="font-mono text-xs text-primary">{template.item_code}</div>
-                      <div className="text-sm text-muted-foreground">{template.item_name}</div>
-                    </TableCell>
-                    <TableCell>{template.frequency}</TableCell>
-                    <TableCell>{template.next_order_date}</TableCell>
-                    <TableCell>{template.last_ordered ?? "—"}</TableCell>
-                    <TableCell>{renderValidationBadge(template.status === "Active" ? "available" : "missing", template.status)}</TableCell>
-                    <TableCell>
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" size="sm" onClick={() => fireRegularOrder(template)}>Create Order</Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteRegularTemplate(template.id)}
+                regularOrders.map((template) => {
+                  const triggerStatus = getTemplateStatus(template);
+                  return (
+                    <TableRow key={template.id}>
+                      <TableCell className="font-mono text-xs text-primary">
+                        {template.template_number}
+                      </TableCell>
+                      <TableCell>{template.customer}</TableCell>
+                      <TableCell>
+                        <div className="font-mono text-xs text-primary">
+                          {template.item_code}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {template.item_name}
+                        </div>
+                      </TableCell>
+                      <TableCell>{template.frequency}</TableCell>
+                      <TableCell>
+                        <span
+                          className={cn(
+                            template.next_order_date < today &&
+                              template.last_ordered !== today &&
+                              "text-destructive font-medium"
+                          )}
                         >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
+                          {template.next_order_date}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        {template.last_ordered === today ? (
+                          <span className="text-success font-medium">
+                            {template.last_ordered}
+                          </span>
+                        ) : (
+                          template.last_ordered ?? "—"
+                        )}
+                      </TableCell>
+
+                      {/* Active / Paused */}
+                      <TableCell>
+                        {renderValidationBadge(
+                          template.status === "Active" ? "available" : "missing",
+                          template.status
+                        )}
+                      </TableCell>
+
+                      {/* Trigger Status — replaces the Create Order button */}
+                      <TableCell>
+                        {renderValidationBadge(
+                          triggerStatus.state,
+                          triggerStatus.label
+                        )}
+                      </TableCell>
+
+                      <TableCell>
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteRegularTemplate(template.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>
         </div>
       </div>
+
+      {/* Info banner */}
+      <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-primary">
+        Orders are auto-generated daily by the Laravel scheduler.
+        The "Trigger Status" column updates automatically — no manual action needed.
+      </div>
     </div>
   );
+};
 
   const renderStockValidation = () => (
     <div className="space-y-6">

@@ -63,6 +63,14 @@ type ItemSuggestion = {
   description: string | null;
 };
 
+interface Job {
+  id: string;
+  orderId: string;
+  quantity: number | string;
+  status: string;
+}
+
+
 const generateJobNumber = (jobs: any[]) => {
   const numbers = jobs
     .map((j) => j.job_number || j.jobNumber)
@@ -107,7 +115,7 @@ const Planning = () => {
   const [nextJobNumber, setNextJobNumber] = useState("");
   const [jobsLoaded, setJobsLoaded] = useState(false);
 
-  
+
 const fetchJobs = async () => {
   try {
     const res = await axios.get("/api/jobs");
@@ -231,17 +239,20 @@ useEffect(() => {
     return saved ? JSON.parse(saved) : {};
   });
   // Helper function to calculate in-progress job quantity for an order
-  const calculateInProgressJobQty = (orderId: string) => {
-    // Get fresh jobs data from localStorage to ensure we have the latest state
-    const currentJobs = JSON.parse(localStorage.getItem("jobs") || "[]");
-    return currentJobs
-      .filter((job: any) => 
-        job.orderId === orderId && 
-        job.status !== "Cancelled" && 
+ const calculateInProgressJobQty = (orderId: string): number => {
+  return jobs
+    .filter(
+      (job: any) =>
+        job.orderId === orderId &&
+        job.status !== "Cancelled" &&
         job.status !== "Completed"
-      )
-      .reduce((sum: number, job: any) => sum + (parseFloat(job.quantity) || 0), 0);
-  };
+    )
+    .reduce(
+      (sum: number, job: any) =>
+        sum + Number(job.quantity || 0),
+      0
+    );
+};
 
   const fetchNextJobNumber = async () => {
   try {
@@ -259,10 +270,10 @@ const handleOpenJobDialog = async () => {
 
   // Helper function to calculate pending job quantity for an order
   const calculatePendingJobQty = (order: any) => {
-    const productItems = Array.isArray(order.items) 
+    const productItems = Array.isArray(order.items)
       ? order.items.filter((item: any) => item.itemType === "Product")
       : [];
-    const orderQty = productItems.reduce((sum: number, item: any) => 
+    const orderQty = productItems.reduce((sum: number, item: any) =>
       sum + (parseFloat(item.quantityOrdered) || 0), 0
     );
     const inProgressQty = calculateInProgressJobQty(order.id);
@@ -271,7 +282,7 @@ const handleOpenJobDialog = async () => {
 
   // Filter for Product Orders only (Manufacturing type) with pending status
   const pendingOrders = orders.filter(
-    (order: any) => 
+    (order: any) =>
       (order.status === "Pending" || order.status === "Awaiting Confirmation") &&
       order.orderType === "Manufacturing"
   );
@@ -555,10 +566,10 @@ const handleOpenJobDialog = async () => {
 
   const handleSelectOrder = (order: any) => {
     // Filter for product items only (not materials or components)
-    const productItems = Array.isArray(order.items) 
+    const productItems = Array.isArray(order.items)
       ? order.items.filter((item: any) => item.itemType === "Product")
       : [];
-    
+
     if (productItems.length === 0) {
       toast({
         title: "No Product Items",
@@ -576,10 +587,10 @@ const handleOpenJobDialog = async () => {
       const itemOrderQty = parseFloat(item.quantityOrdered) || 0;
       // Calculate in-progress jobs for this specific item
       const inProgressQty = currentJobs
-        .filter((job: any) => 
-          job.orderId === order.id && 
+        .filter((job: any) =>
+          job.orderId === order.id &&
           job.itemCode === item.itemCode &&
-          job.status !== "Cancelled" && 
+          job.status !== "Cancelled" &&
           job.status !== "Completed"
         )
         .reduce((sum: number, job: any) => sum + (parseFloat(job.quantity) || 0), 0);
@@ -621,7 +632,7 @@ const handleOpenJobDialog = async () => {
 
   // Toggle selection of a line item
   const toggleLineItemSelection = (itemId: string) => {
-    setOrderLineItems(prev => prev.map(item => 
+    setOrderLineItems(prev => prev.map(item =>
       item.id === itemId ? { ...item, selected: !item.selected } : item
     ));
   };
@@ -636,7 +647,7 @@ const handleOpenJobDialog = async () => {
 
   // Update job quantity for a line item
   const updateLineItemJobQty = (itemId: string, quantity: string) => {
-    setOrderLineItems(prev => prev.map(item => 
+    setOrderLineItems(prev => prev.map(item =>
       item.id === itemId? { ...item, jobQuantity: quantity } : item
     ));
   };
@@ -1222,6 +1233,47 @@ const handleJobStatusChange = async (jobId: string, newStatus: string) => {
 
   const previousStatus = job.status;
 
+   // Release allocated stock when a job is cancelled/closed (no consumption)
+    if (
+  (newStatus === "Cancelled" || newStatus === "Closed") &&
+  previousStatus !== "Cancelled" &&
+  previousStatus !== "Closed"
+) {
+  try {
+    const response = await fetch(
+      `/api/job-allocations/deallocate`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          job_number: jobId,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+
+      toast({
+        title: "Warning",
+        description:
+          errorData.message ||
+          "Failed to release allocated stock",
+        variant: "destructive",
+      });
+    }
+  } catch (error: any) {
+    toast({
+      title: "Warning",
+      description:
+        error.message || "Failed to release allocated stock",
+      variant: "destructive",
+    });
+  }
+}
+
   console.log("Previous Status:", previousStatus);
 
   // Only trigger inventory update when status changes
@@ -1312,6 +1364,8 @@ const handleJobStatusChange = async (jobId: string, newStatus: string) => {
               );
             }
 
+            const currentAllocated = (currentStock as any).allocated_quantity || 0;
+
             const newCommittedQty = Math.max(
               0,
               currentCommitted - allocation.allocated_quantity
@@ -1321,6 +1375,8 @@ const handleJobStatusChange = async (jobId: string, newStatus: string) => {
               0,
               currentOnHand - allocation.allocated_quantity
             );
+
+             const newAllocatedQty = Math.max(0, currentAllocated - allocation.allocated_quantity);
 
             console.log("New Committed Qty:", newCommittedQty);
             console.log("New On Hand Qty:", newOnHandQty);
@@ -1338,6 +1394,7 @@ const handleJobStatusChange = async (jobId: string, newStatus: string) => {
                 body: JSON.stringify({
                   committed_quantity: newCommittedQty,
                   quantity_on_hand: newOnHandQty,
+                  allocated_quantity: newAllocatedQty,
                 }),
               }
             );
@@ -1584,7 +1641,7 @@ const handleDeleteJob = async (job: any) => {
     newBomItems: any[],
     newJobSplits: any[],
     moveQuantities: any,
-    
+
   ) => {
 
     if (!newJobData.itemCode) {
@@ -1691,7 +1748,7 @@ if (!newJobData.completionDate) {
   required: q.quantity || 0,
   issued: 0,
   open: q.quantity || 0,
-  on_hand: onHand,   
+  on_hand: onHand,
   };
 }) || [],
 
@@ -1707,7 +1764,7 @@ if (!newJobData.completionDate) {
     }))
   : [],
 
-  
+
    lots:
           newJobData.lotNum || newJobData.buildSeq || newJobData.task
             ? [
@@ -1752,12 +1809,16 @@ if (!newJobData.completionDate) {
         setOrders(updatedOrders);
       }
 
+
+      await fetchJobs();
+
       toast({
         title: "Job Created",
         description: `Job ${newJobData.jobNumber} created successfully.`,
       });
 
       setIsDialogOpen(false);
+
     } catch (error: any) {
       toast({
         title: "Error Creating Job",
@@ -1931,7 +1992,7 @@ const handleFindJobs = useCallback(
     setIsViewDialogOpen(true);
   }, []);
 
-  // Handler for viewing components from search results  
+  // Handler for viewing components from search results
   const handleViewComponentsFromSearch = useCallback((job: any) => {
     setSelectedJob(job);
     setIsSearchResultsOpen(false);
@@ -1951,9 +2012,9 @@ const handleFindJobs = useCallback(
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Production Jobs</h1>
-            <p className="text-muted-foreground mt-1">Manage and track production jobs</p>     
+            <p className="text-muted-foreground mt-1">Manage and track production jobs</p>
           </div>
-          
+
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setIsFindJobsDialogOpen(true)}>
               <Search className="h-4 w-4 mr-2" />
@@ -1973,14 +2034,14 @@ const handleFindJobs = useCallback(
           onFind={handleFindJobs}
           onNew={() => setIsDialogOpen(true)}
         />
-        
+
         {/* New ERP-Style Job Card Dialog */}
         <JobCardDialog
           open={isDialogOpen}
           onOpenChange={setIsDialogOpen}
           pendingOrders={pendingOrders}
           orders={orders}
-          nextJobNumber={nextJobNumber} 
+          nextJobNumber={nextJobNumber}
           onCreateJob={handleCreateJobFromDialog}
           generateJobNumber={memoizedGenerateJobNumber}
           calculateInProgressJobQty={calculateInProgressJobQty}
@@ -1996,15 +2057,15 @@ const handleFindJobs = useCallback(
                   {filteredJobs.length > 0 ? "Search Results" : "Created Jobs"}
                 </CardTitle>
                 <CardDescription>
-                  {filteredJobs.length > 0 
-                    ? `Showing ${filteredJobs.length} filtered job(s)` 
+                  {filteredJobs.length > 0
+                    ? `Showing ${filteredJobs.length} filtered job(s)`
                     : "All jobs created from orders"}
                 </CardDescription>
               </div>
               <div className="flex items-center gap-3">
                 {filteredJobs.length > 0 && (
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     size="sm"
                     onClick={() => setFilteredJobs([])}
                   >
@@ -2068,15 +2129,15 @@ const handleFindJobs = useCallback(
                         {job.orderId && (() => {
                           const order = orders.find((o: any) => o.id === job.orderId);
                           if (order) {
-                            const productItems = Array.isArray(order.items) 
+                            const productItems = Array.isArray(order.items)
                               ? order.items.filter((item: any) => item.itemType === "Product")
                               : [];
-                            const orderQty = productItems.reduce((sum: number, item: any) => 
+                            const orderQty = productItems.reduce((sum: number, item: any) =>
                               sum + (parseFloat(item.quantityOrdered) || 0), 0
                             );
                             const inProgressQty = calculateInProgressJobQty(job.orderId);
                             const pendingQty = Math.max(0, orderQty - inProgressQty);
-                            
+
                             return (
                               <>
                                 <div className="flex items-center justify-between">

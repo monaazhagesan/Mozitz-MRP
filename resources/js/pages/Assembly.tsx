@@ -22,7 +22,7 @@ import {
 const Assembly = () => {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  
+
   // Load jobs from localStorage
   const [jobs, setJobs] = useState(() => {
     const saved = localStorage.getItem("jobs");
@@ -67,7 +67,7 @@ const Assembly = () => {
   const moveOperation = (index: number, direction: "up" | "down") => {
     const newOperations = [...operations];
     const newIndex = direction === "up" ? index - 1 : index + 1;
-    
+
     if (newIndex >= 0 && newIndex < newOperations.length) {
       [newOperations[index], newOperations[newIndex]] = [newOperations[newIndex], newOperations[index]];
       newOperations.forEach((op, idx) => {
@@ -77,18 +77,41 @@ const Assembly = () => {
     }
   };
 
-  const handleUpdateJobStatus = (jobId: string, newStatus: string) => {
-    const updatedJobs = jobs.map((job: any) =>
-      job.id === jobId ? { ...job, status: newStatus } : job
+ const handleUpdateJobStatus = async (jobId: string, newStatus: string) => {
+  try {
+    const response = await fetch(`/api/jobs/${jobId}/status`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status: newStatus }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to update status");
+    }
+
+    setJobs((prevJobs: any[]) =>
+      prevJobs.map((job) =>
+        job.id === jobId
+          ? { ...job, status: newStatus }
+          : job
+      )
     );
-    localStorage.setItem("jobs", JSON.stringify(updatedJobs));
-    setJobs(updatedJobs);
 
     toast({
       title: "Status Updated",
       description: `Job ${jobId} status changed to ${newStatus}.`,
     });
-  };
+  } catch (error) {
+    toast({
+      title: "Error",
+      description: "Failed to update job status.",
+      variant: "destructive",
+    });
+  }
+};
+
 
   const handleViewJob = (job: any) => {
     setSelectedJob(job);

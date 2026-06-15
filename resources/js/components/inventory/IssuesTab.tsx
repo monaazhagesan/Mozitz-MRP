@@ -722,7 +722,7 @@ const loadJobMaterials = async (job: Job) => {
 
   const loadOrderItems = async (order: Order) => {
     let items: IssueItem[] = [];
-    
+
     const orderItems = Array.isArray((order as any).items) ? (order as any).items : [];
     const orderNo = getOrderNumber(order);
     const prevIssued = buildPreviouslyIssuedMap(orderNo, "order");
@@ -735,7 +735,7 @@ const loadJobMaterials = async (job: Job) => {
           const availableStock = Number(item.available_stock ?? 0);
         const prev = prevIssued[itemCode] || 0;
 
-        return {  
+        return {
           id: `item-${index}`,
           itemCode,
           itemName: item.itemName || item.item_name || item.name || "",
@@ -782,26 +782,26 @@ const loadJobMaterials = async (job: Job) => {
     setIssueItems((prev) =>
       prev.map((item) => {
         if (item.id !== itemId) return item;
-        
+
         const availableStock = item.availableStock ?? 0;
         const pendingQty = item.pendingQty ?? item.requiredQty;
         let error = "";
-        
+
        if (qty < 0) {
           error = "Quantity cannot be negative";
         } else if (availableStock <= 0 && qty > 0) {
           error = "Insufficient stock — cannot issue";
         } else if (qty > availableStock) {
           error = `Exceeds available stock (${availableStock})`;
-        
+
          } else if (qty > pendingQty) {
           error = `Exceeds pending qty (${pendingQty})`;
         }
-        
-        return { 
-          ...item, 
+
+        return {
+          ...item,
           issuedQty: qty,
-          error 
+          error
         };
       })
     );
@@ -1020,6 +1020,29 @@ const loadJobMaterials = async (job: Job) => {
         notes: `Issued ${issuedQty} ${item.uom} to ${issueType}`,
         unit_cost: stockItem.unit_cost ?? 0,
       });
+
+
+      // Reduce the matching job_allocations row so close/cancel doesn't double-release
+        if (issueType === "job") {
+          const { data: allocRow } = await (supabase as any)
+            .from("job_allocations")
+            .select("id, allocated_quantity")
+            .eq("job_number", newIssue.referenceNo)
+            .eq("item_code", item.itemCode)
+            .eq("status", "allocated")
+            .maybeSingle();
+          if (allocRow) {
+            const remaining = Math.max(0, Number(allocRow.allocated_quantity || 0) - item.issuedQty);
+            await (supabase as any)
+              .from("job_allocations")
+              .update({
+                allocated_quantity: remaining,
+                status: remaining === 0 ? "consumed" : "allocated",
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", allocRow.id);
+          }
+        }
     } catch (error: any) {
       toast({
         title: "Stock Update Error",
@@ -1148,19 +1171,19 @@ const loadJobMaterials = async (job: Job) => {
                   <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-2">
                       <Label className="text-sm font-medium">Issue No</Label>
-                      <Input 
-                        value={generateIssueNo()} 
-                        disabled 
-                        className="bg-muted/50 border-muted text-muted-foreground" 
+                      <Input
+                        value={generateIssueNo()}
+                        disabled
+                        className="bg-muted/50 border-muted text-muted-foreground"
                       />
                     </div>
                     <div className="space-y-2">
                       <Label className="text-sm font-medium">Issue Date</Label>
-                      <Input 
-                        type="text" 
-                        value={format(new Date(), "MM/dd/yyyy")} 
-                        disabled 
-                        className="bg-muted/50 border-muted text-muted-foreground" 
+                      <Input
+                        type="text"
+                        value={format(new Date(), "MM/dd/yyyy")}
+                        disabled
+                        className="bg-muted/50 border-muted text-muted-foreground"
                       />
                     </div>
                     <div className="space-y-2">
@@ -1183,7 +1206,7 @@ const loadJobMaterials = async (job: Job) => {
                       </Select>
                     </div>
                   </div>
-                  
+
                   <div className="grid grid-cols-3 gap-4 mt-4">
                     <div className="space-y-2">
                       <Label className="text-sm font-medium">Warehouse / Store</Label>
@@ -1248,10 +1271,10 @@ const loadJobMaterials = async (job: Job) => {
                     </div>
                     <div className="space-y-2">
                       <Label className="text-sm font-medium">Issued By</Label>
-                      <Input 
-                        value="Current User" 
-                        disabled 
-                        className="bg-muted/50 border-muted text-muted-foreground" 
+                      <Input
+                        value="Current User"
+                        disabled
+                        className="bg-muted/50 border-muted text-muted-foreground"
                       />
                     </div>
                   </div>
@@ -1348,11 +1371,18 @@ const loadJobMaterials = async (job: Job) => {
                                   <div className="flex flex-col items-end gap-1">
                                     <Input
                                       type="number"
+                                       inputMode="decimal"
                                       min={0}
-                                      max={Math.min(item.pendingQty ?? 0, item.availableStock ?? 0)}
-                                      value={item.issuedQty}
+                                       step="any"
+                                      value={item.issuedQty === 0 ? "" : item.issuedQty}
                                       disabled={fullyIssued || insufficient}
-                                      onChange={(e) => handleIssueQtyChange(item.id, parseFloat(e.target.value) || 0)}
+                                       onFocus={(e) => e.target.select()}
+                                      onChange={(e) => {
+                                        const raw = e.target.value;
+                                        const next = raw === "" ? 0 : parseFloat(raw);
+                                        handleIssueQtyChange(item.id, isNaN(next) ? 0 : next);
+                                      }}
+                                      placeholder="0"
                                       className={`w-24 text-right ${item.error ? "border-destructive" : ""}`}
                                     />
                                     {item.error && (
@@ -1488,6 +1518,6 @@ const loadJobMaterials = async (job: Job) => {
       </Dialog>
     </div>
   );
-}; 
+};
 
 export default IssuesTab;

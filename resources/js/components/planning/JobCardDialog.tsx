@@ -77,10 +77,10 @@ export const JobCardDialog = ({
     alternate: "",
   revision: "",
   });
-  
+
   const [operations, setOperations] = useState<any[]>([]);
   const [bomItems, setBomItems] = useState<any[]>([]);
-  
+
   const [moveQuantities, setMoveQuantities] = useState<{
     [seq: number]: {
       inQueue: number;
@@ -91,13 +91,13 @@ export const JobCardDialog = ({
       completed: number;
     };
   }>({});
-  
+
   useEffect(() => {
     const qty = parseInt(jobData.quantity) || 0;
-    const sequences = operations.length > 0 
+    const sequences = operations.length > 0
       ? operations.map((op, idx) => op.sequence || (idx + 1) * 10)
       : [10, 20, 30];
-    
+
     const initialQuantities: typeof moveQuantities = {};
     sequences.forEach((seq, idx) => {
       initialQuantities[seq] = {
@@ -115,12 +115,12 @@ export const JobCardDialog = ({
   const handleMoveTransaction = () => {
     const sequences = Object.keys(moveQuantities).map(Number).sort((a, b) => a - b);
     let hasChanges = false;
-    
+
     const newQuantities = { ...moveQuantities };
-    
+
     sequences.forEach((seq, idx) => {
       const current = newQuantities[seq];
-      
+
       if (current.toMove > 0) {
         hasChanges = true;
         if (idx < sequences.length - 1) {
@@ -140,14 +140,14 @@ export const JobCardDialog = ({
         newQuantities[seq] = { ...current, toMove: 0 };
       }
     });
-    
+
     if (hasChanges) {
       setMoveQuantities(newQuantities);
-      
+
       if (jobData.status === "Released") {
         setJobData(prev => ({ ...prev, status: "In Progress" }));
       }
-      
+
       toast({
         title: "Move Transaction Completed",
         description: "Quantities moved successfully.",
@@ -191,7 +191,7 @@ export const JobCardDialog = ({
     }
   }, [jobData.quantity]);
   const [filteredOrders, setFilteredOrders] = useState<any[]>([]);
-  
+
   const [itemCodeOpen, setItemCodeOpen] = useState(false);
   const [itemSearchQuery, setItemSearchQuery] = useState("");
   const [itemSuggestions, setItemSuggestions] = useState<Array<{
@@ -501,7 +501,7 @@ setJobData((prev) => ({
   ? opsRes.data
   : opsRes.data?.data || [];
 
-  
+
 
       const mappedOps = ops.map((op: any) => ({
         id: op.id,
@@ -560,10 +560,10 @@ const checkAndLoadBom = async (code: string) => {
 };
 
   const handleSelectOrder = (order: any) => {
-    const productItems = Array.isArray(order.items) 
+    const productItems = Array.isArray(order.items)
       ? order.items.filter((item: any) => item.itemType === "Product")
       : [];
-    
+
     if (productItems.length > 0) {
       const firstProduct = productItems[0];
       setJobData(prev => ({
@@ -574,17 +574,61 @@ const checkAndLoadBom = async (code: string) => {
         dueDate: order.deliveryDate || "",
         completionDate: order.deliveryDate || "",
       }));
-      
+
       if (firstProduct.itemCode) {
         loadItemData(firstProduct.itemCode, parseFloat(firstProduct.quantityOrdered) || 1);
       }
     }
   };
 
-  const handleCreateJob = () => {
-    onCreateJob(jobData, operations, bomItems, jobSplits, moveQuantities);
-    onOpenChange(false);
-  };
+ const handleCreateJob = () => {
+  if (!jobData.itemCode?.trim()) {
+    toast({
+      title: "Validation Error",
+      description: "Assembly (Item Code) is required",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  if (!jobData.quantity || Number(jobData.quantity) <= 0) {
+    toast({
+      title: "Validation Error",
+      description: "Start quantity is required and must be greater than 0",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  if (!jobData.startDate) {
+    toast({
+      title: "Validation Error",
+      description: "Start date is required",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  if (!jobData.completionDate) {
+    toast({
+      title: "Validation Error",
+      description: "Completion date is required",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  onCreateJob(
+    jobData,
+    operations,
+    bomItems,
+    jobSplits,
+    moveQuantities
+  );
+
+  // Close only after successful validation
+  onOpenChange(false);
+};
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -623,7 +667,7 @@ const checkAndLoadBom = async (code: string) => {
             }}
           />
         </div>
-        
+
         {/* Main Form Content */}
         <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
           {/* Job Details Grid */}
@@ -632,25 +676,25 @@ const checkAndLoadBom = async (code: string) => {
             <div className="space-y-4">
               <div className="grid grid-cols-3 items-center gap-3">
                 <Label className="text-sm font-medium text-right">Job Number</Label>
-                <Input 
+                <Input
                   value={jobData.jobNumber}
                   onChange={(e) => setJobData({ ...jobData, jobNumber: e.target.value })}
                   className="col-span-2"
                 />
               </div>
-              
+
               <div className="grid grid-cols-3 items-center gap-3">
                 <Label className="text-sm font-medium text-right">Assembly</Label>
                 <div className="col-span-2 flex gap-2">
                   {jobData.jobType === "Non-standard" ? (
                     <>
-                      <Input 
+                      <Input
                         value={jobData.itemCode}
                         onChange={(e) => setJobData({ ...jobData, itemCode: e.target.value })}
                         placeholder="Item Code"
                         className="flex-1"
                       />
-                      <Input 
+                      <Input
                         value={jobData.itemDescription}
                         onChange={(e) => setJobData({ ...jobData, itemDescription: e.target.value })}
                         placeholder="Description"
@@ -672,7 +716,7 @@ const checkAndLoadBom = async (code: string) => {
                         </PopoverTrigger>
                         <PopoverContent className="w-[350px] p-0" align="start">
                           <Command shouldFilter={false}>
-                            <CommandInput 
+                            <CommandInput
                               placeholder="Type 2+ characters..."
                               value={itemSearchQuery}
                               onValueChange={setItemSearchQuery}
@@ -753,8 +797,8 @@ const checkAndLoadBom = async (code: string) => {
                           </Command>
                         </PopoverContent>
                       </Popover>
-                      <Input 
-                        value={jobData.itemDescription}
+                      <Input
+                        value={jobData.itemName}
                         readOnly
                         placeholder="Description"
                         className="flex-1 bg-muted"
@@ -763,17 +807,17 @@ const checkAndLoadBom = async (code: string) => {
                   )}
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-3 items-center gap-3">
                 <Label className="text-sm font-medium text-right">Sales Order</Label>
-                <Input 
+                <Input
                   value={jobData.salesOrderNum}
                   onChange={(e) => setJobData({ ...jobData, salesOrderNum: e.target.value })}
                   placeholder="Sales Order Number"
                   className="col-span-2"
                 />
               </div>
-              
+
               <div className="grid grid-cols-3 items-center gap-3">
                 <Label className="text-sm font-medium text-right">Class</Label>
                 <Select value={jobData.jobClass} onValueChange={(v) => setJobData({ ...jobData, jobClass: v })}>
@@ -787,7 +831,7 @@ const checkAndLoadBom = async (code: string) => {
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div className="grid grid-cols-3 items-center gap-3">
                 <Label className="text-sm font-medium text-right">Status</Label>
                 <Select value={jobData.status} onValueChange={(v) => setJobData({ ...jobData, status: v })}>
@@ -818,21 +862,21 @@ const checkAndLoadBom = async (code: string) => {
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div className="grid grid-cols-3 items-center gap-3">
                 <Label className="text-sm font-medium text-right">UOM</Label>
-                <Input 
+                <Input
                   value={jobData.uom}
                   onChange={(e) => setJobData({ ...jobData, uom: e.target.value })}
                   className="col-span-2"
                 />
               </div>
-              
+
               <div className="grid grid-cols-3 items-center gap-3">
                 <div></div>
                 <div className="col-span-2 flex items-center gap-2">
-                  <Checkbox 
-                    id="firm" 
+                  <Checkbox
+                    id="firm"
                     checked={jobData.firm}
                     onCheckedChange={(checked) => setJobData({ ...jobData, firm: Boolean(checked),})}
                   />
@@ -849,7 +893,7 @@ const checkAndLoadBom = async (code: string) => {
                 <h4 className="text-sm font-semibold text-foreground">Quantities</h4>
                 <div className="grid grid-cols-3 items-center gap-3">
                   <Label className="text-sm text-right">Start</Label>
-                  <Input 
+                  <Input
                     type="number"
                     value={jobData.quantity}
                     onChange={(e) => setJobData({ ...jobData, quantity: e.target.value })}
@@ -858,7 +902,7 @@ const checkAndLoadBom = async (code: string) => {
                 </div>
                 <div className="grid grid-cols-3 items-center gap-3">
                   <Label className="text-sm text-right">MRP Net</Label>
-                  <Input 
+                  <Input
                     type="number"
                     value={jobData.mrpNet ?? 0}
                     onChange={(e) => setJobData({ ...jobData, mrpNet: e.target.value })}
@@ -873,7 +917,7 @@ const checkAndLoadBom = async (code: string) => {
                 <h4 className="text-sm font-semibold text-foreground">Dates</h4>
                 <div className="grid grid-cols-3 items-center gap-3">
                   <Label className="text-sm text-right">Start</Label>
-                  <Input 
+                  <Input
                     type="datetime-local"
                     value={jobData.startDate}
                     onChange={(e) => setJobData({ ...jobData, startDate: e.target.value })}
@@ -882,7 +926,7 @@ const checkAndLoadBom = async (code: string) => {
                 </div>
                 <div className="grid grid-cols-3 items-center gap-3">
                   <Label className="text-sm text-right">Completion</Label>
-                  <Input 
+                  <Input
                     type="datetime-local"
                     value={jobData.completionDate}
                     onChange={(e) => setJobData({ ...jobData, completionDate: e.target.value })}
@@ -897,7 +941,7 @@ const checkAndLoadBom = async (code: string) => {
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="w-full justify-start bg-muted rounded-lg p-1">
               {["Components", "Quantities", "Routing", "Job Move", "LOT", "Scheduling", "More"].map((tab) => (
-                <TabsTrigger 
+                <TabsTrigger
                   key={tab}
                   value={tab.toLowerCase().replace(" ", "-")}
                   className="px-4 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
@@ -933,9 +977,9 @@ const checkAndLoadBom = async (code: string) => {
     }
   />
 </div>
-                      
+
                     </div>
-                    
+
                     {jobData.jobType === "Non-standard" && (
                       <Button
                         variant="outline"
@@ -958,7 +1002,7 @@ const checkAndLoadBom = async (code: string) => {
                         Add Component
                       </Button>
                     )}
-                    
+
                     {(bomItems.length > 0 || jobData.jobType === "Non-standard") && (
                       <div className="border rounded-lg overflow-hidden">
                         <Table>
@@ -1161,7 +1205,7 @@ const checkAndLoadBom = async (code: string) => {
                         Add Operation
                       </Button>
                     )}
-                    
+
                     {(operations.length > 0 || jobData.jobType === "Non-standard") && (
                       <div className="border rounded-lg overflow-hidden">
                         <Table>
@@ -1290,7 +1334,7 @@ const checkAndLoadBom = async (code: string) => {
                         </Table>
                       </div>
                     )}
-                    
+
                     {loadingOps ? (
   <p className="text-sm text-muted-foreground">
     Loading routing operations...
@@ -1313,8 +1357,8 @@ const checkAndLoadBom = async (code: string) => {
                   <CardContent className="p-4 space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <Button 
-                          variant="default" 
+                        <Button
+                          variant="default"
                           size="sm"
                           onClick={handleMoveTransaction}
                         >
@@ -1326,14 +1370,14 @@ const checkAndLoadBom = async (code: string) => {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-sm text-muted-foreground">Status:</span>
-                        <Badge 
+                        <Badge
                           variant={jobData.status === "In Progress" ? "default" : "secondary"}
                         >
                           {jobData.status}
                         </Badge>
                       </div>
                     </div>
-                    
+
                     <div className="border rounded-lg overflow-auto">
                       <Table>
                         <TableHeader>
@@ -1349,56 +1393,56 @@ const checkAndLoadBom = async (code: string) => {
                         </TableHeader>
                         <TableBody>
                           {(() => {
-                            const sequences = operations.length > 0 
+                            const sequences = operations.length > 0
                               ? operations.map((op, idx) => ({ seq: op.sequence || (idx + 1) * 10, op }))
                               : [10, 20, 30].map(seq => ({ seq, op: null }));
-                            
+
                             return sequences.map(({ seq }) => (
                               <TableRow key={seq}>
                                 <TableCell className="text-sm font-medium">{seq}</TableCell>
                                 <TableCell>
-                                  <Input 
-                                    type="number" 
+                                  <Input
+                                    type="number"
                                     value={moveQuantities[seq]?.inQueue || 0}
                                     onChange={(e) => updateMoveQuantity(seq, 'inQueue', parseInt(e.target.value) || 0)}
                                     className="h-8"
                                   />
                                 </TableCell>
                                 <TableCell>
-                                  <Input 
-                                    type="number" 
+                                  <Input
+                                    type="number"
                                     value={moveQuantities[seq]?.running || 0}
                                     onChange={(e) => updateMoveQuantity(seq, 'running', parseInt(e.target.value) || 0)}
                                     className="h-8"
                                   />
                                 </TableCell>
                                 <TableCell className="bg-accent/5">
-                                  <Input 
-                                    type="number" 
+                                  <Input
+                                    type="number"
                                     value={moveQuantities[seq]?.toMove || 0}
                                     onChange={(e) => updateMoveQuantity(seq, 'toMove', parseInt(e.target.value) || 0)}
                                     className="h-8"
                                   />
                                 </TableCell>
                                 <TableCell>
-                                  <Input 
-                                    type="number" 
+                                  <Input
+                                    type="number"
                                     value={moveQuantities[seq]?.rejected || 0}
                                     onChange={(e) => updateMoveQuantity(seq, 'rejected', parseInt(e.target.value) || 0)}
                                     className="h-8"
                                   />
                                 </TableCell>
                                 <TableCell>
-                                  <Input 
-                                    type="number" 
+                                  <Input
+                                    type="number"
                                     value={moveQuantities[seq]?.scrapped || 0}
                                     onChange={(e) => updateMoveQuantity(seq, 'scrapped', parseInt(e.target.value) || 0)}
                                     className="h-8"
                                   />
                                 </TableCell>
                                 <TableCell>
-                                  <Input 
-                                    type="number" 
+                                  <Input
+                                    type="number"
                                     value={moveQuantities[seq]?.completed || 0}
                                     readOnly
                                     className="h-8 bg-muted"
@@ -1420,10 +1464,10 @@ const checkAndLoadBom = async (code: string) => {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="flex items-center gap-3">
                         <Label className="text-sm w-24">LOT Number</Label>
-                        <Input 
+                        <Input
                           value={jobData.lotNum}
                           onChange={(e) => setJobData({ ...jobData, lotNum: e.target.value })}
-                          className="flex-1" 
+                          className="flex-1"
                         />
                       </div>
                       <div className="flex items-center gap-3">

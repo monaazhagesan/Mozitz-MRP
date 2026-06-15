@@ -331,6 +331,23 @@ const emptyItem: Omit<MRPItem, "id"> = {
   uom: "Nos",
 };
 
+const ACTIVE_JOB_STATUSES = new Set(["Pending", "In Progress"]);
+
+const getActiveJobNumbers = () => {
+  try {
+    const saved = localStorage.getItem("jobs");
+    const jobs: any[] = saved ? JSON.parse(saved) : [];
+    return new Set(
+      jobs
+        .filter((job) => ACTIVE_JOB_STATUSES.has(job.status))
+        .map((job) => job.id || job.jobNumber)
+        .filter(Boolean),
+    );
+  } catch {
+    return new Set<string>();
+  }
+};
+
 type AddItemDialogProps = {
   open: boolean;
   saving: boolean;
@@ -1286,8 +1303,226 @@ const [simQty, setSimQty] = useState<number>(1);
 
 const [saving, setSaving] = useState(false);
 
+  const [breakupOpen, setBreakupOpen] = useState(false);
+  const [breakupItem, setBreakupItem] = useState<{ code: string; name: string; total: number } | null>(null);
+  const [breakupRows, setBreakupRows] = useState<any[]>([]);
+  const [breakupLoading, setBreakupLoading] = useState(false);
+
+  const openBreakup = async (row: ComputedRow) => {
+  try {
+    setBreakupItem({
+      code: row.item_code,
+      name: row.item_name,
+      total: row.allocated,
+    });
+
+    setBreakupRows([]);
+    setBreakupOpen(true);
+    setBreakupLoading(true);
+
+    const activeJobNumbers = Array.from(getActiveJobNumbers());
+
+    // No active jobs
+    if (activeJobNumbers.length === 0) {
+      setBreakupItem({
+        code: row.item_code,
+        name: row.item_name,
+        total: 0,
+      });
+
+      setBreakupLoading(false);
+
+      // Sync inventory allocated qty to 0
+      if (Number(row.allocated ?? 0) !== 0) {
+        await axios.patch(
+          `/api/inventory-stock/${row.id}`,
+          {
+            allocated_quantity: 0,
+          }
+        );
+
+        fetchData();
+      }
+
+      return;
+    }
+
+    // Get allocations from API
+    const res = await axios.post(
+      "/api/job-allocations/breakup",
+      {
+        item_code: row.item_code,
+        job_numbers: activeJobNumbers,
+      }
+    );
+
+    const rows = res.data?.data || [];
+
+    const sum = rows.reduce(
+      (total: number, r: any) =>
+        total + Number(r.allocated_quantity ?? 0),
+      0
+    );
+
+    setBreakupRows(rows);
+
+    setBreakupItem({
+      code: row.item_code,
+      name: row.item_name,
+      total: sum,
+    });
+
+    // Sync inventory allocated qty
+    if (sum !== Number(row.allocated ?? 0)) {
+      await axios.patch(
+        `/api/inventory-stock/${row.id}`,
+        {
+          allocated_quantity: sum,
+        }
+      );
+
+      fetchData();
+    }
+  } catch (error) {
+    console.error(error);
+    toast.error("Failed to load allocation breakup");
+  } finally {
+    setBreakupLoading(false);
+  }
+};
+
+
+const syncAllocatedFromActiveJobs = async () => {
+  const activeJobNumbers = Array.from(getActiveJobNumbers());
+
+  try {
+    // ==================================
+    // Release allocations for closed jobs
+    // ==================================
+    const saved = localStorage.getItem("jobs");
+
+    const jobs: any[] = saved
+      ? JSON.parse(saved)
+      : [];
+
+    const closingStatuses = new Set([
+      "Completed",
+      "Closed",
+      "Cancelled",
+      "Ready for Dispatch",
+    ]);
+
+    const closedJobIds = jobs
+      .filter((j) => closingStatuses.has(j.status))
+      .map((j) => j.id);
+
+    // Backend should release allocations
+    await Promise.all(
+      closedJobIds.map((jobId) =>
+        axios.post("/api/job-allocations/deallocate", {
+          job_number: jobId,
+        })
+      )
+    );
+  } catch (err) {
+    console.error("Deallocation error:", err);
+  }
+
+  try {
+    // ==================================
+    // Load active allocations
+    // ==================================
+    let activeAllocs: any[] = [];
+
+    if (activeJobNumbers.length > 0) {
+      const allocRes = await axios.post(
+        "/api/job-allocations/active",
+        {
+          job_numbers: activeJobNumbers,
+        }
+      );
+
+      activeAllocs = allocRes.data?.data || [];
+    }
+
+    // ==================================
+    // Sum allocations per item
+    // ==================================
+    const sumByItem = new Map<string, number>();
+
+    activeAllocs.forEach((a) => {
+      const qty = Number(a.allocated_quantity || 0);
+
+      sumByItem.set(
+        a.item_code,
+        (sumByItem.get(a.item_code) || 0) + qty
+      );
+    });
+
+    // ==================================
+    // Load inventory items
+    // ==================================
+    const stockRes = await axios.get(
+      "/api/inventory-stock"
+    );
+
+    const stockRows =
+      stockRes.data?.items ||
+      stockRes.data?.data ||
+      [];
+
+    // ==================================
+    // Find mismatches
+    // ==================================
+    const updates: Array<{
+      item_code: string;
+      allocated_quantity: number;
+    }> = [];
+
+    stockRows.forEach((s: any) => {
+      const actual =
+        sumByItem.get(s.item_code) || 0;
+
+      const current =
+        Number(
+          s.allocated_quantity ??
+          s.allocatedQuantity ??
+          0
+        );
+
+      if (current !== actual) {
+        updates.push({
+          item_code: s.item_code,
+          allocated_quantity: actual,
+        });
+      }
+    });
+
+    // ==================================
+    // Update inventory allocated qty
+    // ==================================
+    await Promise.all(
+      updates.map((u) =>
+        axios.patch(
+          `/api/inventory-stock/by-code/${u.item_code}`,
+          {
+            allocated_quantity:
+              u.allocated_quantity,
+          }
+        )
+      )
+    );
+  } catch (err) {
+    console.error(
+      "Allocation sync failed:",
+      err
+    );
+  }
+};
+
   const fetchData = async () => {
     setLoading(true);
+    await syncAllocatedFromActiveJobs();
     try {
       const res = await axios.get("/api/inventory-stock");
       const data = res.data?.items ?? [];
