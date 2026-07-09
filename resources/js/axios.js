@@ -2,7 +2,7 @@
 import axios from "axios";
 import { toast } from "sonner";   // ← Change this
 
-axios.defaults.baseURL = import.meta.env.VITE_API_URL + "/api";
+axios.defaults.baseURL = import.meta.env.VITE_API_URL;
 
 axios.interceptors.response.use(
   response => response,

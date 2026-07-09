@@ -522,6 +522,7 @@ const Customers = () => {
 
 
       setIsAddDialogOpen(false);
+      setSearchTerm("");
       fetchCustomers();
     } catch (error: any) {
       toast({

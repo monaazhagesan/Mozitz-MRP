@@ -11,7 +11,7 @@ use App\Models\JobMove;
 use App\Models\JobLot;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
-
+use App\Models\InventoryStock;
 
 class JobController extends Controller
 {
@@ -30,9 +30,20 @@ class JobController extends Controller
 
         try {
 
+        $existingJob = Job::where('user_id', Auth::id())
+    ->where('job_number', $request->job_number)
+    ->first();
+
+if ($existingJob) {
+    return response()->json([
+        'success' => false,
+        'message' => 'Job already exists for this user'
+    ], 409);
+}
+
             // 1. CREATE JOB HEADER
             $job = Job::create([
-                'user_id' => auth()->id(),
+                'user_id' => Auth::id(),
                 'job_number' => $request->job_number,
                 'assembly' => $request->assembly,
                 'product_name' => $request->product_name,
@@ -131,6 +142,24 @@ class JobController extends Controller
                 }
             }
 
+            $stock = InventoryStock::where('user_id', Auth::id())
+    ->where('item_code', $job->assembly)
+    ->first();
+
+if ($stock) {
+
+    $qty = (float) $job->start; // or better: use a proper quantity field
+
+    $stock->allocated_quantity = (float) $stock->allocated_quantity + $qty;
+
+    $stock->save();
+} else {
+    \Log::warning('Stock not found for job allocation', [
+        'user_id' => Auth::id(),
+        'item_code' => $job->assembly
+    ]);
+}
+
             DB::commit();
 
             return response()->json([
@@ -145,16 +174,23 @@ class JobController extends Controller
                 ])
             ], 201);
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
 
-            DB::rollBack();
+    DB::rollBack();
 
-            return response()->json([
-                'success' => false,
-                'message' => 'Job creation failed',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+    \Log::error('Job store FAILED', [
+        'message' => $e->getMessage(),
+        'line' => $e->getLine(),
+        'file' => $e->getFile(),
+        'trace' => $e->getTraceAsString(),
+        'request' => $request->all()
+    ]);
+
+    return response()->json([
+        'success' => false,
+        'message' => $e->getMessage()
+    ], 500);
+}
     }
 
     /**
@@ -210,6 +246,20 @@ public function destroy($id)
         $job->moves()->delete();
         $job->lots()->delete();
 
+        // 🔥 RELEASE ALLOCATED STOCK BEFORE DELETE
+$stock = InventoryStock::where('user_id', auth()->id())
+    ->where('item_code', $job->assembly)
+    ->first();
+
+if ($stock) {
+
+    $qty = (float) $job->start;
+
+    $stock->allocated_quantity =
+        max(0, (float) $stock->allocated_quantity - $qty);
+
+    $stock->save();
+}
         // Delete main job
         $job->delete();
 
