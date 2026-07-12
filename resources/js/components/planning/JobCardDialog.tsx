@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Search, Check, X, Plus, Trash2 } from "lucide-react";
+import { Search, Check, X, Plus, Trash2, CheckCircle2, CircleAlert } from "lucide-react";
 import axios from "axios";
 import {
   Command,
@@ -25,7 +25,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { AIJobBanner } from "./AIJobBanner";
 
 
 interface JobCardDialogProps {
@@ -33,6 +32,7 @@ interface JobCardDialogProps {
   onOpenChange: (open: boolean) => void;
   pendingOrders: any[];
   orders: any[];
+  nextJobNumber?: string;
   onCreateJob: (jobData: any, operations: any[], bomItems: any[], jobSplits: any[], moveQuantities: any) => void;
   generateJobNumber: () => string;
   calculateInProgressJobQty: (orderId: string) => number;
@@ -55,6 +55,8 @@ export const JobCardDialog = ({
     orderId: "",
     jobNumber: "",
     salesOrderNum: "",
+    customerId: "",
+    customerName: "",
     productName: "",
     itemCode: "",
     itemDescription: "",
@@ -192,6 +194,132 @@ export const JobCardDialog = ({
   }, [jobData.quantity]);
   const [filteredOrders, setFilteredOrders] = useState<any[]>([]);
 
+  // Real Sales Orders (from the orders table via /api/orders), used to
+  // auto-fetch the Customer when a Sales Order number is entered. Fetched
+  // fresh whenever the dialog opens, independent of the `orders`/`pendingOrders`
+  // props (which are sourced from a legacy localStorage cache used elsewhere
+  // in this component for an unrelated reverse lookup).
+  const [salesOrdersList, setSalesOrdersList] = useState<any[]>([]);
+  const [salesOrderLookupStatus, setSalesOrderLookupStatus] = useState<"idle" | "found" | "not-found">("idle");
+
+  useEffect(() => {
+    if (!open) return;
+    axios.get("/api/orders").then((res) => {
+      const list = res.data?.data ?? res.data ?? [];
+      setSalesOrdersList(Array.isArray(list) ? list : []);
+    }).catch(() => setSalesOrdersList([]));
+  }, [open]);
+
+  // Applies an Assembly selection (item code + name) and loads its BOM —
+  // shared by the item-search combobox and the "Use this item" buttons in
+  // the Sales Order product-line picker below.
+  const selectAssemblyItem = async (code: string, itemName: string) => {
+    if (!code) return;
+
+    setJobData((prev) => ({
+      ...prev,
+      itemCode: code,
+      productName: itemName,
+    }));
+
+    try {
+      const res = await axios.get("/api/bom-headers", {
+        params: { item_code: code, status: "Active", limit: 1 },
+      });
+
+      const bom = Array.isArray(res.data) ? res.data[0] : res.data?.data?.[0];
+
+      if (bom?.id) {
+        loadItemData(code, parseFloat(jobData.quantity) || 1);
+      } else {
+        setBomItems([]);
+        setBomQuantities([]);
+        setOperations([]);
+      }
+    } catch (err) {
+      console.error("BOM check failed", err);
+    }
+  };
+
+  // Product lines on the looked-up Sales Order, each flagged with whether a
+  // Job already exists for that item under this same order number.
+  const [salesOrderProductLines, setSalesOrderProductLines] = useState<
+    Array<{ item_code: string; item_name: string; quantity: number; hasJob: boolean }>
+  >([]);
+
+  // Looks up the Customer for the entered Sales Order, and — since one order
+  // can contain several manufactured products — surfaces every Product line
+  // so the user can pick which one this Job is for. Deliberately does NOT
+  // auto-select Item Code, Quantity, or Due Date; those still require an
+  // explicit choice (via "Use this item" below, or the Assembly search).
+  const handleSalesOrderLookup = async (rawOrderNo: string) => {
+    const orderNo = rawOrderNo.trim();
+    if (!orderNo) {
+      setSalesOrderLookupStatus("idle");
+      setSalesOrderProductLines([]);
+      setJobData((prev) => ({ ...prev, customerId: "", customerName: "" }));
+      return;
+    }
+
+    const order = salesOrdersList.find(
+      (o: any) => (o.order_no || "").toLowerCase() === orderNo.toLowerCase()
+    );
+
+    if (!order) {
+      setSalesOrderLookupStatus("not-found");
+      setSalesOrderProductLines([]);
+      setJobData((prev) => ({ ...prev, customerId: "", customerName: "" }));
+      return;
+    }
+
+    setJobData((prev) => ({
+      ...prev,
+      salesOrderNum: order.order_no || orderNo,
+      customerId: order.customer_id ? String(order.customer_id) : "",
+      customerName: order.customer || "",
+    }));
+
+    setSalesOrderLookupStatus("found");
+
+    // Gather every Product line on the order (fall back to the order's own
+    // legacy single-item fields for orders with no order_items relation).
+    const items = Array.isArray(order.items) ? order.items : [];
+    const productLines = items.filter((i: any) => i.item_type === "Product");
+    const lines = (productLines.length > 0
+      ? productLines
+      : order.item_code
+        ? [{ item_code: order.item_code, item_name: order.item_name, quantity: order.quantity }]
+        : []
+    ).map((i: any) => ({
+      item_code: i.item_code,
+      item_name: i.item_name || "",
+      quantity: Number(i.quantity) || 0,
+    }));
+
+    if (lines.length === 0) {
+      setSalesOrderProductLines([]);
+      return;
+    }
+
+    // Check which of these items already have a Job under this order number.
+    try {
+      const jobsRes = await axios.get("/api/jobs", {
+        params: { sales_order_number: order.order_no || orderNo },
+      });
+      const existingJobs = jobsRes.data?.data ?? jobsRes.data ?? [];
+      const jobbedItemCodes = new Set(
+        (Array.isArray(existingJobs) ? existingJobs : []).map((j: any) => j.assembly)
+      );
+
+      setSalesOrderProductLines(
+        lines.map((line: any) => ({ ...line, hasJob: jobbedItemCodes.has(line.item_code) }))
+      );
+    } catch (err) {
+      console.error("Failed to check existing jobs for order:", err);
+      setSalesOrderProductLines(lines.map((line: any) => ({ ...line, hasJob: false })));
+    }
+  };
+
   const [itemCodeOpen, setItemCodeOpen] = useState(false);
   const [itemSearchQuery, setItemSearchQuery] = useState("");
   const [itemSuggestions, setItemSuggestions] = useState<Array<{
@@ -213,6 +341,8 @@ const [opsLoaded, setOpsLoaded] = useState(false);
         orderId: "",
         jobNumber: newJobNumber,
         salesOrderNum: "",
+        customerId: "",
+        customerName: "",
         productName: "",
         itemCode: "",
         itemDescription: "",
@@ -241,6 +371,8 @@ const [opsLoaded, setOpsLoaded] = useState(false);
       setJobSplits([]);
       setFilteredOrders([]);
       setActiveTab("components");
+      setSalesOrderLookupStatus("idle");
+      setSalesOrderProductLines([]);
     }
   }, [open, generateJobNumber]);
 
@@ -412,6 +544,7 @@ setJobData((prev) => ({
   itemDescription: `${bomHeader.item_name ?? ""} ${bomHeader.item_code ?? ""}`,
   uom: bomHeader.uom ?? "EA",
   routingAvailable: true,
+  bomId: bomHeader.id,
 }));
 
       // 3. Fetch components
@@ -423,10 +556,15 @@ setJobData((prev) => ({
 
       const components = compRes.data || [];
 
+      // NOTE: `quantity` here is the per-assembly BOM figure, NOT scaled by
+      // job quantity. This is what gets sent to the backend as component.qty
+      // (JobController::reserveComponents multiplies by job qty itself), and
+      // it must stay stable regardless of when the Start Quantity field is
+      // edited relative to BOM load — the scaled "Required" figure belongs
+      // on the Quantities tab (bomQuantities), which recalculates live as
+      // job quantity changes.
       const mappedComponents = components.map((comp: any, index: number) => {
         const perAssembly = Number(comp.quantity || 1);
-        const required = perAssembly * quantity;
-        const issued = 0;
 
         return {
           id: comp.id || index + 1,
@@ -434,7 +572,7 @@ setJobData((prev) => ({
           operationSeq: comp.operation_seq || 10,
           component: comp.component,
           description: comp.description,
-          quantity: required,
+          quantity: perAssembly,
           uom: comp.uom || "EA",
           status: "Available",
         };
@@ -559,28 +697,6 @@ const checkAndLoadBom = async (code: string) => {
   }
 };
 
-  const handleSelectOrder = (order: any) => {
-    const productItems = Array.isArray(order.items)
-      ? order.items.filter((item: any) => item.itemType === "Product")
-      : [];
-
-    if (productItems.length > 0) {
-      const firstProduct = productItems[0];
-      setJobData(prev => ({
-        ...prev,
-        itemCode: firstProduct.itemCode || "",
-        productName: firstProduct.itemName || firstProduct.productName || "",
-        quantity: firstProduct.quantityOrdered || "",
-        dueDate: order.deliveryDate || "",
-        completionDate: order.deliveryDate || "",
-      }));
-
-      if (firstProduct.itemCode) {
-        loadItemData(firstProduct.itemCode, parseFloat(firstProduct.quantityOrdered) || 1);
-      }
-    }
-  };
-
  const handleCreateJob = () => {
   if (!jobData.itemCode?.trim()) {
     toast({
@@ -638,35 +754,6 @@ const checkAndLoadBom = async (code: string) => {
           <DialogTitle className="text-lg font-semibold">Create Discrete Job</DialogTitle>
         </DialogHeader>
 
-
-{/* AI Auto-fill Banner */}
-        <div className="px-6 pt-4">
-          <AIJobBanner
-            onDataExtracted={(data) => {
-              setJobData(prev => ({
-                ...prev,
-                itemCode: data.assembly || prev.itemCode,
-                itemDescription: data.assemblyDesc || prev.itemDescription,
-                productName: data.assembly || prev.productName,
-                uom: data.uom || prev.uom,
-                salesOrderNum: data.salesOrder || prev.salesOrderNum,
-                jobType: data.jobType || prev.jobType,
-                jobClass: data.jobClass || prev.jobClass,
-                status: data.status || prev.status,
-                quantity: data.quantity || prev.quantity,
-                startDate: data.startDate || prev.startDate,
-                completionDate: data.completionDate || prev.completionDate,
-                firm: data.firm ?? prev.firm,
-                priority: data.priority || prev.priority,
-                notes: data.notes || prev.notes,
-              }));
-              // If assembly was extracted, try to load BOM data
-              if (data.assembly) {
-                loadItemData(data.assembly, parseFloat(data.quantity || "1") || 1);
-              }
-            }}
-          />
-        </div>
 
         {/* Main Form Content */}
         <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
@@ -741,43 +828,9 @@ const checkAndLoadBom = async (code: string) => {
                                       value={item.item_code}
                                    onSelect={async () => {
   if (!item?.item_code) return;
-
-  const code = item.item_code;
-
-  setJobData((prev) => ({
-    ...prev,
-    itemCode: code,
-    productName: item.item_name ?? "",
-  }));
-
   setItemCodeOpen(false);
   setItemSearchQuery("");
-
-  try {
-    const res = await axios.get("/api/bom-headers", {
-      params: {
-        item_code: code,
-        status: "Active",
-        limit: 1,
-      },
-    });
-
-    const bom = Array.isArray(res.data)
-      ? res.data[0]
-      : res.data?.data?.[0];
-
-    if (bom?.id) {
-      console.log("✅ BOM FOUND → loading BOM for:", code);
-      loadItemData(code, parseFloat(jobData.quantity) || 1);
-    } else {
-      console.log("❌ No BOM found for:", code);
-      setBomItems([]);
-      setBomQuantities([]);
-      setOperations([]);
-    }
-  } catch (err) {
-    console.error("BOM check failed", err);
-  }
+  await selectAssemblyItem(item.item_code, item.item_name ?? "");
 }}
                                     >
                                       <Check
@@ -798,7 +851,7 @@ const checkAndLoadBom = async (code: string) => {
                         </PopoverContent>
                       </Popover>
                       <Input
-                        value={jobData.itemName}
+                        value={jobData.productName}
                         readOnly
                         placeholder="Description"
                         className="flex-1 bg-muted"
@@ -810,11 +863,78 @@ const checkAndLoadBom = async (code: string) => {
 
               <div className="grid grid-cols-3 items-center gap-3">
                 <Label className="text-sm font-medium text-right">Sales Order</Label>
+                <div className="col-span-2 space-y-1">
+                  <Input
+                    value={jobData.salesOrderNum}
+                    onChange={(e) => {
+                      setJobData({ ...jobData, salesOrderNum: e.target.value });
+                      setSalesOrderLookupStatus("idle");
+                    }}
+                    onBlur={(e) => handleSalesOrderLookup(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleSalesOrderLookup(jobData.salesOrderNum);
+                      }
+                    }}
+                    placeholder="Sales Order Number (e.g. SO-2026-00004)"
+                  />
+                  {salesOrderLookupStatus === "found" && (
+                    <p className="text-xs text-green-600">Order found — customer auto-filled below.</p>
+                  )}
+                  {salesOrderLookupStatus === "not-found" && (
+                    <p className="text-xs text-muted-foreground">No matching order found — you can still create this job manually.</p>
+                  )}
+                </div>
+              </div>
+
+              {salesOrderLookupStatus === "found" && salesOrderProductLines.length > 0 && (
+                <div className="grid grid-cols-3 items-start gap-3">
+                  <Label className="text-sm font-medium text-right pt-2">Order Items</Label>
+                  <div className="col-span-2 rounded-md border divide-y">
+                    {salesOrderProductLines.length > 1 && (
+                      <div className="px-3 py-1.5 bg-muted/50 text-xs text-muted-foreground">
+                        This order has {salesOrderProductLines.length} products — a separate Job is needed for each.
+                      </div>
+                    )}
+                    {salesOrderProductLines.map((line) => (
+                      <div key={line.item_code} className="flex items-center justify-between gap-2 px-3 py-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            {line.hasJob ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                            ) : (
+                              <CircleAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                            )}
+                            <span className="text-sm font-medium truncate">{line.item_code}</span>
+                            <span className="text-xs text-muted-foreground truncate">{line.item_name}</span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground pl-5">
+                            Qty {line.quantity} · {line.hasJob ? "Job already created" : "Needs a job"}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={jobData.itemCode === line.item_code ? "secondary" : "outline"}
+                          className="h-7 text-xs shrink-0"
+                          onClick={() => selectAssemblyItem(line.item_code, line.item_name)}
+                        >
+                          {jobData.itemCode === line.item_code ? "Selected" : "Use this item"}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-3 items-center gap-3">
+                <Label className="text-sm font-medium text-right">Customer</Label>
                 <Input
-                  value={jobData.salesOrderNum}
-                  onChange={(e) => setJobData({ ...jobData, salesOrderNum: e.target.value })}
-                  placeholder="Sales Order Number"
-                  className="col-span-2"
+                  value={jobData.customerName}
+                  readOnly
+                  placeholder="Auto-filled from Sales Order"
+                  className="col-span-2 bg-muted"
                 />
               </div>
 

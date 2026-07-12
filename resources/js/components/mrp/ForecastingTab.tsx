@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import axios from "axios";
 import { TrendingUp, Calculator, Settings2, RefreshCw, CheckCircle, AlertCircle, Loader2, FileText } from "lucide-react";
 import { addDays, format } from "date-fns";
 type ForecastMethod = "moving_average" | "weighted_average" | "simple_trend" | "fixed_quantity" | "seasonal_index";
@@ -75,12 +75,10 @@ export default function ForecastingTab() {
     setLoading(true);
     try {
       // Get items that have transaction history
-      const { data: transactions, error } = await supabase
-        .from("stock_transactions")
-        .select("item_code, quantity, transaction_date, transaction_type")
-        .order("transaction_date", { ascending: true });
-
-      if (error) throw error;
+      const txRes = await axios.get("/api/stock-transactions");
+      const transactions = (txRes.data || [])
+        .slice()
+        .sort((a: any, b: any) => new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime());
 
       // Get unique items and their historical demand data
       const itemMap = new Map<string, number[]>();
@@ -99,13 +97,15 @@ export default function ForecastingTab() {
       // Get item names
       const itemCodes = Array.from(itemMap.keys());
       if (itemCodes.length > 0) {
-        const { data: inventory } = await supabase
-          .from("inventory_stock")
-          .select("item_code, item_name")
-          .in("item_code", itemCodes);
+        const invRes = await axios.get("/api/inventory-stock");
+        const inventoryItems: any[] = invRes.data?.items || [];
 
-        (inventory || []).forEach((item: any) => {
-          itemNames.set(item.item_code, item.item_name);
+        inventoryItems.forEach((item: any) => {
+          const code = item.itemCode ?? item.item_code;
+          const name = item.itemName ?? item.item_name;
+          if (itemCodes.includes(code)) {
+            itemNames.set(code, name);
+          }
         });
       }
 
@@ -313,9 +313,11 @@ export default function ForecastingTab() {
         }`,
       }));
 
-      const { error } = await supabase.from("item_demands").insert(demandsToCreate);
-
-      if (error) throw error;
+      await Promise.all(
+        demandsToCreate.map((demand) =>
+          axios.post("/api/item-demands", { id: crypto.randomUUID(), ...demand })
+        )
+      );
 
       toast({
         title: "Demands Created",

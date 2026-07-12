@@ -12,8 +12,8 @@ class UserRoleController extends Controller
 {
     public function index()
     {
-        $roles = UserRole::with('user')->orderBy('created_at','desc')->get();
-        return view('user_roles.index', compact('roles'));
+        $roles = UserRole::with('user')->orderBy('created_at', 'desc')->get();
+        return response()->json($roles);
     }
 
     public function import(Request $request)

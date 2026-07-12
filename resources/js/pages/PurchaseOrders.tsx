@@ -230,7 +230,7 @@ const updateShipment = (index: number, field: string, value: any) => {
 
   const loadQuotationAndCreatePO = async (quoteId: string) => {
   try {
-    // Fetch quotation using Axios instead of Supabase
+    // Fetch quotation using Axios
     const response = await axios.get("/api/vendor_quotations", {
       params: { id: quoteId },
     });

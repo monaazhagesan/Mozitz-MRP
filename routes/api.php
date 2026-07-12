@@ -8,12 +8,16 @@ use App\Http\Controllers\VendorController;
 use App\Http\Controllers\RfqController;
 use App\Http\Controllers\RfqItemController;
 use App\Http\Controllers\RfqVendorController;
+use App\Http\Controllers\VendorQuotationController;
 use App\Http\Controllers\InventoryStockController;
 use App\Http\Controllers\BomComponentController;
 use App\Http\Controllers\BomDeletionLogController;
 use App\Http\Controllers\BomHeaderController;
 use App\Http\Controllers\BomOperationController;
+use App\Http\Controllers\OperationController;
+use App\Http\Controllers\ResourceController;
 use App\Http\Controllers\JobAllocationController;
+use App\Http\Controllers\ItemDemandController;
 use App\Http\Controllers\JobController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\UserRoleController;
@@ -90,6 +94,8 @@ Route::put('/vendors/{id}', [VendorController::class, 'update']);
 Route::delete('/vendors/{id}', [VendorController::class, 'destroy']);
 Route::post('/vendors/import', [VendorController::class, 'import']);
 
+Route::get('/rfqs', [RfqController::class, 'index']);
+Route::get('/rfqs/{id}', [RfqController::class, 'show']);
 Route::post('/rfqs', [RfqController::class, 'store']);
 //Route::resource('/rfq_items', RfqItemController::class);
 Route::get('/rfq-vendors', [RfqVendorController::class, 'index']);
@@ -99,6 +105,10 @@ Route::get('/rfq/view/{id}', [RfqController::class, 'markViewed']);
 Route::post('/rfq/quote/{id}', [RfqController::class, 'markQuoted']);
 Route::post('/rfq/close/{id}', [RfqController::class, 'close']);
 
+Route::get('/vendor-quotations', [VendorQuotationController::class, 'index']);
+Route::post('/vendor-quotations', [VendorQuotationController::class, 'store']);
+Route::post('/vendor-quotations/{id}/select', [VendorQuotationController::class, 'select']);
+
 
 Route::get('/inventory-stock', [InventoryStockController::class, 'index']);
 Route::get('/inventory-stock/{id}', [InventoryStockController::class, 'show']);
@@ -106,6 +116,7 @@ Route::post('/inventory-stock', [InventoryStockController::class, 'store']);
 Route::put('/inventory-stock/{id}', [InventoryStockController::class, 'update']);
 Route::delete('/inventory-stock/{id}', [InventoryStockController::class, 'destroy']);
 Route::post('/inventory-stock/allocate', [InventoryStockController::class, 'allocate']);
+Route::patch('/inventory-stock/by-code/{code}', [InventoryStockController::class, 'updateByCode']);
 Route::get('/stock/check', [InventoryStockController::class, 'checkStock']);
 
 Route::post('/inventory-insights', [InventoryInsightsController::class, 'generateInsights']);
@@ -135,12 +146,34 @@ Route::get('/bom-operations', [BomOperationController::class, 'index']);
 Route::get('/bom-operations/{id}', [BomOperationController::class, 'show']);
 Route::post('/bom-operations', [BomOperationController::class, 'store']);
 Route::delete('/bom-operations', [BomOperationController::class, 'deleteByBomId']); // Delete all operations by BOM ID
+Route::post('/bom-operations/delete-by-bom', [BomOperationController::class, 'deleteOperationsByBomId']); // Delete only operations (keeps components)
 Route::put('/bom-operations/{id}', [BomOperationController::class, 'update']);
+
+Route::get('/operations', [OperationController::class, 'index']);
+Route::get('/operations/{id}', [OperationController::class, 'show']);
+Route::post('/operations', [OperationController::class, 'store']);
+Route::put('/operations/{id}', [OperationController::class, 'update']);
+Route::delete('/operations/{id}', [OperationController::class, 'destroy']);
+
+Route::get('/resources', [ResourceController::class, 'index']);
+Route::get('/resources/{id}', [ResourceController::class, 'show']);
+Route::post('/resources', [ResourceController::class, 'store']);
+Route::put('/resources/{id}', [ResourceController::class, 'update']);
+Route::delete('/resources/{id}', [ResourceController::class, 'destroy']);
 
 
 Route::get('/job-allocations', [JobAllocationController::class, 'index']);
 Route::get('/job-allocations/{id}', [JobAllocationController::class, 'show']);
 Route::post('/job-allocations', [JobAllocationController::class, 'store']);
+Route::patch('/job-allocations/{id}', [JobAllocationController::class, 'update']);
+Route::post('/job-allocations/active', [JobAllocationController::class, 'active']);
+Route::post('/job-allocations/breakup', [JobAllocationController::class, 'breakup']);
+Route::post('/job-allocations/deallocate', [JobAllocationController::class, 'deallocate']);
+Route::post('/job-allocations/{id}/issue', [JobAllocationController::class, 'issue']);
+
+Route::get('/item-demands', [ItemDemandController::class, 'index']);
+Route::get('/item-demands/{id}', [ItemDemandController::class, 'show']);
+Route::post('/item-demands', [ItemDemandController::class, 'store']);
 
 Route::get('/invoices', [InvoiceController::class, 'index']);
 Route::post('/invoices', [InvoiceController::class, 'store']);
@@ -301,7 +334,7 @@ Route::get('/jobs/{id}', [JobController::class, 'show']);
 Route::put('/jobs/{id}', [JobController::class, 'update']);
 Route::delete('/jobs/{id}', [JobController::class, 'destroy']);
 Route::post('/job-move/update-bulk', [JobController::class, 'updateMoveTransaction']);
-Route::post('/job-move/update-bulk', [JobController::class, 'bulkUpdate']);
+Route::post('/job-moves/bulk-update', [JobController::class, 'bulkUpdate']);
 Route::post('/job-moves/update', [JobController::class, 'updateMoves']);
 
 

@@ -78,8 +78,8 @@ class BomComponentController extends Controller
             'type' => 'nullable|string',
             'item_seq' => 'nullable|integer',
             'operation_seq' => 'nullable|integer',
-             'production_qty' => 'nullable|integer',
-             'total_quantity' => 'nullable|integer',
+             'production_qty' => 'nullable|numeric',
+             'total_quantity' => 'nullable|numeric',
         ]);
 
         if ($validator->fails()) {
@@ -154,7 +154,7 @@ public function update(Request $request, $id)
             'operation_seq' => 'nullable|integer',
             'component' => 'nullable|string',
             'description' => 'nullable|string',
-            'quantity' => 'nullable|integer',
+            'quantity' => 'nullable|numeric',
             'uom' => 'nullable|string',
             'basis' => 'nullable|string',
             'type' => 'nullable|string',
@@ -164,8 +164,8 @@ public function update(Request $request, $id)
             'include_in_cost_rollup' => 'nullable|boolean',
             'unit_cost' => 'nullable|numeric',
             'total_cost' => 'nullable|numeric',
-            'production_qty' => 'nullable|integer',
-'total_quantity' => 'nullable|integer',
+            'production_qty' => 'nullable|numeric',
+'total_quantity' => 'nullable|numeric',
         ]);
 
         if ($validator->fails()) {

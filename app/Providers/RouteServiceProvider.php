@@ -42,7 +42,13 @@ class RouteServiceProvider extends ServiceProvider
     protected function configureRateLimiting(): void
     {
         RateLimiter::for('api', function (Request $request) {
-            return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
+            // This is a data-heavy internal SPA — a single page navigation
+            // routinely fires 10-20+ parallel/near-simultaneous requests
+            // (orders, inventory, jobs, BOM data, dashboards, etc.), and the
+            // default 60/min limit was tripping on ordinary first-load
+            // usage, not abuse. Raised substantially; still bounded per
+            // user/IP to catch a genuine runaway loop.
+            return Limit::perMinute(600)->by($request->user()?->id ?: $request->ip());
         });
     }
 }

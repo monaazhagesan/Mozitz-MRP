@@ -44,9 +44,8 @@ import { useToast } from "@/hooks/use-toast";
 import StatCard from "@/components/StatCard";
 import { GripVertical } from "lucide-react";
 import { MultiSelect } from "@/components/ui/multi-select";
-import InventoryChat from "@/components/inventory/InventoryChat";
 import ItemTransactionsTab from "@/components/inventory/ItemTransactionsTab";
-import IssuesTab from "@/components/inventory/IssuesTab";
+import JobMaterialIssueTab from "@/components/inventory/JobMaterialIssueTab";
 import StocktakesTab from "@/components/inventory/StocktakesTab";
 import StockAdjustmentsTab from "@/components/inventory/StockAdjustmentsTab";
 import MRPPlannerTab from "@/components/inventory/MRPPlannerTab";
@@ -77,6 +76,7 @@ interface Item {
   availableQuantity?: number;
   expectedQuantity?: number;
   committedQuantity?: number;
+  allocatedQuantity?: number;
   barcode?: string;
   itemMode?: string; // "batch" or "variant"
   variantName?: string;
@@ -89,6 +89,59 @@ interface Item {
   usabilityBuy?: boolean;
   usabilitySell?: boolean;
 }
+
+// GET /api/inventory-stock returns a mix of camelCase and snake_case field
+// names depending on the column. This maps either convention defensively so
+// the item list can't silently go blank again if a future endpoint returns
+// one casing or the other.
+const mapApiItemToItem = (
+  item: any,
+  extras: { expected?: number; committed?: number; allocated?: number } = {}
+): Item => {
+  const itemCode = item.itemCode ?? item.item_code ?? "";
+  const itemName = item.itemName ?? item.item_name ?? "";
+  const itemTypeVal = item.item_type ?? item.itemType ?? "";
+  const qtyOnHand = Number(item.quantityOnHand ?? item.quantity_on_hand ?? 0);
+  const allocated = Number(extras.allocated ?? item.allocatedQuantity ?? item.allocated_quantity ?? 0);
+  const expected = Number(extras.expected ?? item.open_po ?? item.openPo ?? 0);
+  const committed = Number(extras.committed ?? 0);
+
+  return {
+    id: item.id,
+    itemCode,
+    code: itemCode,
+    type: itemTypeVal,
+    name: itemName,
+    itemName,
+    item_type: itemTypeVal,
+    description: item.description || "",
+    sku: item.sku || "",
+    defaultSupplier: item.defaultSupplier ?? item.default_supplier ?? "",
+    purchasePrice: (item.unit_cost ?? item.unitCost ?? 0).toString(),
+    sellingPrice: (item.sellingPrice ?? item.selling_price ?? 0).toString(),
+    location: item.location || "",
+    locationTracking: !!(item.locationTracking ?? item.location_tracking),
+    autoReorder: !!(item.autoReorder ?? item.auto_reorder),
+    grnRequired: item.grnRequired ?? item.grn_required ?? true,
+    hsnCode: item.hsnCode ?? item.hsn_code ?? "",
+    taxRate: (item.taxRate ?? item.tax_rate ?? "").toString(),
+    reorderPoint: (item.reorderPoint ?? item.reorder_point ?? "").toString(),
+    reorderQty: (item.reorderQuantity ?? item.reorder_quantity ?? "").toString(),
+    quantityOnHand: qtyOnHand,
+    availableQuantity: Math.max(0, qtyOnHand - allocated - committed),
+    expectedQuantity: expected,
+    committedQuantity: committed,
+    allocatedQuantity: allocated,
+    barcode: item.barcode || "",
+    itemMode: item.itemMode ?? item.item_mode ?? "batch",
+    variantName: item.variantName ?? item.variant_name ?? "",
+    variantAttributes: item.variantAttributes ?? item.variant_attributes ?? "",
+    categories: item.categories || "",
+    usabilityMake: !!(item.usabilityMake ?? item.usability_make),
+    usabilityBuy: !!(item.usabilityBuy ?? item.usability_buy),
+    usabilitySell: !!(item.usabilitySell ?? item.usability_sell),
+  };
+};
 
 const Inventory = () => {
   const navigate = useNavigate();
@@ -108,7 +161,6 @@ const Inventory = () => {
 const [insights, setInsights] = useState<any[]>([]);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [filters, setFilters] = useState({ name: "", category: "", supplier: "" });
-  const [showChat, setShowChat] = useState(false);
   const { toast } = useToast();
 
   // Column resize state
@@ -763,7 +815,8 @@ useEffect(() => {
         params: { sort: "created_at_desc" },
       });
 
-      const data = Array.isArray(itemsRes.data) ? itemsRes.data : [];
+      // GET /api/inventory-stock returns { items: [...] }, not a raw array.
+      const data = Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : [];
 
       // 3️⃣ Fetch allocated jobs
       const jobAllocRes = await axios.get("/api/job-allocations", {
@@ -772,40 +825,17 @@ useEffect(() => {
 
       const jobAllocations = jobAllocRes.data || [];
 
-      // 4️⃣ Fetch open POs
-      const poRes = await axios.get("/api/purchase-orders", {
-        params: {
-          status: ["Draft", "Sent", "Approved", "Partially Received"],
-        },
-      });
-
-      const openPOs = Array.isArray(poRes.data) ? poRes.data : [];
-
+      // "Expected" quantity comes straight from each item's own open_po
+      // figure (already computed server-side) — no separate PO-items
+      // lookup needed (and /api/purchase-order-items has no GET route).
       let expectedByItem: { [key: string]: number } = {};
-
-      if (openPOs.length > 0) {
-        const poIds = openPOs.map((po: any) => po.id);
-
-        const poItemsRes = await axios.get("/api/purchase-order-items", {
-          params: { po_ids: poIds },
-        });
-
-        const poItems = Array.isArray(poItemsRes.data)
-          ? poItemsRes.data
-          : poItemsRes.data?.data ?? [];
-
-        poItems.forEach((poItem: any) => {
-          const pendingQty = Math.max(
-            0,
-            (poItem.quantity || 0) - (poItem.received_quantity || 0)
-          );
-
-          if (pendingQty > 0) {
-            expectedByItem[poItem.item_code] =
-              (expectedByItem[poItem.item_code] || 0) + pendingQty;
-          }
-        });
-      }
+      data.forEach((item: any) => {
+        const code = item.itemCode ?? item.item_code;
+        const openPo = Number(item.open_po ?? 0);
+        if (code && openPo > 0) {
+          expectedByItem[code] = openPo;
+        }
+      });
 
       // 5️⃣ Jobs from localStorage
       const savedJobs = localStorage.getItem("jobs");
@@ -865,56 +895,13 @@ useEffect(() => {
           (ja.allocated_quantity || 0);
       });
 
-      // 7️⃣ ITEMS MAP (FIXED)
-      /*
+      // 7️⃣ ITEMS MAP
       const loadedItems: Item[] = data.map((item: any) => {
-        const qtyOnHand = item.quantity_on_hand || 0;
-        const expected = expectedByItem[item.item_code] || 0;
-        const committed = commitmentsByItem[item.item_code] || 0;
-        const available = qtyOnHand - committed;
-        const reorderPt = Number(item.reorder_point) || 0;
-
-        if (available < reorderPt && reorderPt > 0) {
-          toast({
-            title: "Low Stock Alert",
-            description: `${item.item_name} (${item.item_code}) is below reorder point. Available: ${available}, Reorder Point: ${reorderPt}`,
-            variant: "destructive",
-          });
-        }
-
-        const availableQuantity = qtyOnHand + expected - committed;
-
-        return {
-          id: item.id,
-          code: item.item_code,
-          type: item.item_type || "",
-          name: item.item_name,
-          defaultSupplier: item.default_supplier || "",
-          description: item.description || "",
-          sku: item.sku,
-          purchasePrice: item.unit_cost?.toString() || "0",
-          sellingPrice: item.selling_price?.toString() || "0",
-          location: item.location || "",
-          locationTracking: false,
-          grnRequired: true,
-          hsnCode: "",
-          taxRate: "",
-          reorderPoint: item.reorder_point?.toString() || "",
-          reorderQty: "",
-          quantityOnHand: qtyOnHand,
-          availableQuantity: Math.max(0, availableQuantity),
-          expectedQuantity: expected,
-          committedQuantity: committed,
-          autoReorder: item.auto_reorder || false,
-          barcode: item.barcode || "",
-          itemMode: item.item_mode || "batch",
-          variantName: item.variant_name || "",
-          variantAttributes: item.variant_attributes || "",
-          categories: item.categories || "",
-          usabilityMake: !!item.usability_make,
-          usabilityBuy: !!item.usability_buy,
-          usabilitySell: !!item.usability_sell,
-        };
+        const code = item.itemCode ?? item.item_code;
+        return mapApiItemToItem(item, {
+          expected: expectedByItem[code] || 0,
+          committed: commitmentsByItem[code] || 0,
+        });
       });
 
       setItems(loadedItems);
@@ -929,7 +916,6 @@ useEffect(() => {
       if (autoReorderItems.length > 0) {
         triggerAutoRFQGeneration();
       }
-      */
 
     } catch (error: any) {
       console.error("Error loading items:", error);
@@ -1386,7 +1372,7 @@ const handleBulkDeallocate = async () => {
       params: { sort: "created_at_desc" },
     });
 
-    const reloadData = reloadRes.data || [];
+    const reloadData = Array.isArray(reloadRes.data?.items) ? reloadRes.data.items : [];
 
     // Fetch updated job allocations
     const jobAllocRes = await axios.get("/api/job-allocations", {
@@ -1441,37 +1427,10 @@ const handleBulkDeallocate = async () => {
 
     // 🔹 Rebuild items list
     const loadedItems: Item[] = reloadData.map((item: any) => {
-      const qtyOnHand = item.quantity_on_hand || 0;
-      const allocated = allocationsByItem[item.item_code] || 0;
-      const committed = commitmentsByItem[item.item_code] || 0;
-      const available = qtyOnHand - allocated - committed;
-
-      return {
-        id: item.id,
-        code: item.item_code,
-        type: item.item_type || "",
-        name: item.item_name,
-        description: item.description || "",
-        sku: item.sku,
-        purchasePrice: item.unit_cost?.toString() || "0",
-        sellingPrice: item.selling_price?.toString() || "0",
-        location: item.location || "",
-        locationTracking: false,
-        grnRequired: true,
-        hsnCode: "",
-        taxRate: "",
-        reorderPoint: item.reorder_point?.toString() || "",
-        reorderQty: "",
-        quantityOnHand: qtyOnHand,
-        availableQuantity: available,
-        allocatedQuantity: allocated,
-        committedQuantity: committed,
-        autoReorder: item.auto_reorder || false,
-        barcode: item.barcode || "",
-        itemMode: item.item_mode || "batch",
-        variantName: item.variant_name || "",
-        variantAttributes: item.variant_attributes || "",
-      };
+      const itemCode = item.itemCode ?? item.item_code;
+      const allocated = allocationsByItem[itemCode] || 0;
+      const committed = commitmentsByItem[itemCode] || 0;
+      return mapApiItemToItem(item, { allocated, committed });
     });
 
     setItems(loadedItems);
@@ -1827,7 +1786,7 @@ const handleBulkDeallocate = async () => {
           </TabsContent>
 
           <TabsContent value="issues" className="mt-4">
-            <IssuesTab />
+            <JobMaterialIssueTab isActive={activeTab === "issues"} />
           </TabsContent>
 
         </Tabs>
@@ -2057,8 +2016,6 @@ const handleBulkDeallocate = async () => {
             </div>
           </DialogContent>
         </Dialog>
-
-        <InventoryChat open={showChat} onOpenChange={setShowChat} inventoryData={filteredItems} />
       </div>
     </Layout>
   );

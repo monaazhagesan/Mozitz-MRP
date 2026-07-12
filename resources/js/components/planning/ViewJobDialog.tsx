@@ -34,8 +34,11 @@ const ErpFieldset = ({ title, children }: { title: string; children: React.React
 export const ViewJobDialog = ({ open, onOpenChange, job }: ViewJobDialogProps) => {
   const [activeTab, setActiveTab] = useState("bill");
 
-  // Get BOM items and operations from job data
-  const bomItems = job?.bomItems || [];
+  // Get BOM items and operations from job data. `components` is the real
+  // relation returned by JobController::show()/index() (job_components
+  // table); `bomItems` is kept as a fallback for any legacy caller that
+  // still passes it directly.
+  const bomItems = job?.components || job?.bomItems || [];
   const operations = job?.operations || [];
 const moveQuantities = Array.isArray(job?.moves) ? job.moves : [];
   const rejectionTransactions = job?.rejectionTransactions || [];
@@ -43,31 +46,40 @@ const moveQuantities = Array.isArray(job?.moves) ? job.moves : [];
   // Issued quantities map (synced from Material Issues module)
   const issuedQuantities: Record<string, number> = job?.issuedQuantities || {};
 
-  // Calculate quantities data from BOM items
-  const bomQuantities = bomItems.map((item: any) => {
-  const itemCode = item.itemCode || item.item_code || item.component;
+  // Quantities come from the job's `quantities` snapshot, which has proper
+  // separate per_assembly/required/issued/open fields (Required = Job Qty ×
+  // Per Assembly, computed server-side at job creation/reconciliation time).
+  // Fall back to deriving from bomItems only for legacy jobs with no
+  // quantities snapshot at all.
+  const jobQuantities = job?.quantities || [];
 
-  const qty = Number(item.qty ?? item.quantity ?? item.required_qty ?? 0);
+  const bomQuantities = jobQuantities.length > 0
+    ? jobQuantities.map((q: any) => {
+        const required = Number(q.required ?? 0);
+        const issued = Number(q.issued ?? 0);
+        return {
+          component: q.component || "-",
+          uom: q.uom || "pcs",
+          per_assembly: Number(q.per_assembly ?? 0),
+          required,
+          issued,
+          open: Number(q.open ?? Math.max(0, required - issued)),
+        };
+      })
+    : bomItems.map((item: any) => {
+        const itemCode = item.itemCode || item.item_code || item.component;
+        const qty = Number(item.qty ?? item.quantity ?? item.required_qty ?? 0);
+        const issued = Number(issuedQuantities[itemCode] ?? item.issuedQty ?? 0);
 
-  const issued = Number(
-    issuedQuantities[itemCode] ?? item.issuedQty ?? 0
-  );
-
-  const perAssembly = Number(
-    item.per_assembly ?? item.perAssembly ?? item.bom_qty ?? item.qty ?? 0
-  );
-
-  return {
-    component: item.component || item.itemCode || "-",
-    uom: item.uom || "pcs",
-
-    per_assembly: isNaN(perAssembly) ? 0 : perAssembly,
-    required: isNaN(qty) ? 0 : qty,
-    issued: isNaN(issued) ? 0 : issued,
-
-    open: Math.max(0, qty - issued),
-  };
-});
+        return {
+          component: item.component || item.itemCode || "-",
+          uom: item.uom || "pcs",
+          per_assembly: isNaN(qty) ? 0 : qty,
+          required: isNaN(qty) ? 0 : qty,
+          issued: isNaN(issued) ? 0 : issued,
+          open: Math.max(0, qty - issued),
+        };
+      });
   
   // Get operation sequences for move quantities display
  const operationSequences = [
@@ -398,10 +410,10 @@ const moveQuantities = Array.isArray(job?.moves) ? job.moves : [];
                         <TableBody>
                           {bomItems.map((item: any, idx: number) => (
                             <TableRow key={idx} className="bg-portal-input">
-                              <TableCell className="text-xs py-1">{item.itemSeq || idx + 1}</TableCell>
+                              <TableCell className="text-xs py-1">{item.seq || item.itemSeq || idx + 1}</TableCell>
                               <TableCell className="text-xs py-1">{item.component}</TableCell>
                               <TableCell className="text-xs py-1">{item.description}</TableCell>
-                              <TableCell className="text-xs py-1">{item.qty}</TableCell>
+                              <TableCell className="text-xs py-1">{item.qty ?? item.quantity}</TableCell>
                               <TableCell className="text-xs py-1">{item.uom}</TableCell>
                               <TableCell className="text-xs py-1">
                                 <Badge variant="outline" className="text-[10px]">{item.status || "Available"}</Badge>
@@ -478,11 +490,11 @@ const moveQuantities = Array.isArray(job?.moves) ? job.moves : [];
                         <TableBody>
                           {operations.map((op: any, idx: number) => (
                             <TableRow key={idx} className="bg-portal-input">
-                              <TableCell className="text-xs py-1">{op.sequence || op.operationSeq}</TableCell>
-                              <TableCell className="text-xs py-1">{op.operationCode || op.name}</TableCell>
+                              <TableCell className="text-xs py-1">{op.sequence || op.operationSeq || op.operation_seq}</TableCell>
+                              <TableCell className="text-xs py-1">{op.operationCode || op.operation_code || op.name}</TableCell>
                               <TableCell className="text-xs py-1">{op.description || op.name}</TableCell>
-                              <TableCell className="text-xs py-1">{op.duration || op.runTime || "-"}</TableCell>
-                              <TableCell className="text-xs py-1">{op.workCenter || "-"}</TableCell>
+                              <TableCell className="text-xs py-1">{op.duration || op.runTime || op.run_time || "-"}</TableCell>
+                              <TableCell className="text-xs py-1">{op.workCenter || op.work_center || "-"}</TableCell>
                               <TableCell className="text-xs py-1">{op.department || "-"}</TableCell>
                               <TableCell className="text-xs py-1">
                                 <Badge variant="outline" className="text-[10px]">{op.status || "Pending"}</Badge>
@@ -518,7 +530,7 @@ const moveQuantities = Array.isArray(job?.moves) ? job.moves : [];
   {operationSequences.length > 0 ? (
     operationSequences.map((seq: number, idx: number) => {
       const op = operations.find(
-        (o: any) => Number(o.seq || o.operationSeq) === Number(seq)
+        (o: any) => Number(o.sequence ?? o.seq ?? o.operationSeq ?? o.operation_seq) === Number(seq)
       );
 
       const raw = moveQuantities.find(
@@ -542,7 +554,7 @@ const moveQuantities = Array.isArray(job?.moves) ? job.moves : [];
           </TableCell>
 
           <TableCell className="text-[11px] py-1 px-2 border-r border-portal-border">
-            {op?.name || op?.operationCode || `Operation ${seq}`}
+            {op?.operationCode || op?.operation_code || op?.name || op?.description || `Operation ${seq}`}
           </TableCell>
 
           <TableCell className="text-[11px] py-1 px-2 border-r border-portal-border text-right">

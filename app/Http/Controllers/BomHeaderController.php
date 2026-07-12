@@ -22,11 +22,16 @@ class BomHeaderController extends Controller
         $this->middleware('web');
     }
 
-   public function index()
+   public function index(Request $request)
 {
-    return BomHeader::where('user_id', auth()->id())
-            ->where('status', 'Active')
-            ->get();
+    $query = BomHeader::where('user_id', auth()->id())
+            ->where('status', 'Active');
+
+    if ($request->filled('item_code')) {
+        $query->where('item_code', $request->query('item_code'));
+    }
+
+    return $query->get();
 }
 
     public function show($id)

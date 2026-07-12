@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import axios from "axios";
 import { 
   Gavel, 
   Clock, 
@@ -283,13 +283,13 @@ export default function EAuction() {
   // Fetch RFQs from database
   useEffect(() => {
     const fetchRFQs = async () => {
-      const { data, error } = await supabase
-        .from('rfqs')
-        .select('*')
-        .in('status', ['Sent', 'Received', 'Closed']);
-      
-      if (data) {
+      try {
+        const res = await axios.get('/api/rfqs');
+        const openStatuses = new Set(['sent', 'viewed', 'quoted', 'closed']);
+        const data = (res.data || []).filter((r: any) => openStatuses.has(r.status));
         setRfqs(data as RFQ[]);
+      } catch {
+        // ignore — auction page can still be used with mock data
       }
     };
     fetchRFQs();
@@ -438,25 +438,23 @@ export default function EAuction() {
       const poNumber = `PO-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
       const subtotal = items.reduce((sum, item, idx) => sum + (vendorBids[idx].bid_amount * item.quantity), 0);
       
-      const { data: poData, error: poError } = await supabase
-        .from('purchase_orders')
-        .insert({
+      let poData: any;
+      try {
+        const poRes = await axios.post('/api/purchase-orders', {
           po_number: poNumber,
           vendor: vendorName,
-          po_date: new Date().toISOString(),
+          expected_date: new Date().toISOString().split('T')[0],
           status: 'Awaiting Approval',
           subtotal: subtotal,
           tax: 0,
           total: subtotal,
-          notes: `Generated from E-Auction ${auction.auction_number}`
-        })
-        .select()
-        .single();
-
-      if (poError) {
+          notes: `Generated from E-Auction ${auction.auction_number}`,
+        });
+        poData = poRes.data;
+      } catch (poError: any) {
         toast({
           title: "Error",
-          description: `Failed to create PO for ${vendorName}: ${poError.message}`,
+          description: `Failed to create PO for ${vendorName}: ${poError.response?.data?.message || poError.message}`,
           variant: "destructive"
         });
         continue;
@@ -472,14 +470,12 @@ export default function EAuction() {
         total: vendorBids[idx].bid_amount * item.quantity
       }));
 
-      const { error: itemsError } = await supabase
-        .from('purchase_order_items')
-        .insert(poItems);
-
-      if (itemsError) {
+      try {
+        await axios.post('/api/purchase-order-lines', { items: poItems });
+      } catch (itemsError: any) {
         toast({
           title: "Warning",
-          description: `PO created but failed to add items: ${itemsError.message}`,
+          description: `PO created but failed to add items: ${itemsError.response?.data?.message || itemsError.message}`,
           variant: "destructive"
         });
         continue;

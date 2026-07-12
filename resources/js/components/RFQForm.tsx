@@ -34,23 +34,32 @@ interface RFQFormProps {
     description?: string;
     quantity: number;
   };
+  initialItems?: Array<{
+    item_code: string;
+    item_name: string;
+    description?: string;
+    quantity: number;
+  }>;
+  initialVendorName?: string;
   onSuccess?: () => void;
 }
 
-export default function RFQForm({ initialItem, onSuccess }: RFQFormProps) {
+export default function RFQForm({ initialItem, initialItems, initialVendorName, onSuccess }: RFQFormProps) {
+  const seedItems = initialItems && initialItems.length > 0 ? initialItems : (initialItem ? [initialItem] : []);
+
   const [vendors, setVendors] = useState([{ vendor_name: "", vendor_email: "", vendor_contact: "" }]);
   const [inventoryItems, setInventoryItems] = useState([]);
   const [vendorList, setVendorList] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState(
-    initialItem
-      ? [{
-        item_code: initialItem.item_code,
-        item_name: initialItem.item_name,
-        description: initialItem.description || "",
-        quantity: initialItem.quantity.toString(),
+    seedItems.length > 0
+      ? seedItems.map((it) => ({
+        item_code: it.item_code,
+        item_name: it.item_name,
+        description: it.description || "",
+        quantity: it.quantity.toString(),
         required_date: "",
-      }]
+      }))
       : [{ item_code: "", item_name: "", description: "", quantity: "", required_date: "" }]
   );
   const { toast } = useToast();
@@ -114,6 +123,26 @@ export default function RFQForm({ initialItem, onSuccess }: RFQFormProps) {
 
     fetchVendors();
   }, []);
+
+  // Prefill the first vendor row once the vendor list has loaded, if a
+  // preferred supplier name was passed in (e.g. from an MRP shortage row).
+  useEffect(() => {
+    if (!initialVendorName || vendorList.length === 0) return;
+
+    const match = vendorList.find((v) => v.vendor_name === initialVendorName);
+    if (!match) return;
+
+    setVendors((prev) => {
+      if (prev[0]?.vendor_name) return prev; // don't clobber a user-made choice
+      const updated = [...prev];
+      updated[0] = {
+        vendor_name: match.vendor_name,
+        vendor_email: match.email || "",
+        vendor_contact: match.phone || "",
+      };
+      return updated;
+    });
+  }, [initialVendorName, vendorList]);
 
   const onSubmit = async (values: RFQFormValues) => {
 

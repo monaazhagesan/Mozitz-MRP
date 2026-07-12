@@ -294,6 +294,26 @@ if (!empty($data['location_id'])) {
         ], 500);
     }
 }
+    // Narrow update by item_code — used by allocation-sync jobs that only
+    // ever need to correct allocated_quantity, without touching every other
+    // field the way the full update() endpoint does.
+    public function updateByCode(Request $request, $code)
+    {
+        $item = InventoryStock::where('user_id', auth()->id())
+            ->where('item_code', $code)
+            ->firstOrFail();
+
+        $data = $request->validate([
+            'allocated_quantity' => 'required|numeric|min:0',
+        ]);
+
+        $item->allocated_quantity = (float) $data['allocated_quantity'];
+        $item->available_quantity = (float) $item->quantity_on_hand - $item->allocated_quantity;
+        $item->save();
+
+        return response()->json($item, 200);
+    }
+
     // Delete inventory item
    public function destroy($id)
 {

@@ -8,7 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import axios from "axios";
 import { Play, FileText, ShoppingCart, AlertTriangle, CheckCircle, Zap, Loader2, TrendingUp, Clock, Layers, Calendar, Hammer, AlertCircle } from "lucide-react";
 import { format, addDays } from "date-fns";
 import { useNavigate } from "react-router-dom";
@@ -65,12 +65,6 @@ interface BOMComponent {
   description: string;
 }
 
-interface OpenPOItem {
-  item_code: string;
-  quantity: number;
-  received_quantity: number | null;
-}
-
 
 export default function MRPRun() {
   const [mrpItems, setMrpItems] = useState<MRPItem[]>([]);
@@ -91,12 +85,23 @@ export default function MRPRun() {
     setRunning(true);
     try {
       // 1. Fetch all inventory items with new fields
-      const { data: inventory, error: invError } = await supabase
-        .from("inventory_stock")
-        .select("*")
-        .order("item_code", { ascending: true });
-
-      if (invError) throw invError;
+      const invRes = await axios.get("/api/inventory-stock");
+      const inventory: InventoryItem[] = (invRes.data?.items || [])
+        .map((r: any) => ({
+          id: r.id,
+          item_code: r.itemCode ?? r.item_code ?? "",
+          item_name: r.itemName ?? r.item_name ?? "",
+          item_type: r.item_type ?? null,
+          quantity_on_hand: Number(r.quantityOnHand ?? r.quantity_on_hand ?? 0),
+          allocated_quantity: Number(r.allocatedQuantity ?? r.allocated_quantity ?? 0),
+          committed_quantity: Number(r.committedQuantity ?? r.committed_quantity ?? 0),
+          available_quantity: Number(r.availableQuantity ?? r.available_quantity ?? 0),
+          reorder_point: r.reorderPoint ?? r.reorder_point ?? null,
+          safety_stock: r.safety_stock ?? r.safetyStock ?? null,
+          lead_time_days: r.lead_time_days ?? r.leadTimeDays ?? null,
+          default_supplier: r.defaultSupplier ?? r.default_supplier ?? null,
+        }))
+        .sort((a: InventoryItem, b: InventoryItem) => a.item_code.localeCompare(b.item_code));
 
       if (!inventory || inventory.length === 0) {
         setMrpItems([]);
@@ -119,40 +124,31 @@ export default function MRPRun() {
       const jobItemCodes = [...new Set(openJobs.map((job: Job) => job.item_code))];
       
       let bomComponentsMap = new Map<string, { component: string; quantity: number }[]>();
-      
-      if (jobItemCodes.length > 0) {
-        // Get active BOMs for job items
-        const { data: bomHeaders, error: bomError } = await supabase
-          .from("bom_headers")
-          .select("id, item_code")
-          .in("item_code", jobItemCodes)
-          .eq("status", "Active");
 
-        if (!bomError && bomHeaders && bomHeaders.length > 0) {
-          const bomIds = bomHeaders.map((h: any) => h.id);
-          
-          const { data: bomComponents, error: compError } = await supabase
-            .from("bom_components")
-            .select("bom_id, component, quantity")
-            .in("bom_id", bomIds);
+      for (const code of jobItemCodes) {
+        try {
+          const headerRes = await axios.get("/api/bom-headers/by-item-code", {
+            params: { item_code: code },
+            validateStatus: () => true,
+          });
+          const headers = headerRes.data?.data || [];
+          if (headers.length === 0) continue;
 
-          if (!compError && bomComponents) {
-            // Map BOM ID to item_code
-            const bomIdToItemCode = new Map<string, string>();
-            bomHeaders.forEach((h: any) => {
-              bomIdToItemCode.set(h.id, h.item_code);
-            });
+          const activeHeader =
+            headers.find((h: any) => (h.status || "").toLowerCase() === "active") || headers[0];
 
-            // Group components by parent item_code
-            bomComponents.forEach((comp: any) => {
-              const parentItemCode = bomIdToItemCode.get(comp.bom_id);
-              if (parentItemCode) {
-                const existing = bomComponentsMap.get(parentItemCode) || [];
-                existing.push({ component: comp.component, quantity: comp.quantity });
-                bomComponentsMap.set(parentItemCode, existing);
-              }
-            });
-          }
+          const compRes = await axios.get("/api/bom-components", {
+            params: { bom_id: activeHeader.id },
+            validateStatus: () => true,
+          });
+          const comps = compRes.data || [];
+
+          bomComponentsMap.set(
+            code,
+            comps.map((c: any) => ({ component: c.component, quantity: Number(c.quantity ?? 0) }))
+          );
+        } catch {
+          // Skip items with no resolvable BOM
         }
       }
 
@@ -186,77 +182,53 @@ export default function MRPRun() {
         }
       });
 
-      // 4.5 Calculate allocated quantities from confirmed orders (localStorage)
-      const savedOrders = localStorage.getItem("orders");
+      // 4.5 Calculate allocated quantities from real job allocations
+      const activeJobNumbers = [
+        ...new Set(openJobs.map((job: any) => job.id || job.jobNumber).filter(Boolean)),
+      ];
+
       let confirmedOrderAllocations = new Map<string, number>();
-      
-      if (savedOrders) {
+
+      if (activeJobNumbers.length > 0) {
         try {
-          const ordersData = JSON.parse(savedOrders);
-          if (Array.isArray(ordersData)) {
-            // Filter for confirmed orders (Processing or Awaiting for confirmation)
-            const confirmedOrders = ordersData.filter((order: any) => 
-              order.status === "Processing" || order.status === "Awaiting for confirmation"
+          const allocRes = await axios.post("/api/job-allocations/active", {
+            job_numbers: activeJobNumbers,
+          });
+          const rows = allocRes.data?.data || [];
+          rows.forEach((r: any) => {
+            const qty = Number(r.allocated_quantity || 0);
+            confirmedOrderAllocations.set(
+              r.item_code,
+              (confirmedOrderAllocations.get(r.item_code) || 0) + qty
             );
-            
-            // Aggregate quantities by item_code
-            confirmedOrders.forEach((order: any) => {
-              if (Array.isArray(order.items)) {
-                order.items.forEach((item: any) => {
-                  const qty = Number(item.quantityOrdered) || 0;
-                  if (qty > 0 && item.itemCode) {
-                    const current = confirmedOrderAllocations.get(item.itemCode) || 0;
-                    confirmedOrderAllocations.set(item.itemCode, current + qty);
-                  }
-                });
+          });
+        } catch (e) {
+          console.error("Failed to load job allocations:", e);
+        }
+      }
+
+      // 5. Fetch open Purchase Orders (not received/completed) with lines already eager-loaded
+      let openPoMap = new Map<string, number>();
+      try {
+        const poRes = await axios.get("/api/purchase-orders");
+        const allPOs = Array.isArray(poRes.data) ? poRes.data : poRes.data?.data || [];
+        const openStatuses = new Set(["Approved", "Partial"]);
+
+        allPOs
+          .filter((po: any) => openStatuses.has(po.status))
+          .forEach((po: any) => {
+            (po.lines || []).forEach((line: any) => {
+              const qty = Number(line.quantity || 0);
+              if (qty > 0 && line.item_code) {
+                openPoMap.set(line.item_code, (openPoMap.get(line.item_code) || 0) + qty);
               }
             });
-          }
-        } catch (e) {
-          console.error("Failed to parse orders from localStorage:", e);
-        }
-      }
-
-      // 5. Fetch open Purchase Orders (not received/completed)
-      const { data: openPOs, error: poError } = await supabase
-        .from("purchase_orders")
-        .select("id, status")
-        .in("status", ["Awaiting Approval", "Approved", "Sent"]);
-
-      const openPoIds = (openPOs || []).map((po: any) => po.id);
-      
-      let openPoMap = new Map<string, number>();
-      if (openPoIds.length > 0) {
-        const { data: poItems, error: poItemsError } = await supabase
-          .from("purchase_order_items")
-          .select("item_code, quantity, received_quantity")
-          .in("po_id", openPoIds);
-
-        if (!poItemsError && poItems) {
-          (poItems as OpenPOItem[]).forEach((item) => {
-            const pending = item.quantity - (item.received_quantity || 0);
-            if (pending > 0) {
-              const current = openPoMap.get(item.item_code) || 0;
-              openPoMap.set(item.item_code, current + pending);
-            }
           });
-        }
+      } catch (e) {
+        console.error("Failed to load purchase orders:", e);
       }
 
-      // 6. Check for existing pending RFQs
-      const itemCodes = inventory.map((i: any) => i.item_code);
-      const { data: existingRfqItems } = await supabase
-        .from("rfq_items")
-        .select("item_code, rfq_id, rfqs!inner(status)")
-        .in("item_code", itemCodes);
-
-      const pendingRfqItems = new Set(
-        (existingRfqItems || [])
-          .filter((r: any) => r.rfqs?.status === "Pending" || r.rfqs?.status === "Sent")
-          .map((r: any) => r.item_code)
-      );
-
-      // 7. Process each inventory item per MRP spec
+      // 6. Process each inventory item per MRP spec
       const today = new Date();
       const processedItems: MRPItem[] = inventory.map((item: InventoryItem) => {
         const onHand = Math.round(item.quantity_on_hand || 0);
@@ -406,140 +378,73 @@ export default function MRPRun() {
       // Fetch vendor details
       const vendorNames = Array.from(vendorItemsMap.keys());
       let vendorDetailsMap = new Map<string, { email: string | null; contact: string | null }>();
-      
-      if (vendorNames.length > 0) {
-        const { data: vendors } = await supabase
-          .from("vendors")
-          .select("name, email, contact_person")
-          .in("name", vendorNames);
-        
-        (vendors || []).forEach((v: any) => {
-          vendorDetailsMap.set(v.name, { email: v.email, contact: v.contact_person });
-        });
-      }
+
+      const vendorsRes = await axios.get("/api/vendors");
+      (vendorsRes.data || []).forEach((v: any) => {
+        if (vendorNames.includes(v.vendor_name)) {
+          vendorDetailsMap.set(v.vendor_name, { email: v.email, contact: v.contact_person });
+        }
+      });
 
       let createdRfqCount = 0;
-      let emailsSent = 0;
-      let emailsFailed = 0;
 
       // Create RFQs grouped by vendor
       for (const [vendorName, items] of vendorItemsMap.entries()) {
         const rfqNumber = `RFQ-MRP-${Date.now()}-${createdRfqCount + 1}`;
         const vendorDetails = vendorDetailsMap.get(vendorName) || { email: null, contact: null };
 
-        // Calculate required date based on max lead time
-        const maxLeadTime = Math.max(...items.map(i => i.lead_time_days), 7);
-        const requiredDate = addDays(new Date(), maxLeadTime);
-
-        const { data: rfq, error: rfqError } = await supabase
-          .from("rfqs")
-          .insert({
-            rfq_number: rfqNumber,
-            title: `MRP Auto-Generated RFQ for ${vendorName}`,
-            status: "Sent",
-            payment_terms: "Net 30",
-            notes: `[AUTO-GENERATED] Created from MRP Run for ${items.length} item(s). Lead time considered.`,
-            sent_at: new Date().toISOString(),
-          })
-          .select()
-          .single();
-
-        if (rfqError) throw rfqError;
-
-        const rfqItems = items.map((item) => ({
-          rfq_id: rfq.id,
-          item_code: item.item_code,
-          item_name: item.item_name,
-          description: item.bom_req > 0 ? `BOM requirement: ${item.bom_req}` : "",
-          quantity: item.net_requirement > 0 ? item.net_requirement : (item.reorder_point ?? 1),
-          required_date: addDays(new Date(), item.lead_time_days ?? 7).toISOString(),
-        }));
-
-        const { error: itemsError } = await supabase.from("rfq_items").insert(rfqItems);
-        if (itemsError) throw itemsError;
-
-        const { error: vendorError } = await supabase.from("rfq_vendors").insert({
-          rfq_id: rfq.id,
-          vendor_name: vendorName,
-          vendor_email: vendorDetails.email,
-          vendor_contact: vendorDetails.contact,
-          status: "Sent",
-          sent_at: new Date().toISOString(),
+        await axios.post("/api/rfqs", {
+          rfq_number: rfqNumber,
+          title: `MRP Auto-Generated RFQ for ${vendorName}`,
+          status: "sent",
+          payment_terms: "Net 30",
+          notes: `[AUTO-GENERATED] Created from MRP Run for ${items.length} item(s). Lead time considered.`,
+          items: items.map((item) => ({
+            item_code: item.item_code,
+            item_name: item.item_name,
+            description: item.bom_req > 0 ? `BOM requirement: ${item.bom_req}` : "",
+            quantity: item.net_requirement > 0 ? item.net_requirement : (item.reorder_point ?? 1),
+            required_date: addDays(new Date(), item.lead_time_days ?? 7).toISOString().split("T")[0],
+          })),
+          vendors: [
+            {
+              vendor_name: vendorName,
+              vendor_email: vendorDetails.email,
+              vendor_contact: vendorDetails.contact,
+              status: "sent",
+            },
+          ],
         });
-        if (vendorError) throw vendorError;
-
-        // Send email notification
-        if (vendorDetails.email) {
-          try {
-            const emailResponse = await supabase.functions.invoke("send-rfq-email", {
-              body: {
-                rfq_number: rfqNumber,
-                vendor_name: vendorName,
-                vendor_email: vendorDetails.email,
-                items: items.map((item) => ({
-                  item_code: item.item_code,
-                  item_name: item.item_name,
-                  quantity: item.net_requirement > 0 ? item.net_requirement : (item.reorder_point ?? 1),
-                  required_date: addDays(new Date(), item.lead_time_days ?? 7).toISOString(),
-                  description: item.bom_req > 0 ? `BOM requirement: ${item.bom_req}` : "",
-                })),
-                payment_terms: "Net 30",
-                notes: `Auto-generated RFQ from MRP Run`,
-              },
-            });
-
-            if (emailResponse.error) {
-              emailsFailed++;
-            } else if (!emailResponse.data?.skipped) {
-              emailsSent++;
-            }
-          } catch (emailError) {
-            emailsFailed++;
-          }
-        }
 
         createdRfqCount++;
       }
 
-      // Handle items without vendor
+      // Handle items without a matched vendor
       if (noVendorItems.length > 0) {
         const rfqNumber = `RFQ-MRP-${Date.now()}-PENDING`;
-        
-        const { data: rfq, error: rfqError } = await supabase
-          .from("rfqs")
-          .insert({
-            rfq_number: rfqNumber,
-            title: `MRP Auto-Generated RFQ (Vendor Required)`,
-            status: "Pending",
-            payment_terms: "Net 30",
-            notes: `[AUTO-GENERATED] Created from MRP Run. Items require vendor assignment.`,
-          })
-          .select()
-          .single();
 
-        if (rfqError) throw rfqError;
-
-        const rfqItems = noVendorItems.map((item) => ({
-          rfq_id: rfq.id,
-          item_code: item.item_code,
-          item_name: item.item_name,
-          description: item.bom_req > 0 ? `BOM requirement: ${item.bom_req}` : "",
-          quantity: item.net_requirement > 0 ? item.net_requirement : (item.reorder_point ?? 1),
-          required_date: addDays(new Date(), item.lead_time_days ?? 7).toISOString(),
-        }));
-
-        const { error: itemsError } = await supabase.from("rfq_items").insert(rfqItems);
-        if (itemsError) throw itemsError;
+        await axios.post("/api/rfqs", {
+          rfq_number: rfqNumber,
+          title: `MRP Auto-Generated RFQ (Vendor Required)`,
+          status: "draft",
+          payment_terms: "Net 30",
+          notes: `[AUTO-GENERATED] Created from MRP Run. Items require vendor assignment.`,
+          items: noVendorItems.map((item) => ({
+            item_code: item.item_code,
+            item_name: item.item_name,
+            description: item.bom_req > 0 ? `BOM requirement: ${item.bom_req}` : "",
+            quantity: item.net_requirement > 0 ? item.net_requirement : (item.reorder_point ?? 1),
+            required_date: addDays(new Date(), item.lead_time_days ?? 7).toISOString().split("T")[0],
+          })),
+          vendors: [],
+        });
 
         createdRfqCount++;
       }
 
-      const emailSummary = emailsSent > 0 ? ` ${emailsSent} email(s) sent.` : "";
-      const failedSummary = emailsFailed > 0 ? ` ${emailsFailed} email(s) failed.` : "";
-      
       toast({
         title: "RFQs Created Successfully",
-        description: `Created ${createdRfqCount} RFQ(s) for ${selectedItems.length} item(s).${emailSummary}${failedSummary}`,
+        description: `Created ${createdRfqCount} RFQ(s) for ${selectedItems.length} item(s).`,
       });
 
       setSelectedItems([]);

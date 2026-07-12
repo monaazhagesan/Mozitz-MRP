@@ -21,6 +21,20 @@ class RfqController extends Controller
         $this->middleware('web');
     }
 
+public function index()
+{
+    return response()->json(
+        Rfq::where('user_id', Auth::id())->orderByDesc('created_at')->get()
+    );
+}
+
+public function show($id)
+{
+    return response()->json(
+        Rfq::with('items', 'vendors')->findOrFail($id)
+    );
+}
+
 public function store(Request $request)
 {
     // 1. Validate request first (prevents 90% of 500 errors)

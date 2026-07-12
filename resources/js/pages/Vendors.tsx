@@ -349,6 +349,7 @@ const Vendors = () => {
       await fetchVendors();
       setNewVendor(initialVendorState);
       setIsAddDialogOpen(false);
+      setSearchTerm("");
 
     } catch (error: any) {
       console.log(error.response?.data);

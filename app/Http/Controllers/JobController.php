@@ -9,16 +9,221 @@ use App\Models\JobComponent;
 use App\Models\JobQuantity;
 use App\Models\JobMove;
 use App\Models\JobLot;
+use App\Models\JobAllocation;
+use App\Models\StockTransaction;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use App\Models\InventoryStock;
 
 class JobController extends Controller
 {
+    // Statuses that mean the job is no longer actively consuming reserved stock.
+    const TERMINAL_STATUSES = ['Completed', 'Closed', 'Cancelled', 'Ready for Dispatch'];
 
      public function __construct()
     {
         $this->middleware('web');
+    }
+
+    /**
+     * Reserve BOM component quantities for a job. Locks each InventoryStock row,
+     * validates availability for all components before committing any of them,
+     * and returns a shortage list (or null) so the caller can roll back on failure.
+     */
+    private function reserveComponents($components, string $jobNumber, float $jobQty, ?array &$shortages = null)
+    {
+        $shortages = [];
+        $locked = [];
+
+        foreach ($components as $comp) {
+            $itemCode = $comp['component'] ?? null;
+            // $comp['qty'] is the per-assembly BOM quantity; the total to
+            // reserve for this job is that times the job's own quantity.
+            $qty = (float) ($comp['qty'] ?? 0) * $jobQty;
+            if (!$itemCode || $qty <= 0) {
+                continue;
+            }
+
+            $stock = InventoryStock::where('user_id', Auth::id())
+                ->where('item_code', $itemCode)
+                ->lockForUpdate()
+                ->first();
+
+            $onHand = $stock ? (float) $stock->quantity_on_hand : 0;
+            $allocated = $stock ? (float) $stock->allocated_quantity : 0;
+            $available = $onHand - $allocated;
+
+            if ($qty > $available) {
+                $shortages[] = [
+                    'item_code' => $itemCode,
+                    'item_name' => $stock->item_name ?? $itemCode,
+                    'required' => $qty,
+                    'available' => $available,
+                    'deficit' => $qty - $available,
+                ];
+                continue;
+            }
+
+            $locked[] = ['stock' => $stock, 'item_code' => $itemCode, 'qty' => $qty];
+        }
+
+        if (!empty($shortages)) {
+            return false;
+        }
+
+        foreach ($locked as $entry) {
+            $entry['stock']->allocated_quantity = (float) $entry['stock']->allocated_quantity + $entry['qty'];
+            $entry['stock']->save();
+
+            JobAllocation::create([
+                'id' => (string) Str::uuid(),
+                'job_number' => $jobNumber,
+                'item_code' => $entry['item_code'],
+                'allocated_quantity' => $entry['qty'],
+                'allocation_date' => now(),
+                'status' => 'allocated',
+            ]);
+
+            StockTransaction::create([
+                'user_id' => Auth::id(),
+                'item_code' => $entry['item_code'],
+                'transaction_type' => 'Reservation',
+                'reference_type' => 'Job',
+                'reference_number' => $jobNumber,
+                'quantity' => $entry['qty'],
+                'notes' => "Reserved for job {$jobNumber}",
+            ]);
+        }
+
+        return true;
+    }
+
+    /**
+     * Release the remaining (unissued) reserved quantity for a job's active
+     * allocations back to available stock. Does NOT touch quantity_on_hand.
+     */
+    private function releaseAllocations(string $jobNumber, string $reason)
+    {
+        $allocations = JobAllocation::where('job_number', $jobNumber)
+            ->where('status', 'allocated')
+            ->get();
+
+        foreach ($allocations as $allocation) {
+            $stock = InventoryStock::where('user_id', Auth::id())
+                ->where('item_code', $allocation->item_code)
+                ->lockForUpdate()
+                ->first();
+
+            $remaining = (float) $allocation->allocated_quantity;
+
+            if ($stock && $remaining > 0) {
+                $stock->allocated_quantity = max(0, (float) $stock->allocated_quantity - $remaining);
+                $stock->save();
+
+                StockTransaction::create([
+                    'user_id' => Auth::id(),
+                    'item_code' => $allocation->item_code,
+                    'transaction_type' => 'Release',
+                    'reference_type' => 'Job',
+                    'reference_number' => $jobNumber,
+                    'quantity' => $remaining,
+                    'notes' => $reason,
+                ]);
+            }
+
+            $allocation->status = 'released';
+            $allocation->allocated_quantity = 0;
+            $allocation->save();
+        }
+    }
+
+    /**
+     * Reconcile a job's reservation against an edited BOM: for each component,
+     * reserve additional qty (validated against available stock) or release
+     * excess qty back, relative to the existing allocated_quantity.
+     */
+    private function reconcileComponents($components, string $jobNumber, float $jobQty, ?array &$shortages = null)
+    {
+        $shortages = [];
+
+        foreach ($components as $comp) {
+            $itemCode = $comp['component'] ?? null;
+            // $comp['qty'] is the (possibly edited) per-assembly BOM quantity;
+            // the total reservation target is that times the job's quantity.
+            $newQty = (float) ($comp['qty'] ?? 0) * $jobQty;
+            if (!$itemCode) {
+                continue;
+            }
+
+            $allocation = JobAllocation::where('job_number', $jobNumber)
+                ->where('item_code', $itemCode)
+                ->where('status', 'allocated')
+                ->first();
+
+            $existingQty = $allocation ? (float) $allocation->allocated_quantity : 0;
+            $delta = $newQty - $existingQty;
+
+            if (abs($delta) < 0.0001) {
+                continue;
+            }
+
+            $stock = InventoryStock::where('user_id', Auth::id())
+                ->where('item_code', $itemCode)
+                ->lockForUpdate()
+                ->first();
+
+            if ($delta > 0) {
+                $onHand = $stock ? (float) $stock->quantity_on_hand : 0;
+                $allocated = $stock ? (float) $stock->allocated_quantity : 0;
+                $available = $onHand - $allocated;
+
+                if ($delta > $available) {
+                    $shortages[] = [
+                        'item_code' => $itemCode,
+                        'item_name' => $stock->item_name ?? $itemCode,
+                        'required' => $delta,
+                        'available' => $available,
+                        'deficit' => $delta - $available,
+                    ];
+                    continue;
+                }
+            }
+
+            if ($stock) {
+                $stock->allocated_quantity = max(0, (float) $stock->allocated_quantity + $delta);
+                $stock->save();
+            }
+
+            if ($allocation) {
+                $allocation->allocated_quantity = max(0, $existingQty + $delta);
+                if ($allocation->allocated_quantity <= 0) {
+                    $allocation->status = 'released';
+                }
+                $allocation->save();
+            } elseif ($delta > 0) {
+                JobAllocation::create([
+                    'id' => (string) Str::uuid(),
+                    'job_number' => $jobNumber,
+                    'item_code' => $itemCode,
+                    'allocated_quantity' => $delta,
+                    'allocation_date' => now(),
+                    'status' => 'allocated',
+                ]);
+            }
+
+            StockTransaction::create([
+                'user_id' => Auth::id(),
+                'item_code' => $itemCode,
+                'transaction_type' => 'Reservation Adjustment',
+                'reference_type' => 'Job',
+                'reference_number' => $jobNumber,
+                'quantity' => $delta,
+                'notes' => "BOM qty changed for job {$jobNumber} ({$existingQty} -> {$newQty})",
+            ]);
+        }
+
+        return empty($shortages);
     }
 
     /**
@@ -48,6 +253,8 @@ if ($existingJob) {
                 'assembly' => $request->assembly,
                 'product_name' => $request->product_name,
                 'sales_order_number' => $request->sales_order_number,
+                'customer_id' => $request->customer_id,
+                'customer_name' => $request->customer_name,
                 'class' => $request->class ?? 'Standard',
                 'status' => $request->status ?? 'Pending',
                 'type' => $request->type ?? 'Standard',
@@ -142,23 +349,36 @@ if ($existingJob) {
                 }
             }
 
-            $stock = InventoryStock::where('user_id', Auth::id())
-    ->where('item_code', $job->assembly)
-    ->first();
+            // Reserve BOM component quantities for active jobs, blocking on shortage.
+            if (in_array($job->status, ['Pending', 'In Progress']) && !empty($request->components)) {
+                $shortages = [];
+                $ok = $this->reserveComponents($request->components, $job->job_number, (float) $job->start, $shortages);
 
-if ($stock) {
+                if (!$ok) {
+                    DB::rollBack();
 
-    $qty = (float) $job->start; // or better: use a proper quantity field
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Insufficient stock to reserve this job',
+                        'shortages' => $shortages,
+                    ], 422);
+                }
+            }
 
-    $stock->allocated_quantity = (float) $stock->allocated_quantity + $qty;
+            // Link back to the sales order this job fulfills, if one was
+            // entered and matches a real order for this user. Only advances
+            // orders still in their pre-production state, so an order that's
+            // already Processing/Delivered/Cancelled isn't silently overwritten.
+            if (!empty($job->sales_order_number)) {
+                $linkedOrder = \App\Models\Order::where('user_id', Auth::id())
+                    ->where('order_no', $job->sales_order_number)
+                    ->first();
 
-    $stock->save();
-} else {
-    \Log::warning('Stock not found for job allocation', [
-        'user_id' => Auth::id(),
-        'item_code' => $job->assembly
-    ]);
-}
+                if ($linkedOrder && in_array($linkedOrder->status, ['Awaiting Confirmation', 'Confirmed'])) {
+                    $linkedOrder->status = 'Processing';
+                    $linkedOrder->save();
+                }
+            }
 
             DB::commit();
 
@@ -213,9 +433,9 @@ if ($stock) {
     /**
      * LIST JOBS
      */
-    public function index()
+    public function index(Request $request)
 {
-   return Job::where('user_id', auth()->id())
+   $query = Job::where('user_id', auth()->id())
     ->with([
         'components',
         'quantities',
@@ -223,8 +443,17 @@ if ($stock) {
         'moves',
         'lots'
     ])
-    ->latest()
-    ->paginate(20);
+    ->latest();
+
+    if ($request->has('job_number')) {
+        $query->where('job_number', $request->query('job_number'));
+    }
+
+    if ($request->filled('sales_order_number')) {
+        $query->where('sales_order_number', $request->query('sales_order_number'));
+    }
+
+    return $query->paginate(20);
 }
 
 /**
@@ -246,20 +475,9 @@ public function destroy($id)
         $job->moves()->delete();
         $job->lots()->delete();
 
-        // 🔥 RELEASE ALLOCATED STOCK BEFORE DELETE
-$stock = InventoryStock::where('user_id', auth()->id())
-    ->where('item_code', $job->assembly)
-    ->first();
+        // Release any remaining reserved stock before delete
+        $this->releaseAllocations($job->job_number, "Job {$job->job_number} deleted");
 
-if ($stock) {
-
-    $qty = (float) $job->start;
-
-    $stock->allocated_quantity =
-        max(0, (float) $stock->allocated_quantity - $qty);
-
-    $stock->save();
-}
         // Delete main job
         $job->delete();
 
@@ -273,6 +491,13 @@ if ($stock) {
     } catch (\Exception $e) {
 
         DB::rollBack();
+
+        \Log::error('Job delete FAILED', [
+            'message' => $e->getMessage(),
+            'line' => $e->getLine(),
+            'file' => $e->getFile(),
+            'job_id' => $id,
+        ]);
 
         return response()->json([
             'success' => false,
@@ -291,14 +516,49 @@ public function update(Request $request, $id)
         $job = Job::where('user_id', auth()->id())
     ->findOrFail($id);
 
+        $previousStatus = $job->status;
+        $newStatus = $request->status ?? $job->status;
+
+        if ($previousStatus === 'Completed' && $newStatus !== $previousStatus) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'This job is Completed and can no longer be modified.',
+            ], 422);
+        }
+
         // update job header fields
         $job->update([
-            'status' => $request->status ?? $job->status,
+            'status' => $newStatus,
             'priority' => $request->priority ?? $job->priority,
             'notes' => $request->notes ?? $job->notes,
             'start_date' => $request->start_date ?? $job->start_date,
             'completion_date' => $request->completion_date ?? $job->completion_date,
         ]);
+
+        // Status entered a terminal state from a non-terminal one: release remaining reserved stock.
+        $wasTerminal = in_array($previousStatus, self::TERMINAL_STATUSES);
+        $isTerminal = in_array($newStatus, self::TERMINAL_STATUSES);
+        if ($isTerminal && !$wasTerminal) {
+            $this->releaseAllocations($job->job_number, "Job {$job->job_number} marked {$newStatus}");
+        }
+
+        // BOM edited after job creation: reconcile reservation delta per component.
+        if ($request->has('components') && !$isTerminal) {
+            $shortages = [];
+            $ok = $this->reconcileComponents($request->components, $job->job_number, (float) $job->start, $shortages);
+
+            if (!$ok) {
+                DB::rollBack();
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Insufficient stock to increase reservation for this job',
+                    'shortages' => $shortages,
+                ], 422);
+            }
+        }
 
         // 🔥 SAVE MOVE DATA HERE (THIS FIXES YOUR ISSUE)
         if ($request->moves) {
@@ -337,6 +597,14 @@ public function update(Request $request, $id)
     } catch (\Exception $e) {
 
         DB::rollBack();
+
+        \Log::error('Job update FAILED', [
+            'message' => $e->getMessage(),
+            'line' => $e->getLine(),
+            'file' => $e->getFile(),
+            'job_id' => $id,
+            'request' => $request->all(),
+        ]);
 
         return response()->json([
             'success' => false,

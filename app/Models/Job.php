@@ -13,6 +13,8 @@ class Job extends Model
         'assembly',
         'product_name',
         'sales_order_number',
+        'customer_id',
+        'customer_name',
         'class',
         'status',
         'type',

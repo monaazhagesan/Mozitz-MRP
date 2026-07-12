@@ -13,9 +13,11 @@ class BomOperation extends Model
 
     protected $fillable = [
         'id',
+        'user_id',
         'bom_id',
         'operation_seq',
         'operation_code',
+        'operation_type',
         'description',
         'department',
         'work_center',
@@ -23,6 +25,7 @@ class BomOperation extends Model
         'labor_cost',
         'machine_cost',
         'overhead_cost',
+        'cost_per_hour',
         'setup_time',
         'run_time',
         'created_at'
@@ -32,6 +35,7 @@ class BomOperation extends Model
         'labor_cost' => 'decimal:2',
         'machine_cost' => 'decimal:2',
         'overhead_cost' => 'decimal:2',
+        'cost_per_hour' => 'decimal:2',
         'setup_time' => 'decimal:2',
         'run_time' => 'decimal:2',
     ];

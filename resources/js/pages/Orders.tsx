@@ -1,5 +1,6 @@
 import Layout from "@/components/Layout";
 import RFQForm from "@/components/RFQForm";
+import POForm from "@/components/POForm";
 import OrderPackagesTab from "@/components/orders/OrderPackagesTab";
 import { RefundDialog } from "@/components/orders/RefundDialog";
 import { RefundsTab } from "@/components/orders/RefundsTab";
@@ -221,10 +222,6 @@ const ORDER_VIEWS: Array<{ id: OrderWorkspaceView; label: string; icon: any; cou
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "new", label: "New Order", icon: Plus },
   { id: "orders", label: "All Orders", icon: ShoppingCart, countKey: "orders" },
-  { id: "clone", label: "Clone Last Order", icon: Copy },
-  { id: "regular", label: "Regular Orders", icon: RotateCcw, countKey: "regular" },
-  { id: "validation", label: "Stock Validation", icon: CheckCircle2 },
-  { id: "purchase", label: "Purchase Needs", icon: Truck, countKey: "purchase" },
 ];
 
 const initialOrderState = {
@@ -359,14 +356,40 @@ const Orders = () => {
   });
 
   const [rfqDialogOpen, setRfqDialogOpen] = useState(false);
-  const [rfqItem, setRfqItem] = useState<{
+  const [rfqItems, setRfqItems] = useState<Array<{
     item_code: string;
     item_name: string;
     description?: string;
     quantity: number;
-  } | null>(null);
+  }> | null>(null);
+  const [rfqVendorName, setRfqVendorName] = useState<string | undefined>(undefined);
   const [refundDialogOpen, setRefundDialogOpen] = useState(false);
   const [refundOrder, setRefundOrder] = useState<Order | null>(null);
+
+  // MRP Recommendation: real BOM-exploded material requirements for the
+  // current order mix, aggregated across all line items.
+  interface MrpMaterialRow {
+    component: string;
+    itemName: string;
+    uom: string;
+    requiredQty: number;
+    onHand: number;
+    shortage: number;
+    recommendedPurchaseQty: number;
+    status: "Available" | "Shortage";
+    defaultSupplier: string | null;
+  }
+  const [mrpMaterials, setMrpMaterials] = useState<MrpMaterialRow[]>([]);
+  const [mrpLoading, setMrpLoading] = useState(false);
+  const [selectedMrpMaterials, setSelectedMrpMaterials] = useState<Set<string>>(new Set());
+  const [poDialogOpen, setPoDialogOpen] = useState(false);
+  const [poItems, setPoItems] = useState<Array<{
+    item_code: string;
+    item_name: string;
+    uom?: string;
+    quantity: number;
+  }> | null>(null);
+  const [poVendorName, setPoVendorName] = useState<string | undefined>(undefined);
 
   const safeOrders = Array.isArray(orders) ? orders : [];
   const safeInventoryItems = Array.isArray(inventoryItems) ? inventoryItems : [];
@@ -748,6 +771,119 @@ useEffect(() => {
       return { components: [], noBOM: true };
     }
   };
+
+  // Real MRP: explode every line item's BOM by its Order Quantity, aggregate
+  // raw-material requirements across the whole order, and compare against
+  // on-hand stock. Debounced and re-triggered whenever item codes/quantities
+  // change.
+  useEffect(() => {
+    let cancelled = false;
+
+    const computeMrp = async () => {
+      const validLines = safeLineItems.filter(
+        (item) => item.itemCode && Number(item.quantityOrdered) > 0
+      );
+
+      if (validLines.length === 0) {
+        if (!cancelled) {
+          setMrpMaterials([]);
+          setSelectedMrpMaterials(new Set());
+        }
+        return;
+      }
+
+      setMrpLoading(true);
+      try {
+        const aggregated = new Map<string, { itemName: string; uom: string; requiredQty: number }>();
+
+        for (const line of validLines) {
+          const { components } = await fetchBOMComponents(line.itemCode, Number(line.quantityOrdered));
+          for (const comp of components as any[]) {
+            const existing = aggregated.get(comp.component);
+            if (existing) {
+              existing.requiredQty += comp.requiredQty;
+            } else {
+              aggregated.set(comp.component, {
+                itemName: comp.description || comp.component,
+                uom: comp.uom || "Nos",
+                requiredQty: comp.requiredQty,
+              });
+            }
+          }
+        }
+
+        if (aggregated.size === 0) {
+          if (!cancelled) {
+            setMrpMaterials([]);
+            setSelectedMrpMaterials(new Set());
+          }
+          return;
+        }
+
+        const invRes = await axios.get("/api/inventory-stock");
+        const inventoryList = invRes.data?.items || [];
+        const onHandMap = new Map<string, number>();
+        const supplierMap = new Map<string, string | null>();
+        inventoryList.forEach((i: any) => {
+          const code = i.itemCode ?? i.item_code;
+          onHandMap.set(code, Number(i.quantityOnHand ?? i.quantity_on_hand ?? 0));
+          supplierMap.set(code, i.defaultSupplier ?? i.default_supplier ?? null);
+        });
+
+        const rows: MrpMaterialRow[] = Array.from(aggregated.entries()).map(([component, data]) => {
+          const onHand = onHandMap.get(component) || 0;
+          const shortage = Math.max(0, data.requiredQty - onHand);
+          return {
+            component,
+            itemName: data.itemName,
+            uom: data.uom,
+            requiredQty: data.requiredQty,
+            onHand,
+            shortage,
+            recommendedPurchaseQty: shortage,
+            status: shortage > 0 ? "Shortage" : "Available",
+            defaultSupplier: supplierMap.get(component) || null,
+          };
+        });
+
+        if (!cancelled) {
+          setMrpMaterials(rows);
+          setSelectedMrpMaterials((prev) => {
+            const shortageCodes = new Set(rows.filter((r) => r.status === "Shortage").map((r) => r.component));
+            const next = new Set<string>();
+            prev.forEach((code) => {
+              if (shortageCodes.has(code)) next.add(code);
+            });
+            return next;
+          });
+        }
+      } finally {
+        if (!cancelled) setMrpLoading(false);
+      }
+    };
+
+    const timer = setTimeout(computeMrp, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [safeLineItems.map((i) => `${i.itemCode}:${i.quantityOrdered}`).join(",")]);
+
+  const toggleMrpMaterialSelection = (component: string) => {
+    setSelectedMrpMaterials((prev) => {
+      const next = new Set(prev);
+      if (next.has(component)) next.delete(component);
+      else next.add(component);
+      return next;
+    });
+  };
+
+  const selectAllMrpShortages = () => {
+    setSelectedMrpMaterials(new Set(mrpMaterials.filter((m) => m.status === "Shortage").map((m) => m.component)));
+  };
+
+  const clearMrpSelection = () => setSelectedMrpMaterials(new Set());
 
   const getLineAssessment = (item: LineItem) => {
     const code = (item.itemCode || item.item_code || "").trim();
@@ -1276,10 +1412,8 @@ useEffect(() => {
     try {
       const res = await axios.get("/api/orders");
 
-      console.log("🔵 FULL RESPONSE:", res);
-      console.log("🟢 RESPONSE DATA:", res.data);
-
-      let data = res.data?.data ?? res.data ?? [];
+      const raw = res.data?.data ?? res.data ?? [];
+      let data = Array.isArray(raw) ? raw : [];
 
       // Normalize inconsistent keys from backend
       data = data.map((order: any) => ({
@@ -1301,36 +1435,30 @@ useEffect(() => {
           "",
       }));
 
-      console.log("🟣 FINAL NORMALIZED ORDERS ARRAY:", data);
-
-      setOrders(Array.isArray(data) ? data : []);
-    } catch (error) {
-      console.error("❌ FETCH ERROR:", error);
+      setOrders(data);
+    } catch (error: any) {
+      console.error("Failed to fetch orders:", error);
       setOrders([]);
+      toast({
+        title: "Error",
+        description: error?.response?.data?.message || "Failed to load orders",
+        variant: "destructive",
+      });
     }
   };
-
-  useEffect(() => {
-    console.log("FETCHING CUSTOMERS...");
-    fetch("/api/customers")
-      .then((res) => res.json())
-      .then((data) => {
-        console.log("API RESPONSE:", data);
-        setCustomers(data);
-      });
-  }, []);
 
   useEffect(() => {
     fetchOrders();
   }, []);
 
-
   const fetchCustomers = async () => {
     try {
       const res = await fetch("/api/customers");
+      if (!res.ok) {
+        console.error(`Error fetching customers: HTTP ${res.status}`);
+        return;
+      }
       const data = await res.json();
-
-      console.log("API RESPONSE11:", data);
 
       setCustomers(data.data || data);
     } catch (error) {
@@ -1394,7 +1522,15 @@ useEffect(() => {
     });
   }, [orders, searchTerm, statusFilter, typeFilter]);
 
+  const mainTabMountedRef = useRef(false);
   useEffect(() => {
+    // Skip the initial mount — the unconditional fetchOrders() effect above
+    // already covers it, and mainTab defaults to "orders" so both would
+    // otherwise fire the same request back-to-back on every page load.
+    if (!mainTabMountedRef.current) {
+      mainTabMountedRef.current = true;
+      return;
+    }
     if (mainTab === "orders") {
       fetchOrders();
     }
@@ -1529,6 +1665,173 @@ useEffect(() => {
       overdue: overdue.length,
     };
   }, [orders]);
+
+  // ─────────────────────────────────────────────
+  // ORDER STATUS DASHBOARD — per-order rollup of sales-item availability,
+  // raw-material (ingredient) availability, and production/job status.
+  // ─────────────────────────────────────────────
+  type OrderStatusRow = {
+    order: any;
+    productCount: number;
+    salesState: "in-stock" | "expected" | "not-available" | "na";
+    ingredientsState: "picked" | "in-stock" | "not-available" | "na";
+    productionState: "done" | "in-progress" | "not-started" | "blocked" | "make" | "na";
+    job: any | null;
+  };
+
+  const [dashboardOrderTab, setDashboardOrderTab] = useState<"open" | "done">("open");
+  const [orderStatusRows, setOrderStatusRows] = useState<OrderStatusRow[]>([]);
+  const [computingOrderStatus, setComputingOrderStatus] = useState(false);
+
+  useEffect(() => {
+    if (workspaceView !== "dashboard") return;
+    if (orders.length === 0) {
+      setOrderStatusRows([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const compute = async () => {
+      setComputingOrderStatus(true);
+      try {
+        // Fetched as a fixed set of parallel requests (independent of
+        // order/product count) instead of one round trip per item — the
+        // previous version did 2 sequential calls per unique product, which
+        // crawled against the single-threaded dev server. Inventory stock is
+        // NOT re-fetched here: `inventoryItems` is already loaded on mount
+        // by fetchInventory() and reused via getAvailableStock() below,
+        // avoiding a duplicate hit on the same endpoint.
+        const [jobsRes, headersRes, componentsRes] = await Promise.all([
+          axios.get("/api/jobs"),
+          axios.get("/api/bom-headers"),
+          axios.get("/api/bom-components"),
+        ]);
+
+        const allJobs = jobsRes.data?.data ?? jobsRes.data ?? [];
+        const jobsByOrder = new Map<string, any[]>();
+        (Array.isArray(allJobs) ? allJobs : []).forEach((j: any) => {
+          if (!j.sales_order_number) return;
+          if (!jobsByOrder.has(j.sales_order_number)) jobsByOrder.set(j.sales_order_number, []);
+          jobsByOrder.get(j.sales_order_number)!.push(j);
+        });
+
+        const headers = Array.isArray(headersRes.data) ? headersRes.data : headersRes.data?.data ?? [];
+        const bomIdByItemCode = new Map<string, string>();
+        headers.forEach((h: any) => {
+          if (h.item_code) bomIdByItemCode.set(h.item_code, h.id);
+        });
+
+        const allComponents = Array.isArray(componentsRes.data) ? componentsRes.data : componentsRes.data?.data ?? [];
+        const componentsByBomId = new Map<string, any[]>();
+        allComponents.forEach((c: any) => {
+          if (!c.bom_id) return;
+          if (!componentsByBomId.has(c.bom_id)) componentsByBomId.set(c.bom_id, []);
+          componentsByBomId.get(c.bom_id)!.push(c);
+        });
+
+        const rows: OrderStatusRow[] = orders
+          .filter((order: any) => order.status !== "Cancelled")
+          .map((order: any) => {
+            const items = Array.isArray(order.items) ? order.items : [];
+            const productLines = items.filter(
+              (i: any) => normalizeItemType(i.item_type || i.itemType) === "Product"
+            );
+
+            const orderJobs = jobsByOrder.get(order.order_no) || [];
+
+            if (productLines.length === 0) {
+              return {
+                order,
+                productCount: 0,
+                salesState: "na",
+                ingredientsState: "na",
+                productionState: "na",
+                job: orderJobs[0] || null,
+              } as OrderStatusRow;
+            }
+
+            // ---- Sales items status: does on-hand stock cover the sold qty? ----
+            const assessments = productLines.map((i: any) => getLineAssessment(i));
+            const anyShort = assessments.some((a) => a.gap > 0);
+            const anyIncoming = assessments.some((a) => a.gap > 0 && a.openPO > 0);
+            const salesState: OrderStatusRow["salesState"] = !anyShort
+              ? "in-stock"
+              : anyIncoming
+                ? "expected"
+                : "not-available";
+
+            // ---- Ingredients status: BOM raw-material availability ----
+            let anyBOM = false;
+            let anyShortage = false;
+
+            productLines.forEach((line: any) => {
+              const code = line.item_code || line.itemCode;
+              const qty = Number(line.quantity ?? line.quantityOrdered ?? 0);
+              if (!code || qty <= 0) return;
+
+              const bomId = bomIdByItemCode.get(code);
+              const components = bomId ? componentsByBomId.get(bomId) : null;
+              if (!components || components.length === 0) return;
+
+              anyBOM = true;
+              components.forEach((c: any) => {
+                const required = Number(c.quantity || 0) * qty;
+                const available = getAvailableStock(c.component);
+                if (required > available) anyShortage = true;
+              });
+            });
+
+            const issuedSomething = orderJobs.some((j: any) =>
+              Array.isArray(j.quantities) && j.quantities.some((q: any) => Number(q.issued) > 0)
+            );
+
+            const ingredientsState: OrderStatusRow["ingredientsState"] = !anyBOM
+              ? "na"
+              : issuedSomething
+                ? "picked"
+                : anyShortage
+                  ? "not-available"
+                  : "in-stock";
+
+            // ---- Production status: derived from linked Job(s) ----
+            let productionState: OrderStatusRow["productionState"];
+            if (orderJobs.length === 0) {
+              productionState = "make";
+            } else if (orderJobs.every((j: any) => j.status === "Completed")) {
+              productionState = "done";
+            } else if (orderJobs.some((j: any) => j.status === "In Progress")) {
+              productionState = "in-progress";
+            } else if (ingredientsState === "not-available") {
+              productionState = "blocked";
+            } else {
+              productionState = "not-started";
+            }
+
+            return {
+              order,
+              productCount: productLines.length,
+              salesState,
+              ingredientsState,
+              productionState,
+              job: orderJobs[0] || null,
+            } as OrderStatusRow;
+          });
+
+        if (!cancelled) setOrderStatusRows(rows);
+      } catch (err) {
+        console.error("Failed to compute order status dashboard:", err);
+        if (!cancelled) setOrderStatusRows([]);
+      } finally {
+        if (!cancelled) setComputingOrderStatus(false);
+      }
+    };
+
+    compute();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceView, orders, inventoryItems]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -2381,13 +2684,42 @@ useEffect(() => {
 
 
   const openRFQ = (item: LineItem, shortage: number) => {
-    setRfqItem({
+    setRfqItems([{
       item_code: item.itemCode,
       item_name: item.itemName,
       description: item.itemName,
       quantity: integer(shortage),
-    });
+    }]);
+    setRfqVendorName(undefined);
     setRfqDialogOpen(true);
+  };
+
+  const openRFQForMaterials = (materials: MrpMaterialRow[]) => {
+    if (materials.length === 0) return;
+    setRfqItems(
+      materials.map((m) => ({
+        item_code: m.component,
+        item_name: m.itemName,
+        description: m.itemName,
+        quantity: integer(m.recommendedPurchaseQty),
+      }))
+    );
+    setRfqVendorName(materials[0].defaultSupplier || undefined);
+    setRfqDialogOpen(true);
+  };
+
+  const openPOForMaterials = (materials: MrpMaterialRow[]) => {
+    if (materials.length === 0) return;
+    setPoItems(
+      materials.map((m) => ({
+        item_code: m.component,
+        item_name: m.itemName,
+        uom: m.uom,
+        quantity: integer(m.recommendedPurchaseQty),
+      }))
+    );
+    setPoVendorName(materials[0].defaultSupplier || undefined);
+    setPoDialogOpen(true);
   };
 
   useEffect(() => {
@@ -2992,39 +3324,101 @@ useEffect(() => {
         </section>
 
         <section className="overflow-hidden rounded-lg border bg-card shadow-sm">
-          <div className="border-b bg-portal-fieldset px-5 py-4">
-            <h3 className="text-sm font-semibold text-foreground">MRP Recommendation</h3>
-            <p className="mt-1 text-xs text-muted-foreground">Recommended next steps from the current order mix.</p>
+          <div className="border-b bg-portal-fieldset px-5 py-4 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">MRP Recommendation</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                BOM-exploded material requirements for the current order mix{mrpLoading ? " — recalculating…" : "."}
+              </p>
+            </div>
+            {mrpMaterials.some((m) => m.status === "Shortage") && (
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={selectAllMrpShortages}>
+                  Select All Shortages
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={clearMrpSelection}>
+                  Clear
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={selectedMrpMaterials.size === 0}
+                  onClick={() =>
+                    openRFQForMaterials(mrpMaterials.filter((m) => selectedMrpMaterials.has(m.component)))
+                  }
+                >
+                  Create RFQ
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={selectedMrpMaterials.size === 0}
+                  onClick={() =>
+                    openPOForMaterials(mrpMaterials.filter((m) => selectedMrpMaterials.has(m.component)))
+                  }
+                >
+                  Create PO
+                </Button>
+              </div>
+            )}
           </div>
-          <div className="space-y-3 px-5 py-4 text-sm">
-            {validationRun || lineItems.some((item) => item.itemCode) ? (
-              <>
-                {validationMetrics.available > 0 && (
-                  <div className="rounded-md border border-success/20 bg-success/10 px-3 py-2 text-success">
-                    {validationMetrics.available} item(s) can be fulfilled immediately from stock.
-                  </div>
-                )}
-                {validationMetrics.purchase > 0 && (
-                  <div className="rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-primary">
-                    Raise RFQ / purchase action for {validationMetrics.purchase} material line(s).
-                  </div>
-                )}
-                {validationMetrics.produce > 0 && (
-                  <div className="rounded-md border border-accent/20 bg-accent/10 px-3 py-2 text-accent">
-                    Review BOM and release production for {validationMetrics.produce} product line(s).
-                  </div>
-                )}
-                {validationMetrics.partial > 0 && (
-                  <div className="rounded-md border border-warning/20 bg-warning/10 px-3 py-2 text-warning">
-                    Partial fulfillment detected — split dispatch or expedite replenishment.
-                  </div>
-                )}
-                {validationMetrics.available + validationMetrics.partial + validationMetrics.purchase + validationMetrics.produce === 0 && (
-                  <div className="rounded-md border bg-background px-3 py-2 text-muted-foreground">Add valid lines to see recommendations.</div>
-                )}
-              </>
+          <div className="px-5 py-4 text-sm">
+            {mrpMaterials.length === 0 ? (
+              <div className="rounded-md border bg-background px-3 py-2 text-muted-foreground">
+                {lineItems.some((item) => item.itemCode)
+                  ? "No BOM materials found for the current line items."
+                  : "Add line items with a quantity to see MRP recommendations."}
+              </div>
             ) : (
-              <div className="rounded-md border bg-background px-3 py-2 text-muted-foreground">Validate items to see MRP recommendations.</div>
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead className="w-10"></TableHead>
+                      <TableHead>Material</TableHead>
+                      <TableHead className="text-right">Required Qty</TableHead>
+                      <TableHead className="text-right">On-Hand Qty</TableHead>
+                      <TableHead className="text-right">Shortage Qty</TableHead>
+                      <TableHead className="text-right">Recommended Purchase Qty</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {mrpMaterials.map((m) => (
+                      <TableRow key={m.component}>
+                        <TableCell>
+                          {m.status === "Shortage" && (
+                            <Checkbox
+                              checked={selectedMrpMaterials.has(m.component)}
+                              onCheckedChange={() => toggleMrpMaterialSelection(m.component)}
+                            />
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{m.itemName}</div>
+                          <div className="text-xs text-muted-foreground font-mono">{m.component}</div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {m.requiredQty} {m.uom}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {m.onHand} {m.uom}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {m.shortage > 0 ? `${m.shortage} ${m.uom}` : "—"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {m.recommendedPurchaseQty > 0 ? `${m.recommendedPurchaseQty} ${m.uom}` : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={m.status === "Shortage" ? "destructive" : "outline"}>{m.status}</Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </div>
         </section>
@@ -3123,6 +3517,8 @@ useEffect(() => {
                   <button className="inline-flex items-center gap-1" onClick={() => handleSort("customer")}>Customer {sortIcon("customer")}</button>
                 </TableHead>
                 <TableHead>Type</TableHead>
+                <TableHead>Item Code</TableHead>
+                <TableHead className="text-right">Qty</TableHead>
                 <TableHead className="text-right">Items</TableHead>
                 <TableHead>
                   <button className="inline-flex items-center gap-1" onClick={() => handleSort("amount")}>Total {sortIcon("amount")}</button>
@@ -3138,7 +3534,7 @@ useEffect(() => {
             <TableBody>
               {sortedOrders.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="py-12 text-center text-muted-foreground">No orders found.</TableCell>
+                  <TableCell colSpan={12} className="py-12 text-center text-muted-foreground">No orders found.</TableCell>
                 </TableRow>
               ) : (
                 sortedOrders.map((order) => {
@@ -3173,6 +3569,12 @@ useEffect(() => {
                         <div className="text-xs text-muted-foreground">{new Date(order.orderDate).toLocaleDateString()}</div>
                       </TableCell>
                       <TableCell>{order.order_type}</TableCell>
+                      <TableCell className="text-xs">
+                        {(order.items ?? []).map((item: any) => item.item_code || item.itemCode).filter(Boolean).join(", ") || "—"}
+                      </TableCell>
+                      <TableCell className="text-right text-xs">
+                        {(order.items ?? []).map((item: any) => item.quantity ?? item.quantityOrdered ?? 0).join(", ") || "—"}
+                      </TableCell>
                       <TableCell className="text-right">
                         {(order.items ?? []).length}
                       </TableCell>
@@ -4043,67 +4445,149 @@ useEffect(() => {
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Pending Delivery</div><div className="mt-2 text-2xl font-semibold text-warning">{dashboardStats.pendingDelivery}</div></div>
         <div className="rounded-lg border bg-card p-4 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">Overdue</div><div className="mt-2 text-2xl font-semibold text-destructive">{dashboardStats.overdue}</div></div>
       </div>
-      <div className="grid gap-6 xl:grid-cols-2">
-        <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
-          <div className="border-b bg-portal-fieldset px-5 py-4"><h3 className="text-sm font-semibold">Recent Orders</h3></div>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Order #</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Total</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {[...orders]
-                  .sort((a, b) =>
-                    String(b.order_no || "").localeCompare(String(a.order_no || ""))
-                  )
-                  .map((order) => (
-                    <TableRow key={order.id}>
-                      <TableCell className="font-mono text-xs text-primary">{order.order_no}</TableCell>
-                      <TableCell>{order.customer}</TableCell>
-                      <TableCell>
+      {(() => {
+        const salesBadge = (state: OrderStatusRow["salesState"], order: any) => {
+          switch (state) {
+            case "in-stock":
+              return <Badge className="bg-success/15 text-success border-success/30 hover:bg-success/15">In stock</Badge>;
+            case "expected":
+              return (
+                <div className="flex flex-col items-start gap-0.5">
+                  <Badge className="bg-warning/15 text-warning border-warning/30 hover:bg-warning/15">Expected</Badge>
+                  {order.expected_delivery_date && (
+                    <span className="text-[10px] font-semibold text-warning">{order.expected_delivery_date}</span>
+                  )}
+                </div>
+              );
+            case "not-available":
+              return <Badge variant="destructive">Not available</Badge>;
+            default:
+              return <span className="text-xs text-muted-foreground">—</span>;
+          }
+        };
+
+        const ingredientsBadge = (state: OrderStatusRow["ingredientsState"]) => {
+          switch (state) {
+            case "picked":
+              return <Badge className="bg-success/15 text-success border-success/30 hover:bg-success/15">Picked</Badge>;
+            case "in-stock":
+              return <Badge className="bg-success/15 text-success border-success/30 hover:bg-success/15">In stock</Badge>;
+            case "not-available":
+              return <Badge variant="destructive">Not available</Badge>;
+            default:
+              return <span className="text-xs text-muted-foreground">Not applicable</span>;
+          }
+        };
+
+        const productionBadge = (row: OrderStatusRow) => {
+          switch (row.productionState) {
+            case "done":
+              return <Badge className="bg-success/15 text-success border-success/30 hover:bg-success/15">Done</Badge>;
+            case "in-progress":
+              return <Badge className="bg-warning/15 text-warning border-warning/30 hover:bg-warning/15">Work in progress</Badge>;
+            case "blocked":
+              return <Badge variant="destructive">Blocked</Badge>;
+            case "not-started":
+              return <Badge variant="outline">Not started</Badge>;
+            case "make":
+              return (
+                <button
+                  type="button"
+                  onClick={() => navigate("/planning")}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                >
+                  <Plus className="h-3 w-3" /> Make…
+                </button>
+              );
+            default:
+              return <span className="text-xs text-muted-foreground">Not applicable</span>;
+          }
+        };
+
+        const filteredStatusRows = orderStatusRows.filter((row) =>
+          dashboardOrderTab === "done" ? row.productionState === "done" : row.productionState !== "done"
+        );
+
+        return (
+          <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+            <div className="flex items-center justify-between border-b bg-portal-fieldset px-5 py-4">
+              <div>
+                <h3 className="text-sm font-semibold">Order Status</h3>
+                <p className="text-xs text-muted-foreground">Sales, ingredient, and production readiness per order</p>
+              </div>
+              <div className="flex items-center gap-1 rounded-md border bg-card p-0.5">
+                <Button
+                  variant={dashboardOrderTab === "open" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => setDashboardOrderTab("open")}
+                >
+                  Open
+                </Button>
+                <Button
+                  variant={dashboardOrderTab === "done" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => setDashboardOrderTab("done")}
+                >
+                  Done
+                </Button>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Order #</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Reference #</TableHead>
+                    <TableHead>Total</TableHead>
+                    <TableHead>Delivery deadline</TableHead>
+                    <TableHead>Sales items</TableHead>
+                    <TableHead>Ingredients</TableHead>
+                    <TableHead>Production</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {computingOrderStatus && orderStatusRows.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
+                        Checking stock, ingredients, and production status…
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {!computingOrderStatus && filteredStatusRows.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
+                        No {dashboardOrderTab === "done" ? "completed" : "open"} orders.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {filteredStatusRows.map((row) => (
+                    <TableRow key={row.order.id}>
+                      <TableCell className="font-mono text-xs text-primary whitespace-nowrap">{row.order.order_no}</TableCell>
+                      <TableCell className="whitespace-nowrap">{row.order.customer}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{row.order.reference_no || "-"}</TableCell>
+                      <TableCell className="whitespace-nowrap">
                         <Money
-                          value={(order.items || []).reduce(
-                            (sum, item) => sum + (Number(item.total_amount) || 0),
+                          value={(row.order.items || []).reduce(
+                            (sum: number, item: any) => sum + (Number(item.total_amount) || 0),
                             0
                           )}
                         />
                       </TableCell>
-                      <TableCell>{order.status}</TableCell>
+                      <TableCell className="text-xs whitespace-nowrap">{row.order.expected_delivery_date || "-"}</TableCell>
+                      <TableCell>{salesBadge(row.salesState, row.order)}</TableCell>
+                      <TableCell>{ingredientsBadge(row.ingredientsState)}</TableCell>
+                      <TableCell>{productionBadge(row)}</TableCell>
                     </TableRow>
                   ))}
-              </TableBody>
-            </Table>
+                </TableBody>
+              </Table>
+            </div>
           </div>
-        </div>
-        <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
-          <div className="border-b bg-portal-fieldset px-5 py-4"><h3 className="text-sm font-semibold">Action Required</h3></div>
-          <div className="space-y-3 p-5">
-            {purchaseNeeds.length > 0 && (
-              <button type="button" onClick={() => setWorkspaceView("purchase")} className="w-full rounded-md border border-primary/20 bg-primary/10 px-4 py-3 text-left text-sm text-primary">
-                {purchaseNeeds.length} material line(s) need purchasing →
-              </button>
-            )}
-            {dashboardStats.overdue > 0 && (
-              <button type="button" onClick={() => setWorkspaceView("orders")} className="w-full rounded-md border border-destructive/20 bg-destructive/10 px-4 py-3 text-left text-sm text-destructive">
-                {dashboardStats.overdue} overdue order(s) need attention →
-              </button>
-            )}
-            {validationRows.filter((row) => row.assessment.state === "produce").length > 0 && (
-              <button type="button" onClick={() => setWorkspaceView("validation")} className="w-full rounded-md border border-accent/20 bg-accent/10 px-4 py-3 text-left text-sm text-accent">
-                {validationRows.filter((row) => row.assessment.state === "produce").length} line(s) require production planning →
-              </button>
-            )}
-            {purchaseNeeds.length === 0 && dashboardStats.overdue === 0 && validationRows.filter((row) => row.assessment.state === "produce").length === 0 && (
-              <div className="rounded-md border border-success/20 bg-success/10 px-4 py-3 text-sm text-success">Everything looks healthy right now.</div>
-            )}
-          </div>
-        </div>
-      </div>
+        );
+      })()}
     </div>
   );
 
@@ -4377,8 +4861,31 @@ useEffect(() => {
           </DialogHeader>
 
           <RFQForm
-            initialItem={rfqItem || undefined}
-            onSuccess={() => setRfqDialogOpen(false)}
+            initialItems={rfqItems || undefined}
+            initialVendorName={rfqVendorName}
+            onSuccess={() => {
+              setRfqDialogOpen(false);
+              setRfqItems(null);
+              setRfqVendorName(undefined);
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={poDialogOpen} onOpenChange={setPoDialogOpen}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create Purchase Order</DialogTitle>
+          </DialogHeader>
+
+          <POForm
+            initialItems={poItems || undefined}
+            initialVendor={poVendorName}
+            onSuccess={() => {
+              setPoDialogOpen(false);
+              setPoItems(null);
+              setPoVendorName(undefined);
+            }}
           />
         </DialogContent>
       </Dialog>

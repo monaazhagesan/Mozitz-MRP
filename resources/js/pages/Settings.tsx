@@ -795,53 +795,113 @@ const Settings = () => {
   const [defaultSalesTax, setDefaultSalesTax] = useState("1");
   const [defaultPurchaseTax, setDefaultPurchaseTax] = useState("1");
 
-  // Operations state
+  // Operations state (backed by /api/operations)
   interface Operation {
     id: string;
     department: string;
     operation_name: string;
     machine: string;
     per_hr_cost: string;
+    sequence?: number;
   }
 
-  const [operations, setOperations] = useState<Operation[]>([
-    { id: "1", department: "Production", operation_name: "Cutting", machine: "Laser Cutter", per_hr_cost: "50" },
-    { id: "2", department: "Production", operation_name: "Gluing", machine: "Adhesive Station", per_hr_cost: "35" },
-    { id: "3", department: "Assembly", operation_name: "Assembly", machine: "Assembly Line", per_hr_cost: "45" },
-    { id: "4", department: "Finishing", operation_name: "Packaging", machine: "Packaging Machine", per_hr_cost: "30" },
-  ]);
+  const [operations, setOperations] = useState<Operation[]>([]);
+  const [operationsLoading, setOperationsLoading] = useState(false);
   const [newOperation, setNewOperation] = useState<Omit<Operation, 'id'>>({
     department: "",
     operation_name: "",
     machine: "",
     per_hr_cost: ""
   });
+  const [operationErrors, setOperationErrors] = useState<Record<string, string>>({});
+  const [savingOperation, setSavingOperation] = useState(false);
 
-  const handleAddOperation = () => {
-    if (newOperation.operation_name.trim() && newOperation.department.trim()) {
-      const operation: Operation = {
-        id: Date.now().toString(),
-        ...newOperation
-      };
-      setOperations([...operations, operation]);
+  const loadOperations = async () => {
+    setOperationsLoading(true);
+    try {
+      const res = await axios.get("/api/operations");
+      setOperations(Array.isArray(res.data) ? res.data : []);
+    } catch (error) {
+      console.error("Failed to load operations:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load operations",
+        variant: "destructive",
+      });
+    } finally {
+      setOperationsLoading(false);
+    }
+  };
+
+  const handleAddOperation = async () => {
+    setOperationErrors({});
+    if (!newOperation.department.trim() || !newOperation.operation_name.trim()) {
+      setOperationErrors({
+        department: !newOperation.department.trim() ? "Department is required" : "",
+        operation_name: !newOperation.operation_name.trim() ? "Operation name is required" : "",
+      });
+      return;
+    }
+
+    setSavingOperation(true);
+    try {
+      const res = await axios.post("/api/operations", {
+        department: newOperation.department.trim(),
+        operation_name: newOperation.operation_name.trim(),
+        machine: newOperation.machine.trim() || null,
+        per_hr_cost: newOperation.per_hr_cost || 0,
+      });
+      setOperations([...operations, res.data]);
       setNewOperation({ department: "", operation_name: "", machine: "", per_hr_cost: "" });
       toast({
         title: "Operation Added",
-        description: `${newOperation.operation_name} has been added`,
+        description: `${res.data.operation_name} has been added`,
+      });
+    } catch (error: any) {
+      if (error.response?.status === 422) {
+        const errors = error.response.data?.errors || {};
+        setOperationErrors({
+          department: errors.department?.[0] || "",
+          operation_name: errors.operation_name?.[0] || "",
+          machine: errors.machine?.[0] || "",
+          per_hr_cost: errors.per_hr_cost?.[0] || "",
+        });
+        toast({
+          title: "Validation Failed",
+          description: Object.values(errors).flat().join(" ") as string,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: error.response?.data?.message || "Failed to add operation",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setSavingOperation(false);
+    }
+  };
+
+  const handleDeleteOperation = async (id: string) => {
+    const operation = operations.find(o => o.id === id);
+    try {
+      await axios.delete(`/api/operations/${id}`);
+      setOperations(operations.filter(o => o.id !== id));
+      toast({
+        title: "Operation Removed",
+        description: `${operation?.operation_name} has been removed`,
+      });
+    } catch (error: any) {
+      toast({
+        title: error.response?.status === 409 ? "Cannot Delete Operation" : "Error",
+        description: error.response?.data?.message || "Failed to delete operation",
+        variant: "destructive",
       });
     }
   };
 
-  const handleDeleteOperation = (id: string) => {
-    const operation = operations.find(o => o.id === id);
-    setOperations(operations.filter(o => o.id !== id));
-    toast({
-      title: "Operation Removed",
-      description: `${operation?.operation_name} has been removed`,
-    });
-  };
-
-  // Resources (Machines) state
+  // Resources (Machines) state (backed by /api/resources)
   interface Resource {
     id: string;
     machine_name: string;
@@ -864,10 +924,8 @@ const Settings = () => {
     "Other"
   ];
 
-  const [resources, setResources] = useState<Resource[]>([
-    { id: "1", machine_name: "Laser Cutter A1", machine_code: "MCH-001", machine_type: "Laser Cutting Machine", description: "Primary laser cutting machine", is_active: true, parent_machine: "Laser Cutter" },
-    { id: "2", machine_name: "CNC Router B2", machine_code: "MCH-002", machine_type: "CNC Machine", description: "CNC router for precision work", is_active: true, parent_machine: "CNC Router" },
-  ]);
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [resourcesLoading, setResourcesLoading] = useState(false);
 
   const [newResource, setNewResource] = useState<Omit<Resource, 'id'>>({
     machine_name: "",
@@ -877,25 +935,55 @@ const Settings = () => {
     is_active: true,
     parent_machine: ""
   });
+  const [resourceErrors, setResourceErrors] = useState<Record<string, string>>({});
+  const [savingResource, setSavingResource] = useState(false);
 
   const [autoGenerateCode, setAutoGenerateCode] = useState(true);
 
-  // Get unique machines from operations
-  const availableMachines = [...new Set(operations.map(op => op.machine).filter(Boolean))];
-
-  const generateMachineCode = () => {
-    const nextNum = resources.length + 1;
-    return `MCH-${String(nextNum).padStart(3, '0')}`;
+  const loadResources = async () => {
+    setResourcesLoading(true);
+    try {
+      const res = await axios.get("/api/resources");
+      setResources(Array.isArray(res.data) ? res.data : []);
+    } catch (error) {
+      console.error("Failed to load resources:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load resources",
+        variant: "destructive",
+      });
+    } finally {
+      setResourcesLoading(false);
+    }
   };
 
-  const handleAddResource = () => {
-    if (newResource.machine_name.trim()) {
-      const resource: Resource = {
-        id: Date.now().toString(),
-        ...newResource,
-        machine_code: autoGenerateCode ? generateMachineCode() : newResource.machine_code
-      };
-      setResources([...resources, resource]);
+  useEffect(() => {
+    loadOperations();
+    loadResources();
+  }, []);
+
+  // Get unique machines from operations (drives the Resources "Parent Machine" dropdown,
+  // and must match the server-side rule in ResourceController::validateData)
+  const availableMachines = [...new Set(operations.map(op => op.machine).filter(Boolean))];
+
+  const handleAddResource = async () => {
+    setResourceErrors({});
+    if (!newResource.machine_name.trim()) {
+      setResourceErrors({ machine_name: "Machine name is required" });
+      return;
+    }
+
+    setSavingResource(true);
+    try {
+      const res = await axios.post("/api/resources", {
+        machine_name: newResource.machine_name.trim(),
+        machine_code: autoGenerateCode ? null : newResource.machine_code.trim() || null,
+        machine_type: newResource.machine_type || null,
+        parent_machine: newResource.parent_machine || null,
+        description: newResource.description.trim() || null,
+        is_active: true,
+      });
+      setResources([...resources, res.data]);
       setNewResource({
         machine_name: "",
         machine_code: "",
@@ -906,24 +994,73 @@ const Settings = () => {
       });
       toast({
         title: "Resource Added",
-        description: `${newResource.machine_name} has been added`,
+        description: `${res.data.machine_name} has been added`,
+      });
+    } catch (error: any) {
+      if (error.response?.status === 422) {
+        const errors = error.response.data?.errors || {};
+        setResourceErrors({
+          machine_name: errors.machine_name?.[0] || "",
+          machine_code: errors.machine_code?.[0] || "",
+          machine_type: errors.machine_type?.[0] || "",
+          parent_machine: errors.parent_machine?.[0] || "",
+        });
+        toast({
+          title: "Validation Failed",
+          description: Object.values(errors).flat().join(" ") as string,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: error.response?.data?.message || "Failed to add resource",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setSavingResource(false);
+    }
+  };
+
+  const handleDeleteResource = async (id: string) => {
+    const resource = resources.find(r => r.id === id);
+    try {
+      await axios.delete(`/api/resources/${id}`);
+      setResources(resources.filter(r => r.id !== id));
+      toast({
+        title: "Resource Removed",
+        description: `${resource?.machine_name} has been removed`,
+      });
+    } catch (error: any) {
+      toast({
+        title: error.response?.status === 409 ? "Cannot Delete Resource" : "Error",
+        description: error.response?.data?.message || "Failed to delete resource",
+        variant: "destructive",
       });
     }
   };
 
-  const handleDeleteResource = (id: string) => {
+  const handleToggleResourceActive = async (id: string) => {
     const resource = resources.find(r => r.id === id);
-    setResources(resources.filter(r => r.id !== id));
-    toast({
-      title: "Resource Removed",
-      description: `${resource?.machine_name} has been removed`,
-    });
-  };
-
-  const handleToggleResourceActive = (id: string) => {
-    setResources(resources.map(r =>
-      r.id === id ? { ...r, is_active: !r.is_active } : r
-    ));
+    if (!resource) return;
+    const nextActive = !resource.is_active;
+    setResources(resources.map(r => (r.id === id ? { ...r, is_active: nextActive } : r)));
+    try {
+      await axios.put(`/api/resources/${id}`, {
+        machine_name: resource.machine_name,
+        machine_type: resource.machine_type || null,
+        parent_machine: resource.parent_machine || null,
+        description: resource.description || null,
+        is_active: nextActive,
+      });
+    } catch (error: any) {
+      setResources(resources.map(r => (r.id === id ? { ...r, is_active: !nextActive } : r)));
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || "Failed to update resource status",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleAddTax = () => {
@@ -1764,7 +1901,13 @@ const Settings = () => {
 
                 {/* Table Body */}
                 <div className="divide-y">
-                  {operations.map((operation) => (
+                  {operationsLoading && (
+                    <div className="px-4 py-6 text-sm text-muted-foreground text-center">Loading operations...</div>
+                  )}
+                  {!operationsLoading && operations.length === 0 && (
+                    <div className="px-4 py-6 text-sm text-muted-foreground text-center">No operations defined yet. Add one below.</div>
+                  )}
+                  {!operationsLoading && operations.map((operation) => (
                     <div key={operation.id} className="grid grid-cols-12 gap-4 items-center px-4 py-3 hover:bg-muted/50 transition-colors">
                       <div className="col-span-1">
                         <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
@@ -1800,22 +1943,28 @@ const Settings = () => {
                   <div className="grid grid-cols-12 gap-4 items-end">
                     <div className="col-span-1"></div>
                     <div className="col-span-2">
-                      <Label className="text-xs text-muted-foreground mb-1 block">Department</Label>
+                      <Label className="text-xs text-muted-foreground mb-1 block">Department *</Label>
                       <Input
                         placeholder="e.g. Production"
                         value={newOperation.department}
                         onChange={(e) => setNewOperation({ ...newOperation, department: e.target.value })}
-                        className="h-9"
+                        className={cn("h-9", operationErrors.department && "border-destructive")}
                       />
+                      {operationErrors.department && (
+                        <p className="text-xs text-destructive mt-1">{operationErrors.department}</p>
+                      )}
                     </div>
                     <div className="col-span-3">
-                      <Label className="text-xs text-muted-foreground mb-1 block">Operation Name</Label>
+                      <Label className="text-xs text-muted-foreground mb-1 block">Operation Name *</Label>
                       <Input
                         placeholder="e.g. Cutting"
                         value={newOperation.operation_name}
                         onChange={(e) => setNewOperation({ ...newOperation, operation_name: e.target.value })}
-                        className="h-9"
+                        className={cn("h-9", operationErrors.operation_name && "border-destructive")}
                       />
+                      {operationErrors.operation_name && (
+                        <p className="text-xs text-destructive mt-1">{operationErrors.operation_name}</p>
+                      )}
                     </div>
                     <div className="col-span-3">
                       <Label className="text-xs text-muted-foreground mb-1 block">Machine</Label>
@@ -1830,11 +1979,15 @@ const Settings = () => {
                       <Label className="text-xs text-muted-foreground mb-1 block">Per Hr Cost ($)</Label>
                       <Input
                         type="number"
+                        min="0"
                         placeholder="0"
                         value={newOperation.per_hr_cost}
                         onChange={(e) => setNewOperation({ ...newOperation, per_hr_cost: e.target.value })}
-                        className="h-9"
+                        className={cn("h-9", operationErrors.per_hr_cost && "border-destructive")}
                       />
+                      {operationErrors.per_hr_cost && (
+                        <p className="text-xs text-destructive mt-1">{operationErrors.per_hr_cost}</p>
+                      )}
                     </div>
                     <div className="col-span-1"></div>
                   </div>
@@ -1843,10 +1996,10 @@ const Settings = () => {
                       variant="link"
                       onClick={handleAddOperation}
                       className="text-primary p-0 h-auto"
-                      disabled={!newOperation.operation_name.trim() || !newOperation.department.trim()}
+                      disabled={!newOperation.operation_name.trim() || !newOperation.department.trim() || savingOperation}
                     >
                       <Plus className="h-4 w-4 mr-1" />
-                      Add row
+                      {savingOperation ? "Adding..." : "Add row"}
                     </Button>
                   </div>
                 </div>
@@ -1900,7 +2053,13 @@ const Settings = () => {
 
                 {/* Table Body */}
                 <div className="divide-y">
-                  {resources.map((resource) => (
+                  {resourcesLoading && (
+                    <div className="px-4 py-6 text-sm text-muted-foreground text-center">Loading resources...</div>
+                  )}
+                  {!resourcesLoading && resources.length === 0 && (
+                    <div className="px-4 py-6 text-sm text-muted-foreground text-center">No resources defined yet. Add one below.</div>
+                  )}
+                  {!resourcesLoading && resources.map((resource) => (
                     <div key={resource.id} className="grid grid-cols-12 gap-4 items-center px-4 py-3 hover:bg-muted/50 transition-colors">
                       <div className="col-span-2">
                         <div className="flex items-center gap-2">
@@ -1949,8 +2108,11 @@ const Settings = () => {
                         placeholder="e.g. CNC Router B2"
                         value={newResource.machine_name}
                         onChange={(e) => setNewResource({ ...newResource, machine_name: e.target.value })}
-                        className="h-9"
+                        className={cn("h-9", resourceErrors.machine_name && "border-destructive")}
                       />
+                      {resourceErrors.machine_name && (
+                        <p className="text-xs text-destructive mt-1">{resourceErrors.machine_name}</p>
+                      )}
                     </div>
                     <div className="col-span-2">
                       <div className="flex items-center justify-between mb-1">
@@ -1965,12 +2127,15 @@ const Settings = () => {
                         </div>
                       </div>
                       <Input
-                        placeholder={autoGenerateCode ? generateMachineCode() : "MCH-XXX"}
+                        placeholder={autoGenerateCode ? "Auto-generated" : "MCH-XXX"}
                         value={autoGenerateCode ? "" : newResource.machine_code}
                         onChange={(e) => setNewResource({ ...newResource, machine_code: e.target.value })}
-                        className="h-9"
+                        className={cn("h-9", resourceErrors.machine_code && "border-destructive")}
                         disabled={autoGenerateCode}
                       />
+                      {resourceErrors.machine_code && (
+                        <p className="text-xs text-destructive mt-1">{resourceErrors.machine_code}</p>
+                      )}
                     </div>
                     <div className="col-span-2">
                       <Label className="text-xs text-muted-foreground mb-1 block">Machine Type</Label>
@@ -1994,7 +2159,7 @@ const Settings = () => {
                         value={newResource.parent_machine}
                         onValueChange={(value) => setNewResource({ ...newResource, parent_machine: value })}
                       >
-                        <SelectTrigger className="h-9">
+                        <SelectTrigger className={cn("h-9", resourceErrors.parent_machine && "border-destructive")}>
                           <SelectValue placeholder="Select parent" />
                         </SelectTrigger>
                         <SelectContent>
@@ -2007,6 +2172,9 @@ const Settings = () => {
                           )}
                         </SelectContent>
                       </Select>
+                      {resourceErrors.parent_machine && (
+                        <p className="text-xs text-destructive mt-1">{resourceErrors.parent_machine}</p>
+                      )}
                     </div>
                     <div className="col-span-3">
                       <Label className="text-xs text-muted-foreground mb-1 block">Description</Label>
@@ -2024,10 +2192,10 @@ const Settings = () => {
                       variant="link"
                       onClick={handleAddResource}
                       className="text-primary p-0 h-auto"
-                      disabled={!newResource.machine_name.trim()}
+                      disabled={!newResource.machine_name.trim() || savingResource}
                     >
                       <Plus className="h-4 w-4 mr-1" />
-                      Add resource
+                      {savingResource ? "Adding..." : "Add resource"}
                     </Button>
                   </div>
                 </div>

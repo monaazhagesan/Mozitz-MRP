@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import axios from "axios";
 import { Plus, CheckCircle, ArrowRight } from "lucide-react";
 import { format } from "date-fns";
 
@@ -98,16 +98,11 @@ export default function VendorQuotations() {
 
   const fetchRFQs = async () => {
     try {
-      const { data, error } = await supabase
-        .from("rfqs" as any)
-        .select("id, rfq_number, title")
-        .eq("status", "Sent")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      setRfqs(data as any || []);
-      if (data && data.length > 0) {
-        setSelectedRFQ((data as any)[0].id);
+      const res = await axios.get("/api/rfqs");
+      const data = (res.data || []).filter((r: any) => r.status === "sent");
+      setRfqs(data);
+      if (data.length > 0) {
+        setSelectedRFQ(data[0].id);
       }
     } catch (error: any) {
       toast({
@@ -122,14 +117,10 @@ export default function VendorQuotations() {
 
   const fetchQuotations = async () => {
     try {
-      const { data, error } = await supabase
-        .from("vendor_quotations" as any)
-        .select("*")
-        .eq("rfq_id", selectedRFQ)
-        .order("received_at", { ascending: false });
-
-      if (error) throw error;
-      setQuotations(data as any || []);
+      const res = await axios.get("/api/vendor-quotations", {
+        params: { rfq_id: selectedRFQ },
+      });
+      setQuotations(res.data || []);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -164,11 +155,7 @@ export default function VendorQuotations() {
         notes: values.notes || null,
       };
 
-      const { error } = await supabase
-        .from("vendor_quotations" as any)
-        .insert([quotationData]);
-
-      if (error) throw error;
+      await axios.post("/api/vendor-quotations", quotationData);
 
       toast({
         title: "Success",
@@ -189,19 +176,8 @@ export default function VendorQuotations() {
 
   const selectQuotation = async (id: string) => {
     try {
-      // Deselect all quotations for this RFQ
-      await supabase
-        .from("vendor_quotations" as any)
-        .update({ is_selected: false })
-        .eq("rfq_id", selectedRFQ);
-
-      // Select the chosen quotation
-      const { error } = await supabase
-        .from("vendor_quotations" as any)
-        .update({ is_selected: true, status: "Selected" })
-        .eq("id", id);
-
-      if (error) throw error;
+      // Backend deselects other quotations for the same RFQ and selects this one atomically
+      await axios.post(`/api/vendor-quotations/${id}/select`);
 
       toast({
         title: "Success",
@@ -460,7 +436,7 @@ export default function VendorQuotations() {
                       {quote.is_selected && (
                         <Button
                           size="sm"
-                          onClick={() => window.location.href = `/purchase-orders?quote=${quote.id}`}
+                          onClick={() => window.location.href = `/purchase/purchase-orders?quote=${quote.id}`}
                         >
                           Create PO
                           <ArrowRight className="h-4 w-4 ml-1" />

@@ -38,6 +38,7 @@ class BomOperationController extends Controller
                 'bom_id' => 'required|string',
                 'operation_seq' => 'nullable|integer',
                 'operation_code' => 'nullable|string',
+                'operation_type' => 'nullable|string|in:Setup,Process',
                 'description' => 'nullable|string',
                 'department' => 'nullable|string',
                 'work_center' => 'nullable|string',
@@ -45,6 +46,7 @@ class BomOperationController extends Controller
                 'labor_cost' => 'nullable|numeric',
                 'machine_cost' => 'nullable|numeric',
                 'overhead_cost' => 'nullable|numeric',
+                'cost_per_hour' => 'nullable|numeric|min:0',
                 'setup_time' => 'nullable|numeric',
                 'run_time' => 'nullable|numeric',
             ]);
@@ -58,6 +60,7 @@ class BomOperationController extends Controller
 
             $validData = $validator->validated();
             $validData['id'] = Str::uuid()->toString();
+            $validData['user_id'] = auth()->id();
             $inserted[] = BomOperation::create($validData);
         }
 
@@ -91,6 +94,23 @@ public function deleteByBomId(Request $request)
     ]);
 }
 
+// Deletes only bom_operations rows for a bom_id (leaves bom_components untouched),
+// used when re-saving the routing from the Production Operations step.
+public function deleteOperationsByBomId(Request $request)
+{
+    $request->validate([
+        'bom_id' => 'required|string',
+    ]);
+
+    $deleted = BomOperation::where('bom_id', $request->bom_id)
+        ->where('user_id', auth()->id())
+        ->delete();
+
+    return response()->json([
+        'message' => "$deleted operation(s) deleted successfully."
+    ]);
+}
+
 public function update(Request $request, $id)
 {
     $requestData = $request->all();
@@ -100,14 +120,21 @@ public function update(Request $request, $id)
     $requestData['labor_cost'] = isset($requestData['labor_cost']) ? (float)$requestData['labor_cost'] : null;
     $requestData['machine_cost'] = isset($requestData['machine_cost']) ? (float)$requestData['machine_cost'] : null;
     $requestData['overhead_cost'] = isset($requestData['overhead_cost']) ? (float)$requestData['overhead_cost'] : null;
+    $requestData['cost_per_hour'] = isset($requestData['cost_per_hour']) ? (float)$requestData['cost_per_hour'] : null;
     $requestData['setup_time'] = isset($requestData['setup_time']) ? (float)$requestData['setup_time'] : null;
     $requestData['run_time'] = isset($requestData['run_time']) ? (float)$requestData['run_time'] : null;
 
     $validator = Validator::make($requestData, [
         'routing_enabled' => 'nullable|boolean',
+        'operation_code' => 'nullable|string',
+        'operation_type' => 'nullable|string|in:Setup,Process',
+        'description' => 'nullable|string',
+        'department' => 'nullable|string',
+        'work_center' => 'nullable|string',
         'labor_cost' => 'nullable|numeric',
         'machine_cost' => 'nullable|numeric',
         'overhead_cost' => 'nullable|numeric',
+        'cost_per_hour' => 'nullable|numeric|min:0',
         'setup_time' => 'nullable|numeric',
         'run_time' => 'nullable|numeric',
     ]);

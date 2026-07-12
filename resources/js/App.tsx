@@ -16,9 +16,9 @@ import Planning from "./pages/Planning";
 import ShopFloor from "./pages/ShopFloor";
 import Dashboard from "./pages/Dashboard";
 import PurchaseOrders from "./pages/PurchaseOrders";
-/*import MRPRun from "./pages/MRPRun";
+import MRPRun from "./pages/MRPRun";
 import RFQManagement from "./pages/RFQManagement";
-import VendorQuotations from "./pages/VendorQuotations"; */
+import VendorQuotations from "./pages/VendorQuotations";
 import Customers from "./pages/Customers";
 import Vendors from "./pages/Vendors";
 import Invoices from "./pages/Invoices";
@@ -35,10 +35,9 @@ import POApproval from "./pages/POApproval";
 /*import InvoiceApproval from "./pages/InvoiceApproval"; */
 import GRN from "./pages/GRN";
 import SupplierPayables from "./pages/SupplierPayables";
-/*import EAuction from "./pages/EAuction";*/
+import EAuction from "./pages/EAuction";
 import POReturn from "./pages/POReturn";
 import CreditNotes from "./pages/CreditNotes";
-//import AccountingAI from "./pages/AccountingAI";
 import PitchDeck from "./pages/PitchDeck";
 import ForgotPassword from "./pages/ForgotPassword";
 import NotFound from "./pages/NotFound";
@@ -70,16 +69,15 @@ const App = () => (
             <Route path="/accounting/ledger" element={<ProtectedRoute><Ledger /></ProtectedRoute>} />
             <Route path="/accounting/supplier-payables" element={<ProtectedRoute><SupplierPayables /></ProtectedRoute>} />
             <Route path="/accounting/credit-notes" element={<ProtectedRoute><CreditNotes /></ProtectedRoute>} />
-         {/*       <Route path="/accounting/ai-insights" element={<ProtectedRoute><AccountingAI /></ProtectedRoute>} />  */}
             <Route path="/purchase/vendors" element={<ProtectedRoute><Vendors /></ProtectedRoute>} />
               <Route path="/purchase/purchase-orders" element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} />
-         {/*    <Route path="/purchase/rfq-management" element={<ProtectedRoute><RFQManagement /></ProtectedRoute>} />
+            <Route path="/purchase/rfq-management" element={<ProtectedRoute><RFQManagement /></ProtectedRoute>} />
             <Route path="/purchase/vendor-quotations" element={<ProtectedRoute><VendorQuotations /></ProtectedRoute>} />
-            <Route path="/purchase/mrp-run" element={<ProtectedRoute><MRPRun /></ProtectedRoute>} /> */}
+            <Route path="/purchase/mrp-run" element={<ProtectedRoute><MRPRun /></ProtectedRoute>} />
             <Route path="/purchase/grn" element={<ProtectedRoute><GRN /></ProtectedRoute>} />
             <Route path="/purchase/debit-note" element={<ProtectedRoute><POReturn /></ProtectedRoute>} />
-       {/*     <Route path="/purchase/e-auction" element={<ProtectedRoute><EAuction /></ProtectedRoute>} />
-            <Route path="/inventory-location" element={<ProtectedRoute><InventoryLocation /></ProtectedRoute>} />  */}
+            <Route path="/purchase/e-auction" element={<ProtectedRoute><EAuction /></ProtectedRoute>} />
+       {/*     <Route path="/inventory-location" element={<ProtectedRoute><InventoryLocation /></ProtectedRoute>} />  */}
             <Route path="/approvals/po-approval" element={<ProtectedRoute><POApproval /></ProtectedRoute>} />
        {/*      <Route path="/approvals/invoice-approval" element={<ProtectedRoute><InvoiceApproval /></ProtectedRoute>} />
             <Route path="/approvals/inventory-approvals" element={<ProtectedRoute><InventoryApprovals /></ProtectedRoute>} />

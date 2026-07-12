@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import axios from "axios";
 import { Plus, Send, Eye, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -56,42 +56,45 @@ export default function RFQManagement() {
 
   useEffect(() => {
     fetchRFQs();
-    // Check if coming from Item Demands
+    // Check if coming from MRP's "Create RFQ (Manual)" action: ?items=CODE:QTY,CODE2:QTY2
     const urlParams = new URLSearchParams(window.location.search);
-    const demandIds = urlParams.get('demands');
-    if (demandIds) {
-      loadDemandsAndCreateRFQ(demandIds.split(','));
+    const itemsParam = urlParams.get('items');
+    if (itemsParam) {
+      loadShortageItemsAndCreateRFQ(itemsParam.split(','));
     }
   }, []);
 
-  const loadDemandsAndCreateRFQ = async (demandIds: string[]) => {
+  const loadShortageItemsAndCreateRFQ = async (itemParams: string[]) => {
     try {
-      const { data: demands, error } = await supabase
-        .from("item_demands" as any)
-        .select("*")
-        .in("id", demandIds);
+      const parsed = itemParams
+        .map((entry) => {
+          const [item_code, qty] = entry.split(':');
+          return { item_code, quantity: qty };
+        })
+        .filter((p) => p.item_code);
 
-      if (error) throw error;
+      const invRes = await axios.get("/api/inventory-stock");
+      const inventoryItems: any[] = invRes.data?.items || [];
+      const nameByCode = new Map<string, string>(
+        inventoryItems.map((i: any) => [i.itemCode ?? i.item_code, i.itemName ?? i.item_name])
+      );
 
-      if (demands && demands.length > 0) {
-        // Auto-populate form with demands
-        form.setValue("title", `RFQ for ${demands.map((d: any) => d.item_name).join(", ")}`);
-        
-        // Populate items from demands
-        const demandItems = demands.map((d: any) => ({
-          item_code: d.item_code,
-          item_name: d.item_name,
-          description: d.description || "",
-          quantity: d.quantity.toString(),
-          required_date: d.required_date.split('T')[0], // Format date for input
-        }));
-        setItems(demandItems);
-        
+      const prefillItems = parsed.map((p) => ({
+        item_code: p.item_code,
+        item_name: nameByCode.get(p.item_code) || p.item_code,
+        description: "",
+        quantity: p.quantity || "1",
+        required_date: "",
+      }));
+
+      if (prefillItems.length > 0) {
+        form.setValue("title", `RFQ for ${prefillItems.map((i) => i.item_name).join(", ")}`);
+        setItems(prefillItems);
         setOpen(true);
 
         toast({
-          title: "Demands Loaded",
-          description: `${demands.length} approved demand(s) loaded. Complete RFQ details and add vendors.`,
+          title: "Shortage Items Loaded",
+          description: `${prefillItems.length} item(s) loaded from MRP. Complete RFQ details and add vendors.`,
         });
       }
     } catch (error: any) {
@@ -105,13 +108,8 @@ export default function RFQManagement() {
 
   const fetchRFQs = async () => {
     try {
-      const { data, error } = await supabase
-        .from("rfqs" as any)
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      setRfqs(data as any || []);
+      const res = await axios.get("/api/rfqs");
+      setRfqs(res.data || []);
     } catch (error: any) {
       toast({
         title: "Error",
@@ -130,89 +128,35 @@ export default function RFQManagement() {
 
   const onSubmit = async (values: RFQFormValues) => {
     try {
-      const rfqData = {
-        rfq_number: generateRFQNumber(),
-        title: values.title,
-        status: "Draft",
-        payment_terms: values.payment_terms || null,
-        delivery_location: values.delivery_location || null,
-        notes: values.notes || null,
-      };
+      const rfqItems = items
+        .filter(item => item.item_code && item.item_name && item.quantity)
+        .map(item => ({
+          item_code: item.item_code,
+          item_name: item.item_name,
+          description: item.description || null,
+          quantity: parseFloat(item.quantity),
+          required_date: item.required_date || new Date().toISOString().split("T")[0],
+        }));
 
-      const { data: rfq, error: rfqError } = await supabase
-        .from("rfqs" as any)
-        .insert([rfqData])
-        .select()
-        .single();
-
-      if (rfqError) throw rfqError;
-
-      // Check if coming from Item Demands and link demands to RFQ
-      const urlParams = new URLSearchParams(window.location.search);
-      const demandIds = urlParams.get('demands');
-      if (demandIds) {
-        const ids = demandIds.split(',');
-        const { data: demands } = await supabase
-          .from("item_demands" as any)
-          .select("*")
-          .in("id", ids);
-
-        if (demands) {
-          // Insert RFQ items from demands
-          const rfqItems = demands.map((d: any) => ({
-            rfq_id: (rfq as any).id,
-            item_code: d.item_code,
-            item_name: d.item_name,
-            description: d.description,
-            quantity: d.quantity,
-            required_date: d.required_date,
-            demand_id: d.id,
-          }));
-
-          await supabase.from("rfq_items" as any).insert(rfqItems);
-
-          // Update demand statuses
-          await supabase
-            .from("item_demands" as any)
-            .update({ status: "RFQ Created" })
-            .in("id", ids);
-        }
-      } else {
-        // Insert manually added items
-        const rfqItems = items
-          .filter(item => item.item_code && item.item_name && item.quantity)
-          .map(item => ({
-            rfq_id: (rfq as any).id,
-            item_code: item.item_code,
-            item_name: item.item_name,
-            description: item.description || null,
-            quantity: parseFloat(item.quantity),
-            required_date: item.required_date || new Date().toISOString(),
-          }));
-
-        if (rfqItems.length > 0) {
-          await supabase.from("rfq_items" as any).insert(rfqItems);
-        }
-      }
-
-      // Insert vendors
       const vendorData = vendors
         .filter(v => v.vendor_name)
         .map(v => ({
-          rfq_id: (rfq as any).id,
           vendor_name: v.vendor_name,
-          vendor_email: v.vendor_email,
-          vendor_contact: v.vendor_contact,
-          status: "Pending",
+          vendor_email: v.vendor_email || null,
+          vendor_contact: v.vendor_contact || null,
+          status: "pending",
         }));
 
-      if (vendorData.length > 0) {
-        const { error: vendorError } = await supabase
-          .from("rfq_vendors" as any)
-          .insert(vendorData);
-
-        if (vendorError) throw vendorError;
-      }
+      await axios.post("/api/rfqs", {
+        rfq_number: generateRFQNumber(),
+        title: values.title,
+        status: "draft",
+        payment_terms: values.payment_terms || null,
+        delivery_location: values.delivery_location || null,
+        notes: values.notes || null,
+        items: rfqItems,
+        vendors: vendorData,
+      });
 
       toast({
         title: "Success",
@@ -225,7 +169,7 @@ export default function RFQManagement() {
       setOpen(false);
       fetchRFQs();
       // Clear URL params
-      window.history.replaceState({}, '', '/rfq-management');
+      window.history.replaceState({}, '', '/purchase/rfq-management');
     } catch (error: any) {
       toast({
         title: "Error",
@@ -237,18 +181,7 @@ export default function RFQManagement() {
 
   const sendRFQ = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from("rfqs" as any)
-        .update({ status: "Sent", sent_at: new Date().toISOString() })
-        .eq("id", id);
-
-      if (error) throw error;
-
-      // Update vendor statuses
-      await supabase
-        .from("rfq_vendors" as any)
-        .update({ status: "Sent", sent_at: new Date().toISOString() })
-        .eq("rfq_id", id);
+      await axios.post(`/api/rfq/send/${id}`);
 
       toast({
         title: "Success",
@@ -259,7 +192,7 @@ export default function RFQManagement() {
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message,
+        description: error.response?.data?.message || error.message,
         variant: "destructive",
       });
     }
@@ -267,50 +200,37 @@ export default function RFQManagement() {
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-      Draft: "secondary",
-      Sent: "default",
-      "Vendor Responded": "outline",
-      Completed: "default",
+      draft: "secondary",
+      sent: "default",
+      viewed: "outline",
+      quoted: "outline",
+      closed: "default",
     };
-    return <Badge variant={variants[status] || "default"}>{status}</Badge>;
+    const labels: Record<string, string> = {
+      draft: "Draft",
+      sent: "Sent",
+      viewed: "Viewed",
+      quoted: "Quoted",
+      closed: "Closed",
+    };
+    return <Badge variant={variants[status] || "default"}>{labels[status] || status}</Badge>;
   };
 
   const viewRFQ = async (rfqId: string) => {
     try {
-      const { data: rfqData, error: rfqError } = await supabase
-        .from("rfqs" as any)
-        .select("*")
-        .eq("id", rfqId)
-        .single();
-
-      if (rfqError) throw rfqError;
-
-      // Fetch RFQ items
-      const { data: itemsData, error: itemsError } = await supabase
-        .from("rfq_items" as any)
-        .select("*")
-        .eq("rfq_id", rfqId);
-
-      if (itemsError) throw itemsError;
-
-      // Fetch RFQ vendors
-      const { data: vendorsData, error: vendorsError } = await supabase
-        .from("rfq_vendors" as any)
-        .select("*")
-        .eq("rfq_id", rfqId);
-
-      if (vendorsError) throw vendorsError;
+      const res = await axios.get(`/api/rfqs/${rfqId}`);
+      const rfqData = res.data || {};
 
       setSelectedRFQ({
-        ...(rfqData as any),
-        items: itemsData || [],
-        vendors: vendorsData || [],
+        ...rfqData,
+        items: rfqData.items || [],
+        vendors: rfqData.vendors || [],
       });
       setViewOpen(true);
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message,
+        description: error.response?.data?.message || error.message,
         variant: "destructive",
       });
     }
@@ -575,7 +495,7 @@ export default function RFQManagement() {
                     <TableCell>{rfq.sent_at ? format(new Date(rfq.sent_at), "PP") : "-"}</TableCell>
                     <TableCell>
                       <div className="flex space-x-2">
-                        {rfq.status === "Draft" && (
+                        {rfq.status === "draft" && (
                           <Button
                             size="sm"
                             onClick={() => sendRFQ(rfq.id)}
@@ -701,7 +621,7 @@ export default function RFQManagement() {
                             <TableCell>{vendor.vendor_email || "-"}</TableCell>
                             <TableCell>{vendor.vendor_contact || "-"}</TableCell>
                             <TableCell>
-                              <Badge variant={vendor.status === "Sent" ? "default" : "secondary"}>
+                              <Badge variant={vendor.status === "sent" ? "default" : "secondary"}>
                                 {vendor.status}
                               </Badge>
                             </TableCell>
@@ -721,7 +641,7 @@ export default function RFQManagement() {
                 <div className="flex justify-end space-x-2">
                   <Button
                     variant="outline"
-                    onClick={() => window.location.href = `/vendor-quotations?rfq=${selectedRFQ.id}`}
+                    onClick={() => window.location.href = `/purchase/vendor-quotations?rfq=${selectedRFQ.id}`}
                   >
                     View Quotations
                   </Button>

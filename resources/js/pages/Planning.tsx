@@ -26,6 +26,8 @@ import {
   Calendar as CalendarIcon,
   Search,
   Check,
+  LayoutGrid,
+  Rows3,
 } from "lucide-react";
 import { FindJobsDialog, JobFilters } from "@/components/planning/FindJobsDialog";
 import { JobSearchResultsDialog } from "@/components/planning/JobSearchResultsDialog";
@@ -232,6 +234,17 @@ useEffect(() => {
   });
 
   const [jobs, setJobs] = useState<any[]>([]);
+
+  // Created Jobs display: card grid (existing) vs. compact list (new).
+  // Persisted so the choice sticks across visits.
+  const [jobViewMode, setJobViewMode] = useState<"cards" | "list">(() => {
+    const saved = localStorage.getItem("planningJobViewMode");
+    return saved === "list" ? "list" : "cards";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("planningJobViewMode", jobViewMode);
+  }, [jobViewMode]);
 
   // Item Master: stores operations and components for each item
   const [itemMaster, setItemMaster] = useState(() => {
@@ -855,7 +868,7 @@ const handleOpenJobDialog = async () => {
           machine: op.work_center || "",
         }));
 
-        // 3. Commit materials via API (instead of supabase)
+        // 3. Commit materials via API
         for (const bomItem of itemBomItems) {
           const requiredQty = parseFloat(bomItem.quantity.toString());
 
@@ -1233,46 +1246,19 @@ const handleJobStatusChange = async (jobId: string, newStatus: string) => {
 
   const previousStatus = job.status;
 
-   // Release allocated stock when a job is cancelled/closed (no consumption)
-    if (
-  (newStatus === "Cancelled" || newStatus === "Closed") &&
-  previousStatus !== "Cancelled" &&
-  previousStatus !== "Closed"
-) {
-  try {
-    const response = await fetch(
-      `/api/job-allocations/deallocate`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          job_number: jobId,
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const errorData = await response.json();
-
-      toast({
-        title: "Warning",
-        description:
-          errorData.message ||
-          "Failed to release allocated stock",
-        variant: "destructive",
-      });
-    }
-  } catch (error: any) {
+  if (previousStatus === "Completed") {
     toast({
-      title: "Warning",
-      description:
-        error.message || "Failed to release allocated stock",
+      title: "Job is Completed",
+      description: "Completed jobs are locked and can no longer be modified.",
       variant: "destructive",
     });
+    return;
   }
-}
+
+  // Note: releasing reserved stock on Cancelled/Closed/Completed is now
+  // handled server-side by JobController::update() whenever the status
+  // PUT below lands on a terminal status — see the reservation-lifecycle
+  // logic added there. No client-side release call needed here.
 
   console.log("Previous Status:", previousStatus);
 
@@ -1303,216 +1289,43 @@ const handleJobStatusChange = async (jobId: string, newStatus: string) => {
         return;
       }
 
-      // =========================
-      // FETCH JOB ALLOCATIONS
-      // =========================
-      console.log("Fetching job allocations...");
-
-      const allocationRes = await fetch(
-        `/api/job-allocations?job_number=${jobId}`
-      );
-
-      console.log("Allocation Response Status:", allocationRes.status);
-
-      const jobAllocations = await allocationRes.json();
-
-      console.log("Job Allocations:", jobAllocations);
-
-      // =========================
-      // CONSUME MATERIALS
-      // =========================
-      if (jobAllocations && jobAllocations.length > 0) {
-        for (const allocation of jobAllocations) {
-          console.log("Processing Allocation:", allocation);
-
-          // Fetch current stock
-          console.log(
-            "Fetching inventory stock for:",
-            allocation.item_code
-          );
-
-          const stockRes = await fetch(
-            `/api/inventory-stock/${allocation.item_code}`
-          );
-
-          console.log("Stock Response Status:", stockRes.status);
-
-          const currentStock = await stockRes.json();
-
-          console.log("Current Stock:", currentStock);
-
-          if (currentStock) {
-            const currentCommitted =
-              currentStock.committed_quantity || 0;
-
-            const currentOnHand =
-              currentStock.quantity_on_hand || 0;
-
-            console.log("Current Committed:", currentCommitted);
-            console.log("Current On Hand:", currentOnHand);
-            console.log(
-              "Allocated Quantity:",
-              allocation.allocated_quantity
-            );
-
-            // Validate committed qty
-            if (currentCommitted < allocation.allocated_quantity) {
-              console.log("Insufficient committed quantity");
-
-              throw new Error(
-                `Insufficient committed quantity for ${allocation.item_code}`
-              );
-            }
-
-            const currentAllocated = (currentStock as any).allocated_quantity || 0;
-
-            const newCommittedQty = Math.max(
-              0,
-              currentCommitted - allocation.allocated_quantity
-            );
-
-            const newOnHandQty = Math.max(
-              0,
-              currentOnHand - allocation.allocated_quantity
-            );
-
-             const newAllocatedQty = Math.max(0, currentAllocated - allocation.allocated_quantity);
-
-            console.log("New Committed Qty:", newCommittedQty);
-            console.log("New On Hand Qty:", newOnHandQty);
-
-            // Update inventory stock
-            console.log("Updating inventory stock...");
-
-            const updateStockRes = await fetch(
-              `/api/inventory-stock/${currentStock.id}`,
-              {
-                method: "PUT",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  committed_quantity: newCommittedQty,
-                  quantity_on_hand: newOnHandQty,
-                  allocated_quantity: newAllocatedQty,
-                }),
-              }
-            );
-
-            console.log(
-              "Inventory Update Response:",
-              updateStockRes.status
-            );
-
-            // Create stock transaction
-            console.log("Creating consumption stock transaction...");
-
-            const transactionRes = await fetch(
-              `/api/stock-transactions`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  item_code: allocation.item_code,
-                  transaction_type: "Consumption",
-                  quantity: -allocation.allocated_quantity,
-                  reference_type: "Job",
-                  reference_number: jobId,
-                  notes: `Material consumed for completed job ${jobId}`,
-                }),
-              }
-            );
-
-            console.log(
-              "Consumption Transaction Response:",
-              transactionRes.status
-            );
-          }
-
-          // Update allocation status
-          console.log("Updating allocation status to consumed...");
-
-          const allocationUpdateRes = await fetch(
-            `/api/job-allocations/${allocation.id}`,
-            {
-              method: "PUT",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                status: "consumed",
-              }),
-            }
-          );
-
-          console.log(
-            "Allocation Status Update Response:",
-            allocationUpdateRes.status
-          );
-        }
-      } else {
-        console.log("No allocations found");
-      }
+      // Note: releasing the job's remaining reserved material is now
+      // handled server-side by JobController::update() (called by the
+      // status PUT at the end of this function) — it releases any unissued
+      // reserved qty without touching quantity_on_hand, per the SRS. This
+      // used to be duplicated here client-side, and incorrectly subtracted
+      // unissued qty from quantity_on_hand as if it had been consumed.
 
       // =========================
       // CHECK FINISHED PRODUCT STOCK
       // =========================
       console.log("Checking finished product stock...");
 
-      const stockCheckRes = await fetch(
-        `/api/stock/check?item_code=${itemCode}`
+      const stockSearchRes = await axios.get(
+        `/api/inventory-stock?search=${encodeURIComponent(itemCode)}`
       );
-
-      console.log("Stock Check Response:", stockCheckRes.status);
-
-      const existingStock = await stockCheckRes.json();
+      const existingStock = (stockSearchRes.data?.items || []).find(
+        (i: any) => i.itemCode === itemCode
+      );
 
       console.log("Existing Finished Product Stock:", existingStock);
 
       if (existingStock) {
         console.log("Updating existing finished product stock...");
 
-        const updateFinishedStockRes = await fetch(
-          `/api/inventory-stock/${existingStock.id}`,
-          {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              quantity_on_hand:
-                (existingStock.quantity_on_hand || 0) + quantity,
-            }),
-          }
-        );
-
-        console.log(
-          "Finished Product Update Response:",
-          updateFinishedStockRes.status
-        );
+        await axios.put(`/api/inventory-stock/${existingStock.id}`, {
+          quantity_on_hand: (existingStock.quantityOnHand || 0) + quantity,
+        });
       } else {
         console.log("Creating new finished product stock...");
 
-        const createStockRes = await fetch(`/api/inventory-stock`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            item_code: itemCode,
-            item_name: itemName,
-            item_type: "Product",
-            quantity_on_hand: quantity,
-            unit_cost: 0,
-          }),
+        await axios.post(`/api/inventory-stock`, {
+          item_code: itemCode,
+          item_name: itemName,
+          item_type: "Product",
+          quantity_on_hand: quantity,
+          unit_cost: 0,
         });
-
-        console.log(
-          "Create Finished Product Stock Response:",
-          createStockRes.status
-        );
       }
 
       // =========================
@@ -1520,28 +1333,14 @@ const handleJobStatusChange = async (jobId: string, newStatus: string) => {
       // =========================
       console.log("Creating production transaction...");
 
-      const productionTransactionRes = await fetch(
-        `/api/stock-transactions`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            item_code: itemCode,
-            transaction_type: "Production",
-            quantity: quantity,
-            reference_type: "Job",
-            reference_number: jobId,
-            notes: `Finished product added from ${newStatus.toLowerCase()} job ${jobId}`,
-          }),
-        }
-      );
-
-      console.log(
-        "Production Transaction Response:",
-        productionTransactionRes.status
-      );
+      await axios.post(`/api/stock-transactions`, {
+        item_code: itemCode,
+        transaction_type: "Production",
+        quantity: quantity,
+        reference_type: "Job",
+        reference_number: jobId,
+        notes: `Finished product added from ${newStatus.toLowerCase()} job ${jobId}`,
+      });
 
       toast({
         title: "Job Completed",
@@ -1566,27 +1365,18 @@ const handleJobStatusChange = async (jobId: string, newStatus: string) => {
   try {
     console.log("Updating job status in database...");
 
-    const response = await fetch(`/api/jobs/${jobId}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        status: newStatus,
-      }),
+    const response = await axios.put(`/api/jobs/${jobId}`, {
+      status: newStatus,
     });
 
-    console.log("Job Status Update Response:", response.status);
-
-    const updatedJob = await response.json();
+    // Backend returns { success, message, data: job } — unwrap to the job itself.
+    const updatedJob = response.data?.data;
 
     console.log("Updated Job:", updatedJob);
 
     const updatedJobs = jobs.map((j: any) =>
-      j.id === jobId ? updatedJob : j
+      j.id === jobId ? { ...j, ...updatedJob } : j
     );
-
-    console.log("Updated Jobs Array:", updatedJobs);
 
     setJobs(updatedJobs);
 
@@ -1601,7 +1391,10 @@ const handleJobStatusChange = async (jobId: string, newStatus: string) => {
 
     toast({
       title: "Error",
-      description: "Failed to update job status",
+      description:
+        error.response?.data?.message ||
+        error.response?.data?.error ||
+        "Failed to update job status",
       variant: "destructive",
     });
   }
@@ -1685,6 +1478,8 @@ if (!newJobData.completionDate) {
         assembly: newJobData.itemCode,
         product_name: newJobData.productName,
         sales_order_number: newJobData.salesOrderNum || "",
+        customer_id: newJobData.customerId || null,
+        customer_name: newJobData.customerName || "",
         class: newJobData.class || "Standard",
         type: newJobData.type || "Standard",
         uom: newJobData.uom || "Ea",
@@ -1703,7 +1498,10 @@ if (!newJobData.completionDate) {
         notes: newJobData.notes || "",
         bom_id: newJobData.bomId || null,
 
-        // COMPONENTS
+        // COMPONENTS — qty here is the per-assembly BOM quantity (matches the
+        // live BOM), NOT multiplied by job quantity. The backend multiplies
+        // by the job's own quantity when reserving (JobController::store),
+        // and the total "required" figure lives in `quantities` below.
         components: newBomItems?.map((item: any) => ({
           seq: item.itemSeq ?? 10,
           component: item.component ?? "",
@@ -1727,7 +1525,7 @@ if (!newJobData.completionDate) {
   // ✅ FIXED MAPPINGS BELOW
    quantities: newBomItems?.map((q: any) => {
     const perAssembly = q.quantity || 0;
-  const jobQty = jobData.quantity || 0;
+  const jobQty = Number(newJobData.quantity) || 0;
     const onHand =
     q.onHand ??
     q.quantityOnHand ??
@@ -1745,9 +1543,9 @@ if (!newJobData.completionDate) {
   per_assembly: q.quantity || 0,
   inverse_usage: q.inverseUsage || (perAssembly ? 1 / perAssembly : 0),
   yield: q.yield || "",
-  required: q.quantity || 0,
+  required: required,
   issued: 0,
-  open: q.quantity || 0,
+  open: required,
   on_hand: onHand,
   };
 }) || [],
@@ -2078,6 +1876,26 @@ const handleFindJobs = useCallback(
                     {jobs.filter((j: any) => j.priority === "High").length} high priority
                   </p>
                 )}
+                <div className="flex items-center gap-1 rounded-md border p-0.5">
+                  <Button
+                    variant={jobViewMode === "cards" ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-8 px-2.5"
+                    onClick={() => setJobViewMode("cards")}
+                    title="Card view"
+                  >
+                    <LayoutGrid className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant={jobViewMode === "list" ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-8 px-2.5"
+                    onClick={() => setJobViewMode("list")}
+                    title="List view"
+                  >
+                    <Rows3 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </div>
           </CardHeader>
@@ -2085,6 +1903,113 @@ const handleFindJobs = useCallback(
             {jobs.length === 0 ? (
               <div className="border border-dashed rounded-lg py-10 text-center text-muted-foreground text-sm">
                 No jobs created yet. Click <span className="font-medium">Create Job</span> to get started.
+              </div>
+            ) : jobViewMode === "list" ? (
+              <div className="rounded-lg border overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Job Number</TableHead>
+                      <TableHead>Product</TableHead>
+                      <TableHead>Item Code</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead>Due Date</TableHead>
+                      <TableHead>Priority</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Ops</TableHead>
+                      <TableHead className="text-right">Comp.</TableHead>
+                      <TableHead className="w-[190px]">Update Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(filteredJobs.length > 0 ? filteredJobs : jobs).map((job: any) => (
+                      <TableRow key={job.id}>
+                        <TableCell className="font-medium text-primary whitespace-nowrap">{job.job_number}</TableCell>
+                        <TableCell className="max-w-[200px] truncate">{job.product_name}</TableCell>
+                        <TableCell className="whitespace-nowrap">{job.assembly || "N/A"}</TableCell>
+                        <TableCell className="text-right">{job.start}</TableCell>
+                        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                          {job.completion_date || "-"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={job.priority === "High" ? "destructive" : "secondary"}
+                            className="text-[11px] px-2"
+                          >
+                            {job.priority}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              job.status === "Completed"
+                                ? "secondary"
+                                : job.status === "Ready for Dispatch"
+                                  ? "outline"
+                                  : job.status === "In Progress"
+                                    ? "default"
+                                    : "outline"
+                            }
+                            className="text-[11px] whitespace-nowrap"
+                          >
+                            {job.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right text-sm text-muted-foreground">
+                          {job.operations?.length || 0}
+                        </TableCell>
+                        <TableCell className="text-right text-sm text-muted-foreground">
+                          {job.bomItems?.length || 0}
+                        </TableCell>
+                        <TableCell>
+                          {job.jobType?.toLowerCase() !== "discrete" && job.status !== "Completed" ? (
+                            <Select value={job.status} onValueChange={(value) => handleJobStatusChange(job.id, value)}>
+                              <SelectTrigger className="h-8 text-xs w-full">
+                                <SelectValue placeholder="Select status" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Pending">Pending</SelectItem>
+                                <SelectItem value="In Progress">In Progress</SelectItem>
+                                <SelectItem value="Ready for Dispatch">Ready for Dispatch</SelectItem>
+                                <SelectItem value="Completed">Completed</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">View only</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              title="View"
+                              onClick={() => {
+                                setSelectedJob(job);
+                                setIsViewDialogOpen(true);
+                              }}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            {job.jobType?.toLowerCase() !== "discrete" && job.status !== "Completed" && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                title="Delete"
+                                onClick={() => handleDeleteJob(job)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
@@ -2195,8 +2120,8 @@ const handleFindJobs = useCallback(
                     </CardContent>
 
                     <CardFooter className="flex flex-col gap-3 border-t pt-3 mt-auto">
-                      {/* Discrete jobs are view-only - no status update allowed */}
-                      {job.jobType?.toLowerCase() !== "discrete" && (
+                      {/* Discrete jobs and Completed jobs are view-only - no status update allowed */}
+                      {job.jobType?.toLowerCase() !== "discrete" && job.status !== "Completed" && (
                         <div className="w-full">
                           <Label className="text-[11px] text-muted-foreground mb-1.5 block">Update Status</Label>
                           <Select value={job.status} onValueChange={(value) => handleJobStatusChange(job.id, value)}>
@@ -2213,12 +2138,14 @@ const handleFindJobs = useCallback(
                         </div>
                       )}
 
-                      {/* Show view-only indicator for discrete jobs */}
-                      {job.jobType?.toLowerCase() === "discrete" && (
+                      {/* Show view-only indicator for discrete jobs and Completed jobs */}
+                      {(job.jobType?.toLowerCase() === "discrete" || job.status === "Completed") && (
                         <div className="w-full">
                           <div className="flex items-center justify-center gap-2 py-2 px-3 bg-muted/50 rounded-md border border-dashed">
                             <Eye className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span className="text-xs text-muted-foreground font-medium">View Only - Discrete Job</span>
+                            <span className="text-xs text-muted-foreground font-medium">
+                              {job.status === "Completed" ? "View Only - Job Completed" : "View Only - Discrete Job"}
+                            </span>
                           </div>
                         </div>
                       )}
@@ -2236,8 +2163,8 @@ const handleFindJobs = useCallback(
                           <Eye className="mr-1.5 h-3.5 w-3.5" />
                           View
                         </Button>
-                        {/* Hide delete button for discrete jobs */}
-                        {job.jobType?.toLowerCase() !== "discrete" && (
+                        {/* Hide delete button for discrete jobs and Completed jobs */}
+                        {job.jobType?.toLowerCase() !== "discrete" && job.status !== "Completed" && (
                           <Button
                             variant="ghost"
                             size="sm"
