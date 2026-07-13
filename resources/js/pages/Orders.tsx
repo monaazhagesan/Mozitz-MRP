@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -1672,11 +1673,12 @@ useEffect(() => {
   // ─────────────────────────────────────────────
   type OrderStatusRow = {
     order: any;
+    productLines: any[];
     productCount: number;
     salesState: "in-stock" | "expected" | "not-available" | "na";
     ingredientsState: "picked" | "in-stock" | "not-available" | "na";
-    productionState: "done" | "in-progress" | "not-started" | "blocked" | "make" | "na";
-    job: any | null;
+    productionState: "done" | "partially-completed" | "in-progress" | "not-started" | "blocked" | "make" | "na";
+    jobs: any[];
   };
 
   const [dashboardOrderTab, setDashboardOrderTab] = useState<"open" | "done">("open");
@@ -1743,11 +1745,12 @@ useEffect(() => {
             if (productLines.length === 0) {
               return {
                 order,
+                productLines: [],
                 productCount: 0,
                 salesState: "na",
                 ingredientsState: "na",
                 productionState: "na",
-                job: orderJobs[0] || null,
+                jobs: orderJobs,
               } as OrderStatusRow;
             }
 
@@ -1794,11 +1797,33 @@ useEffect(() => {
                   ? "not-available"
                   : "in-stock";
 
-            // ---- Production status: derived from linked Job(s) ----
+            // ---- Production status: derived from each linked Job's actual
+            // move-quantity progress, not just its status label. A job can
+            // sit at "In Progress" forever once nothing is left in queue or
+            // running but some of its quantity was rejected/scrapped rather
+            // than completed — that's a distinct "partially completed"
+            // state, not ongoing work. ----
+            const jobSummaries = orderJobs.map((j: any) => {
+              const moves = Array.isArray(j.moves) ? j.moves : [];
+              const completed = moves.reduce((s: number, m: any) => s + Number(m.completed || 0), 0);
+              const remaining = moves.reduce(
+                (s: number, m: any) => s + Number(m.in_queue || 0) + Number(m.running || 0),
+                0
+              );
+              const planned = Number(j.start || 0);
+              return { completed, remaining, planned, settled: remaining === 0 };
+            });
+
             let productionState: OrderStatusRow["productionState"];
             if (orderJobs.length === 0) {
               productionState = "make";
-            } else if (orderJobs.every((j: any) => j.status === "Completed")) {
+            } else if (
+              jobSummaries.some((s) => s.settled && s.planned > 0 && s.completed < s.planned)
+            ) {
+              productionState = "partially-completed";
+            } else if (
+              jobSummaries.every((s) => s.settled && s.planned > 0 && s.completed >= s.planned)
+            ) {
               productionState = "done";
             } else if (orderJobs.some((j: any) => j.status === "In Progress")) {
               productionState = "in-progress";
@@ -1810,11 +1835,12 @@ useEffect(() => {
 
             return {
               order,
+              productLines,
               productCount: productLines.length,
               salesState,
               ingredientsState,
               productionState,
-              job: orderJobs[0] || null,
+              jobs: orderJobs,
             } as OrderStatusRow;
           });
 
@@ -4479,16 +4505,144 @@ useEffect(() => {
           }
         };
 
+        // Rolls up a job's job_moves (already eager-loaded on the /api/jobs
+        // response) into the counts that actually explain its status —
+        // "In Progress" alone doesn't tell you whether that's 5 rejected +
+        // 5 completed (nothing left to do) or 5 sitting untouched in queue.
+        const summarizeMoves = (job: any) => {
+          const moves = Array.isArray(job?.moves) ? job.moves : [];
+          return moves.reduce(
+            (acc: any, m: any) => ({
+              completed: acc.completed + Number(m.completed || 0),
+              rejected: acc.rejected + Number(m.rejected || 0),
+              scrapped: acc.scrapped + Number(m.scrapped || 0),
+              remaining: acc.remaining + Number(m.in_queue || 0) + Number(m.running || 0),
+            }),
+            { completed: 0, rejected: 0, scrapped: 0, remaining: 0 }
+          );
+        };
+
+        const productionDetail = (row: OrderStatusRow) => (
+          <div className="space-y-2 text-xs max-w-xs">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {row.order.order_no} — line items
+            </p>
+            {row.productLines.map((line: any) => {
+              const code = line.item_code || line.itemCode;
+              const job = row.jobs.find((j: any) => j.assembly === code);
+              const summary = job ? summarizeMoves(job) : null;
+              // Same origin-job-number marker embedded in the rework job's
+              // notes (see the Create Rework Job handler below) — reused here
+              // to stop offering a second rework job for the same rejection.
+              const hasReworkJob =
+                !!job &&
+                row.jobs.some(
+                  (j: any) => typeof j.notes === "string" && j.notes.endsWith(`from ${job.job_number}`)
+                );
+              return (
+                <div key={code} className="flex items-start justify-between gap-3 border-b pb-2 last:border-0 last:pb-0">
+                  <div>
+                    <div className="font-medium text-foreground">{code}</div>
+                    <div className="text-muted-foreground">{line.item_name || line.itemName}</div>
+                    <div className="text-muted-foreground">
+                      {line.quantity ?? line.quantityOrdered ?? 0} {line.uom || "pcs"}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    {job ? (
+                      <>
+                        <div className="font-mono text-primary">{job.job_number}</div>
+                        <Badge variant="outline" className="text-[10px] mt-0.5">{job.status}</Badge>
+                        {summary && (summary.completed > 0 || summary.rejected > 0 || summary.scrapped > 0) && (
+                          <div className="mt-1 flex flex-col items-end gap-0.5 text-[10px]">
+                            {summary.completed > 0 && (
+                              <span className="text-success">{summary.completed} completed</span>
+                            )}
+                            {summary.rejected > 0 && (
+                              <span className="text-destructive">{summary.rejected} rejected</span>
+                            )}
+                            {summary.scrapped > 0 && (
+                              <span className="text-destructive">{summary.scrapped} scrapped</span>
+                            )}
+                            {summary.remaining > 0 && (
+                              <span className="text-muted-foreground">{summary.remaining} in process</span>
+                            )}
+                          </div>
+                        )}
+                        {job.completion_date && (
+                          <div className="text-[10px] text-muted-foreground mt-0.5">by {job.completion_date}</div>
+                        )}
+                        {summary && summary.rejected > 0 && (
+                          hasReworkJob ? (
+                            <Badge variant="outline" className="mt-1 text-[10px]">
+                              Rework Created
+                            </Badge>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="mt-1 h-6 px-2 text-[10px]"
+                              onClick={() =>
+                                navigate("/planning", {
+                                  state: {
+                                    reworkJob: {
+                                      itemCode: code,
+                                      itemName: line.item_name || line.itemName || code,
+                                      quantity: summary.rejected,
+                                      salesOrderNum: row.order.order_no,
+                                      notes: `Rework for ${summary.rejected} rejected unit(s) from ${job.job_number}`,
+                                    },
+                                  },
+                                })
+                              }
+                            >
+                              Create Rework Job
+                            </Button>
+                          )
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground italic">No job yet</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+
         const productionBadge = (row: OrderStatusRow) => {
+          const clickableBadge = (content: JSX.Element) => (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button type="button" className="cursor-pointer">
+                  {content}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-auto">
+                {productionDetail(row)}
+              </PopoverContent>
+            </Popover>
+          );
+
           switch (row.productionState) {
             case "done":
-              return <Badge className="bg-success/15 text-success border-success/30 hover:bg-success/15">Done</Badge>;
+              return clickableBadge(
+                <Badge className="bg-success/15 text-success border-success/30 hover:bg-success/15">Done</Badge>
+              );
             case "in-progress":
-              return <Badge className="bg-warning/15 text-warning border-warning/30 hover:bg-warning/15">Work in progress</Badge>;
+              return clickableBadge(
+                <Badge className="bg-warning/15 text-warning border-warning/30 hover:bg-warning/15">Work in progress</Badge>
+              );
+            case "partially-completed":
+              return clickableBadge(
+                <Badge className="bg-orange-500/15 text-orange-600 border-orange-500/30 hover:bg-orange-500/15">Partially completed</Badge>
+              );
             case "blocked":
-              return <Badge variant="destructive">Blocked</Badge>;
+              return clickableBadge(<Badge variant="destructive">Blocked</Badge>);
             case "not-started":
-              return <Badge variant="outline">Not started</Badge>;
+              return clickableBadge(<Badge variant="outline">Not started</Badge>);
             case "make":
               return (
                 <button

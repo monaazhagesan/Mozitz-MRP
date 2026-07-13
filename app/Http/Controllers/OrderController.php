@@ -376,7 +376,14 @@ class OrderController extends Controller
     public function getNextSONumber(Request $request)
     {
         $year = date('Y');
-        $userId = $request->user()->id;
+        $userId = auth()->id();
+
+        if (!$userId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthenticated',
+            ], 401);
+        }
 
         $lastOrder = Order::whereYear('created_at', $year)
             ->where('user_id', $userId)

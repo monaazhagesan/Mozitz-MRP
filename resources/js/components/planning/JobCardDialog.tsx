@@ -33,6 +33,16 @@ interface JobCardDialogProps {
   pendingOrders: any[];
   orders: any[];
   nextJobNumber?: string;
+  // Pre-fills a new job (item, quantity, sales order, notes) — used by the
+  // "Create Rework Job" action on the Orders dashboard so a rejected
+  // quantity can be requeued without re-typing everything.
+  initialData?: {
+    itemCode: string;
+    itemName: string;
+    quantity: number;
+    salesOrderNum: string;
+    notes?: string;
+  } | null;
   onCreateJob: (jobData: any, operations: any[], bomItems: any[], jobSplits: any[], moveQuantities: any) => void;
   generateJobNumber: () => string;
   calculateInProgressJobQty: (orderId: string) => number;
@@ -44,6 +54,7 @@ export const JobCardDialog = ({
   onOpenChange,
   pendingOrders,
   orders,
+  initialData,
   onCreateJob,
   generateJobNumber,
   calculateInProgressJobQty,
@@ -340,19 +351,19 @@ const [opsLoaded, setOpsLoaded] = useState(false);
       setJobData({
         orderId: "",
         jobNumber: newJobNumber,
-        salesOrderNum: "",
+        salesOrderNum: initialData?.salesOrderNum || "",
         customerId: "",
         customerName: "",
-        productName: "",
-        itemCode: "",
+        productName: initialData?.itemName || "",
+        itemCode: initialData?.itemCode || "",
         itemDescription: "",
         uom: "EA",
-        quantity: "",
+        quantity: initialData?.quantity ? String(initialData.quantity) : "",
         dueDate: "",
         priority: "Medium",
-        notes: "",
+        notes: initialData?.notes || "",
         routingAvailable: false,
-        jobType: "Standard",
+        jobType: initialData ? "Rework" : "Standard",
         jobClass: "STANDARD",
         status: "Released",
         firm: false,
@@ -373,8 +384,25 @@ const [opsLoaded, setOpsLoaded] = useState(false);
       setActiveTab("components");
       setSalesOrderLookupStatus("idle");
       setSalesOrderProductLines([]);
+
+      if (initialData?.itemCode) {
+        selectAssemblyItem(initialData.itemCode, initialData.itemName || "");
+      }
     }
-  }, [open, generateJobNumber]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, generateJobNumber, initialData]);
+
+  // The Sales Order lookup depends on `salesOrdersList`, which is fetched
+  // asynchronously in a separate effect below — this waits for that list to
+  // actually be populated before looking up a prefilled order number, to
+  // avoid a race where the lookup runs against an empty list and silently
+  // reports "not found" for an order that genuinely exists.
+  useEffect(() => {
+    if (open && initialData?.salesOrderNum && salesOrdersList.length > 0) {
+      handleSalesOrderLookup(initialData.salesOrderNum);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialData, salesOrdersList]);
 
  useEffect(() => {
   const searchItems = async () => {
@@ -888,44 +916,63 @@ const checkAndLoadBom = async (code: string) => {
                 </div>
               </div>
 
-              {salesOrderLookupStatus === "found" && salesOrderProductLines.length > 0 && (
+              {initialData ? (
                 <div className="grid grid-cols-3 items-start gap-3">
-                  <Label className="text-sm font-medium text-right pt-2">Order Items</Label>
-                  <div className="col-span-2 rounded-md border divide-y">
-                    {salesOrderProductLines.length > 1 && (
-                      <div className="px-3 py-1.5 bg-muted/50 text-xs text-muted-foreground">
-                        This order has {salesOrderProductLines.length} products — a separate Job is needed for each.
-                      </div>
+                  <Label className="text-sm font-medium text-right pt-2">Rejected Details</Label>
+                  <div className="col-span-2 rounded-md border bg-muted/50 px-3 py-2 space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <CircleAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                      <span className="text-sm font-medium">{initialData.itemCode}</span>
+                      <span className="text-xs text-muted-foreground truncate">{initialData.itemName}</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground pl-5">
+                      Rejected Qty {initialData.quantity} · from Sales Order {initialData.salesOrderNum}
+                    </p>
+                    {initialData.notes && (
+                      <p className="text-[11px] text-muted-foreground pl-5">{initialData.notes}</p>
                     )}
-                    {salesOrderProductLines.map((line) => (
-                      <div key={line.item_code} className="flex items-center justify-between gap-2 px-3 py-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            {line.hasJob ? (
-                              <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
-                            ) : (
-                              <CircleAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                            )}
-                            <span className="text-sm font-medium truncate">{line.item_code}</span>
-                            <span className="text-xs text-muted-foreground truncate">{line.item_name}</span>
-                          </div>
-                          <p className="text-[11px] text-muted-foreground pl-5">
-                            Qty {line.quantity} · {line.hasJob ? "Job already created" : "Needs a job"}
-                          </p>
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={jobData.itemCode === line.item_code ? "secondary" : "outline"}
-                          className="h-7 text-xs shrink-0"
-                          onClick={() => selectAssemblyItem(line.item_code, line.item_name)}
-                        >
-                          {jobData.itemCode === line.item_code ? "Selected" : "Use this item"}
-                        </Button>
-                      </div>
-                    ))}
                   </div>
                 </div>
+              ) : (
+                salesOrderLookupStatus === "found" && salesOrderProductLines.length > 0 && (
+                  <div className="grid grid-cols-3 items-start gap-3">
+                    <Label className="text-sm font-medium text-right pt-2">Order Items</Label>
+                    <div className="col-span-2 rounded-md border divide-y">
+                      {salesOrderProductLines.length > 1 && (
+                        <div className="px-3 py-1.5 bg-muted/50 text-xs text-muted-foreground">
+                          This order has {salesOrderProductLines.length} products — a separate Job is needed for each.
+                        </div>
+                      )}
+                      {salesOrderProductLines.map((line) => (
+                        <div key={line.item_code} className="flex items-center justify-between gap-2 px-3 py-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              {line.hasJob ? (
+                                <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                              ) : (
+                                <CircleAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                              )}
+                              <span className="text-sm font-medium truncate">{line.item_code}</span>
+                              <span className="text-xs text-muted-foreground truncate">{line.item_name}</span>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground pl-5">
+                              Qty {line.quantity} · {line.hasJob ? "Job already created" : "Needs a job"}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={jobData.itemCode === line.item_code ? "secondary" : "outline"}
+                            className="h-7 text-xs shrink-0"
+                            onClick={() => selectAssemblyItem(line.item_code, line.item_name)}
+                          >
+                            {jobData.itemCode === line.item_code ? "Selected" : "Use this item"}
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
               )}
 
               <div className="grid grid-cols-3 items-center gap-3">
@@ -972,13 +1019,18 @@ const checkAndLoadBom = async (code: string) => {
             <div className="space-y-4">
               <div className="grid grid-cols-3 items-center gap-3">
                 <Label className="text-sm font-medium text-right">Type</Label>
-                <Select value={jobData.jobType} onValueChange={(v) => setJobData({ ...jobData, jobType: v })}>
+                <Select
+                  value={jobData.jobType}
+                  onValueChange={(v) => setJobData({ ...jobData, jobType: v })}
+                  disabled={!!initialData}
+                >
                   <SelectTrigger className="col-span-2">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Standard">Standard</SelectItem>
                     <SelectItem value="Non-standard">Non-standard</SelectItem>
+                    <SelectItem value="Rework">Rework</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -58,11 +58,29 @@ interface MoveTransaction {
   user: string;
 }
 
+// Shape actually returned by GET /api/move-transactions/job/{id}
+// (move_transactions table columns — snake_case, unlike the MoveTransaction
+// interface above which is only ever used for local, not-yet-persisted
+// optimistic objects elsewhere in this file).
+interface MoveTransactionRecord {
+  id: number;
+  job_id: number;
+  seq: number;
+  operation_name: string | null;
+  transaction_type: 'start' | 'move' | 'reject' | 'scrap' | 'complete';
+  quantity: number;
+  from_status: string | null;
+  to_status: string | null;
+  reason: string | null;
+  user: string;
+  transaction_time: string;
+  created_at: string;
+}
+
 const ShopFloor = () => {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const hasCompletedRef = useRef(false);
   const hasInitializedRef = useRef(false);
 
   // Load jobs from localStorage
@@ -87,7 +105,7 @@ const ShopFloor = () => {
 
   // History dialog state
   const [isHistoryDialogOpen, setIsHistoryDialogOpen] = useState(false);
-  const [transactions, setTransactions] = useState([]);
+  const [transactions, setTransactions] = useState<MoveTransactionRecord[]>([]);
 
   useEffect(() => {
     if (!selectedJob?.id) return;
@@ -181,21 +199,33 @@ const ShopFloor = () => {
 
 
   const calculateJobStatus = (quantities: any, job: any) => {
-  const totalQty = Number(job?.quantity || 0);
+  // Job's planned quantity lives on `start` (jobs.start), not `quantity` —
+  // that field never existed on the real job record, so this always
+  // evaluated to 0 and `completed (0) >= totalQty (0)` was always true,
+  // marking every job "Completed" the instant any move transaction ran,
+  // regardless of actual progress.
+  const totalQty = Number(job?.start ?? job?.quantity ?? 0);
 
-  let completed = 0;
+  const values: any[] = Object.values(quantities);
 
-  Object.values(quantities).forEach((q: any) => {
-    completed += q.completed || 0;
-  });
+  const completed = values.reduce((sum, q) => sum + (q.completed || 0), 0);
+  const rejected = values.reduce((sum, q) => sum + (q.rejected || 0), 0);
+  const scrapped = values.reduce((sum, q) => sum + (q.scrapped || 0), 0);
+  const anyInQueue = values.some((q) => (q.inQueue || 0) > 0);
+  const anyRunning = values.some((q) => (q.running || 0) > 0);
+  const anyToMove = values.some((q) => (q.toMove || 0) > 0);
 
-  if (completed >= totalQty) return "Completed";
+  // Completed once every planned unit has reached a terminal state — finished
+  // the last operation, rejected, or scrapped — AND nothing is left sitting
+  // anywhere else in the routing. A job doesn't stay "In Progress" forever
+  // just because some of its output was rejected; rejection is a disposition
+  // of the quantity, not unfinished work.
+  const dispositioned = completed + rejected + scrapped;
+  if (totalQty > 0 && dispositioned >= totalQty && !anyInQueue && !anyRunning && !anyToMove) {
+    return "Completed";
+  }
 
-  const hasRunning = Object.values(quantities).some(
-    (q: any) => q.running > 0
-  );
-
-  if (hasRunning) return "In Progress";
+  if (anyRunning || completed > 0 || rejected > 0 || scrapped > 0) return "In Progress";
 
   return "Released";
 };
@@ -209,8 +239,15 @@ const ShopFloor = () => {
       .map(Number)
       .sort((a, b) => a - b);
 
-    const movesPayload: any[] = [];
     const newQuantities = { ...moveQuantities };
+    // Every seq whose state actually changes this transaction — both the
+    // operation being moved FROM and the operation being moved INTO — needs
+    // its final state persisted. Collecting them here (instead of pushing a
+    // payload entry per loop iteration) avoids the previous bug where only
+    // the source operation was ever sent to the backend and the destination
+    // operation's incremented in_queue was silently dropped.
+    const touchedSeqs = new Set<number>();
+    const txnPayloads: any[] = [];
 
     for (let i = 0; i < sequences.length; i++) {
       const seq = sequences[i];
@@ -236,35 +273,22 @@ const ShopFloor = () => {
         running: (current.running || 0) - toMoveQty,
         toMove: 0,
       };
+      touchedSeqs.add(seq);
 
       if (nextSeq) {
         newQuantities[nextSeq] = {
           ...newQuantities[nextSeq],
           inQueue: (newQuantities[nextSeq]?.inQueue || 0) + toMoveQty,
         };
+        touchedSeqs.add(nextSeq);
       } else {
-        newQuantities[seq].completed += toMoveQty;
+        newQuantities[seq].completed = (newQuantities[seq].completed || 0) + toMoveQty;
       }
 
       // ================================
-      // 1️⃣ JOB MOVE UPDATE PAYLOAD
+      // MOVE TRANSACTION PAYLOAD (audit log entry for this move)
       // ================================
-      const jobMovePayload = {
-        seq,
-        in_queue: newQuantities[seq].inQueue || 0,
-        running: newQuantities[seq].running || 0,
-        to_move: toMoveQty,
-        rejected: newQuantities[seq].rejected || 0,
-        scrapped: newQuantities[seq].scrapped || 0,
-        completed: newQuantities[seq].completed || 0,
-      };
-
-      movesPayload.push(jobMovePayload);
-
-      // ================================
-      // 2️⃣ MOVE TRANSACTION PAYLOAD (NEW)
-      // ================================
-      const txnPayload = {
+      txnPayloads.push({
         job_id: selectedJob.id,
         seq: seq,
         quantity: toMoveQty,
@@ -273,25 +297,44 @@ const ShopFloor = () => {
         from_status: "Running",
         to_status: nextSeq ? "In Queue" : "Completed",
         user: "Current User",
-      };
-
-      // 🔥 SAVE TRANSACTION (NEW API)
-      try {
-        await axios.post("/api/move-transactions", txnPayload);
-      } catch (err) {
-        console.error("Transaction save failed:", err);
-      }
+      });
     }
+
+    if (touchedSeqs.size === 0) {
+      toast({
+        title: "No Quantities to Move",
+        description: "Enter quantities in 'To Move' column first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Final state for every affected seq — sent once, after all seqs in this
+    // transaction have been resolved, so a multi-hop move (e.g. seq 10 -> 20
+    // where 20 also has its own qty moving to 30) composes correctly instead
+    // of racing per-iteration pushes.
+    const movesPayload = Array.from(touchedSeqs).map((seq) => ({
+      seq,
+      in_queue: newQuantities[seq].inQueue || 0,
+      running: newQuantities[seq].running || 0,
+      to_move: 0,
+      rejected: newQuantities[seq].rejected || 0,
+      scrapped: newQuantities[seq].scrapped || 0,
+      completed: newQuantities[seq].completed || 0,
+    }));
 
     try {
       // ================================
-      // 3️⃣ UPDATE JOB MOVE STATE
+      // UPDATE JOB MOVE STATE + AUDIT LOG (single atomic request — the move
+      // state and its audit trail either both save or neither does, instead
+      // of two separate requests that could leave them out of sync)
       // ================================
       const jobStatus = calculateJobStatus(newQuantities, selectedJob);
 
       const res = await axios.post("/api/job-moves/update", {
         job_id: selectedJob.id,
         moves: movesPayload,
+        transactions: txnPayloads,
         job_status: jobStatus,
       });
 
@@ -339,6 +382,8 @@ const ShopFloor = () => {
 
   // Move from In Queue to Running
   const handleMoveToRunning = async (seq: number, qty: number) => {
+    if (!selectedJob) return;
+
     const current = moveQuantities[seq];
     if (!current) return;
 
@@ -366,11 +411,10 @@ const ShopFloor = () => {
       },
     };
 
-    // ✅ 1. update UI immediately
-    setMoveQuantities(updated);
-
+    // Validate BEFORE touching any state — starting to mutate first and only
+    // validating afterward (the previous order) left the UI showing a state
+    // that was never actually saved whenever this check failed.
     const totalActive = calculateTotalActiveQty(updated);
-
     if (totalActive > jobQty) {
       toast({
         title: "Invalid Operation",
@@ -380,32 +424,61 @@ const ShopFloor = () => {
       return;
     }
 
-    const transaction: MoveTransaction = {
-      id: `TXN-${Date.now()}`,
-      seq,
-      operationName: getOperationName(seq),
-      transactionType: "start",
-      quantity: startQty,
-      fromStatus: "In Queue",
-      toStatus: "Running",
-      timestamp: new Date().toISOString(),
-      user: "Current User",
-    };
+    setMoveQuantities(updated);
 
+    // Persist via the same atomic move endpoint as Move/Reject — computing
+    // job_status here too, instead of the previous `{...selectedJob, moves}`
+    // PUT which blindly re-sent selectedJob's (possibly stale) `status`
+    // field, capable of silently resurrecting a wrong "Completed" status on
+    // every Start click regardless of actual progress.
     try {
-      // ✅ 2. persist to DB
-      const res = await axios.put(`/api/jobs/${selectedJob.id}`, {
-        ...selectedJob,
-        moves: Object.keys(updated).map((seq) => ({
-          seq: Number(seq),
-          in_queue: updated[seq].inQueue,
-          running: updated[seq].running,
-          to_move: updated[seq].toMove,
-          rejected: updated[seq].rejected,
-          scrapped: updated[seq].scrapped,
-          completed: updated[seq].completed,
+      const jobStatus = calculateJobStatus(updated, selectedJob);
+
+      await axios.post("/api/job-moves/update", {
+        job_id: selectedJob.id,
+        moves: Object.entries(updated).map(([s, m]) => ({
+          seq: Number(s),
+          in_queue: m.inQueue,
+          running: m.running,
+          to_move: m.toMove,
+          rejected: m.rejected,
+          scrapped: m.scrapped,
+          completed: m.completed,
         })),
+        transactions: [
+          {
+            job_id: selectedJob.id,
+            seq,
+            quantity: startQty,
+            transaction_type: "start",
+            operation_name: getOperationName(seq),
+            from_status: "In Queue",
+            to_status: "Running",
+            user: "Current User",
+          },
+        ],
+        job_status: jobStatus,
       });
+
+      const refreshed = await axios.get(`/api/jobs/${selectedJob.id}`);
+      const job = refreshed.data;
+      setSelectedJob(job);
+
+      const rebuilt: any = {};
+      (job.moves || []).forEach((m: any) => {
+        rebuilt[m.seq] = {
+          inQueue: m.in_queue || 0,
+          running: m.running || 0,
+          toMove: 0,
+          toReject: 0,
+          toScrap: 0,
+          rejected: m.rejected || 0,
+          scrapped: m.scrapped || 0,
+          completed: m.completed || 0,
+          startQty: 0,
+        };
+      });
+      setMoveQuantities(rebuilt);
 
       toast({
         title: "Started Successfully",
@@ -413,6 +486,11 @@ const ShopFloor = () => {
       });
     } catch (err) {
       console.error(err);
+      toast({
+        title: "Error",
+        description: "Failed to start quantity.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -478,8 +556,14 @@ const ShopFloor = () => {
     setIsRejectDialogOpen(true);
   };
 
-  // Handle Reject Transaction - moves quantities from Running to Rejected (cannot proceed further)
+  // Handle Reject Transaction - resolves the Running quantity at each
+  // operation with a To Reject entry: the rejected portion is removed from
+  // the flow, and whatever remains (running - rejected) advances to the
+  // next operation's queue (or Completed, if this is the last operation) —
+  // same as a normal move, just netted against the rejection.
   const handleRejectTransaction = async () => {
+    if (!selectedJob) return;
+
     if (!rejectReason.trim()) {
       toast({
         title: "Reason Required",
@@ -493,51 +577,69 @@ const ShopFloor = () => {
 
     let errorMessage = "";
     const newQuantities = { ...moveQuantities };
+    const touchedSeqs = new Set<number>();
+    const txnPayloads: any[] = [];
 
-    const newRejectionTransactions: RejectionTransaction[] = [];
-    const newMoveTransactions: MoveTransaction[] = [];
-
-    sequences.forEach((seq) => {
+    for (let i = 0; i < sequences.length; i++) {
+      const seq = sequences[i];
       const current = newQuantities[seq];
-      const toRejectQty = current.toReject || 0;
+      const toRejectQty = Number(current?.toReject || 0);
+      if (!toRejectQty) continue;
 
-      if (toRejectQty > 0) {
-        if (toRejectQty > current.running) {
-          errorMessage = `Seq ${seq}: Cannot reject ${toRejectQty} - only ${current.running} in Running.`;
-          return;
-        }
-
-        const opName = getOperationName(seq);
-
-        newRejectionTransactions.push({
-          seq,
-          quantity: toRejectQty,
-          reason: rejectReason.trim(),
-          timestamp: new Date().toISOString(),
-          user: "Current User",
-        });
-
-        newMoveTransactions.push({
-          id: `TXN-${Date.now()}-${seq}`,
-          seq,
-          operationName: opName,
-          transactionType: "reject",
-          quantity: toRejectQty,
-          fromStatus: "Running",
-          toStatus: "Rejected",
-          reason: rejectReason.trim(),
-          timestamp: new Date().toISOString(),
-          user: "Current User",
-        });
-
-        newQuantities[seq] = {
-          ...current,
-          running: current.running - toRejectQty,
-          toReject: 0,
-          rejected: (current.rejected || 0) + toRejectQty,
-        };
+      if (toRejectQty > (current?.running || 0)) {
+        errorMessage = `Seq ${seq}: Cannot reject ${toRejectQty} - only ${current.running} in Running.`;
+        break;
       }
-    });
+
+      const remainingQty = (current.running || 0) - toRejectQty;
+      const nextSeq = sequences[i + 1];
+      const opName = getOperationName(seq);
+
+      newQuantities[seq] = {
+        ...current,
+        running: 0,
+        toReject: 0,
+        rejected: (current.rejected || 0) + toRejectQty,
+      };
+      touchedSeqs.add(seq);
+
+      if (remainingQty > 0) {
+        if (nextSeq) {
+          newQuantities[nextSeq] = {
+            ...newQuantities[nextSeq],
+            inQueue: (newQuantities[nextSeq]?.inQueue || 0) + remainingQty,
+          };
+          touchedSeqs.add(nextSeq);
+        } else {
+          newQuantities[seq].completed = (newQuantities[seq].completed || 0) + remainingQty;
+        }
+      }
+
+      txnPayloads.push({
+        job_id: selectedJob.id,
+        seq,
+        quantity: toRejectQty,
+        transaction_type: "reject",
+        operation_name: opName,
+        from_status: "Running",
+        to_status: "Rejected",
+        reason: rejectReason.trim(),
+        user: "Current User",
+      });
+
+      if (remainingQty > 0) {
+        txnPayloads.push({
+          job_id: selectedJob.id,
+          seq,
+          quantity: remainingQty,
+          transaction_type: "move",
+          operation_name: opName,
+          from_status: "Running",
+          to_status: nextSeq ? "In Queue" : "Completed",
+          user: "Current User",
+        });
+      }
+    }
 
     if (errorMessage) {
       toast({
@@ -548,70 +650,73 @@ const ShopFloor = () => {
       return;
     }
 
+    if (touchedSeqs.size === 0) {
+      toast({
+        title: "No Quantities to Reject",
+        description: "Enter quantities in 'To Reject' column first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const movesPayload = Array.from(touchedSeqs).map((seq) => ({
+      seq,
+      in_queue: newQuantities[seq].inQueue || 0,
+      running: newQuantities[seq].running || 0,
+      to_move: 0,
+      rejected: newQuantities[seq].rejected || 0,
+      scrapped: newQuantities[seq].scrapped || 0,
+      completed: newQuantities[seq].completed || 0,
+    }));
+
     try {
-      const res = await axios.put(`/api/jobs/${selectedJob.id}`, {
-        ...selectedJob,
-        status:
-          selectedJob.status === "Released" || selectedJob.status === "Pending"
-            ? "In Progress"
-            : selectedJob.status,
+      const jobStatus = calculateJobStatus(newQuantities, selectedJob);
 
-        moves: Object.keys(newQuantities).map((seq) => ({
-          seq: Number(seq),
-          in_queue: newQuantities[Number(seq)].inQueue,
-          running: newQuantities[Number(seq)].running,
-          to_move: newQuantities[Number(seq)].toMove,
-          rejected: newQuantities[Number(seq)].rejected,
-          scrapped: newQuantities[Number(seq)].scrapped,
-          completed: newQuantities[Number(seq)].completed,
-        })),
-
-        rejectionTransactions: [
-          ...(selectedJob.rejectionTransactions || []),
-          ...newRejectionTransactions,
-        ],
-
-        moveTransactions: [
-          ...(selectedJob.moveTransactions || []),
-          ...newMoveTransactions,
-        ],
+      const res = await axios.post("/api/job-moves/update", {
+        job_id: selectedJob.id,
+        moves: movesPayload,
+        transactions: txnPayloads,
+        job_status: jobStatus,
       });
 
-      const updatedJob = res.data;
+      // rebuild from DB, same as handleMoveTransaction
+      const refreshed = await axios.get(`/api/jobs/${selectedJob.id}`);
+      const job = refreshed.data;
 
-      setSelectedJob(updatedJob);
-      setMoveQuantities(
-        Object.fromEntries(
-          (updatedJob.moves || []).map((m: any) => [
-            m.seq,
-            {
-              inQueue: m.in_queue || 0,
-              running: m.running || 0,
-              toMove: 0,
-              toReject: 0,
-              toScrap: 0,
-              rejected: m.rejected || 0,
-              scrapped: m.scrapped || 0,
-              completed: m.completed || 0,
-              startQty: 0,
-            },
-          ])
-        )
-      );
+      setSelectedJob(job);
 
-      setJobs((prev) =>
-        prev.map((j) => (j.id === updatedJob.id ? updatedJob : j))
-      );
+      const rebuilt: any = {};
+      (job.moves || []).forEach((m: any) => {
+        rebuilt[m.seq] = {
+          inQueue: m.in_queue || 0,
+          running: m.running || 0,
+          toMove: 0,
+          toReject: 0,
+          toScrap: 0,
+          rejected: m.rejected || 0,
+          scrapped: m.scrapped || 0,
+          completed: m.completed || 0,
+          startQty: 0,
+        };
+      });
+      setMoveQuantities(rebuilt);
+
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? job : j)));
 
       setIsRejectDialogOpen(false);
       setRejectReason("");
 
       toast({
         title: "Success",
-        description: "Rejection updated successfully",
+        description: "Rejection recorded and remaining quantity moved forward",
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive",
+      });
     }
   };
 
@@ -671,64 +776,6 @@ const ShopFloor = () => {
       });
     }
   };
-
-  // Check if job is complete (all quantities in completed column of last operation)
-  const checkJobCompletion = async () => {
-    if (!selectedJob) return;
-    if (hasCompletedRef.current) return;
-
-    const totalQty = Number(selectedJob?.quantity || 0);
-
-    const sequences = Object.keys(moveQuantities).map(Number);
-
-    const totalCompleted = sequences.reduce((sum, seq) => {
-      return sum + (moveQuantities[seq]?.completed || 0);
-    }, 0);
-
-    // ✅ correct rule: job is complete only if total completed >= job qty
-    if (totalCompleted < totalQty) return;
-
-    hasCompletedRef.current = true;
-
-    try {
-      const updatedJobs = jobs.map((job: any) => {
-        if (job.id === selectedJob.id) {
-          return {
-            ...job,
-            status: "Completed",
-            moveQuantities,
-          };
-        }
-        return job;
-      });
-
-      setJobs(updatedJobs);
-
-      setSelectedJob((prev: any) => ({
-        ...prev,
-        status: "Completed",
-      }));
-
-      await fetch(`/api/jobs/${selectedJob.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: "Completed",
-          moveQuantities,
-        }),
-      });
-
-      toast({
-        title: "Job Completed!",
-        description: `Job ${selectedJob.job_number} completed successfully.`,
-      });
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-
-
 
   const safeJobs = Array.isArray(jobs) ? jobs : [];
 
@@ -1183,8 +1230,8 @@ const ShopFloor = () => {
                   }
 
                   // Sort transactions by timestamp descending (most recent first)
-                  const sortedTransactions = [...transactions].sort((a: MoveTransaction, b: MoveTransaction) =>
-                    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                  const sortedTransactions = [...transactions].sort((a: MoveTransactionRecord, b: MoveTransactionRecord) =>
+                    new Date(b.transaction_time || b.created_at).getTime() - new Date(a.transaction_time || a.created_at).getTime()
                   );
 
                   return (
@@ -1201,9 +1248,9 @@ const ShopFloor = () => {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {sortedTransactions.map((txn: MoveTransaction, idx: number) => {
+                        {sortedTransactions.map((txn: MoveTransactionRecord, idx: number) => {
                           const getTypeIcon = () => {
-                            switch (txn.transactionType) {
+                            switch (txn.transaction_type) {
                               case 'start': return <Play className="h-3 w-3 text-green-600" />;
                               case 'move': return <ArrowRight className="h-3 w-3 text-blue-600" />;
                               case 'reject': return <XCircle className="h-3 w-3 text-red-600" />;
@@ -1221,7 +1268,7 @@ const ShopFloor = () => {
                               scrap: "bg-orange-100 text-orange-700 border-orange-300",
                               complete: "bg-emerald-100 text-emerald-700 border-emerald-300",
                             };
-                            return styles[txn.transactionType] || "bg-gray-100 text-gray-700 border-gray-300";
+                            return styles[txn.transaction_type] || "bg-gray-100 text-gray-700 border-gray-300";
                           };
 
                           return (
@@ -1232,10 +1279,10 @@ const ShopFloor = () => {
                               <TableCell className="text-[11px] py-2 px-3">
                                 <div className="flex flex-col">
                                   <span className="font-medium">
-                                    {new Date(txn.created_at || txn.createdAt).toLocaleDateString()}
+                                    {new Date(txn.transaction_time || txn.created_at).toLocaleDateString()}
                                   </span>
                                   <span className="text-gray-500">
-                                    {new Date(txn.created_at || txn.createdAt).toLocaleTimeString()}
+                                    {new Date(txn.transaction_time || txn.created_at).toLocaleTimeString()}
                                   </span>
                                 </div>
                               </TableCell>
@@ -1246,10 +1293,10 @@ const ShopFloor = () => {
                                     variant="outline"
                                     className={`text-[10px] ${getTypeBadge()}`}
                                   >
-                                    {(txn.transactionType || txn.transaction_type || "unknown")
+                                    {(txn.transaction_type || "unknown")
                                       .charAt(0)
                                       .toUpperCase() +
-                                      (txn.transactionType || txn.transaction_type || "unknown").slice(1)}
+                                      (txn.transaction_type || "unknown").slice(1)}
                                   </Badge>
                                 </div>
                               </TableCell>

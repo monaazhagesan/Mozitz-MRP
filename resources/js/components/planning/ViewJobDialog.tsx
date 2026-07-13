@@ -43,6 +43,13 @@ export const ViewJobDialog = ({ open, onOpenChange, job }: ViewJobDialogProps) =
 const moveQuantities = Array.isArray(job?.moves) ? job.moves : [];
   const rejectionTransactions = job?.rejectionTransactions || [];
 
+  // The job header has no completed/rejected/scrapped columns of its own —
+  // those only exist per-operation on job_moves, so the header-level total
+  // has to be summed here rather than read off a (nonexistent) job field.
+  const completedQty = moveQuantities.reduce((sum: number, m: any) => sum + Number(m.completed || 0), 0);
+  const rejectedQty = moveQuantities.reduce((sum: number, m: any) => sum + Number(m.rejected || 0), 0);
+  const scrappedQty = moveQuantities.reduce((sum: number, m: any) => sum + Number(m.scrapped || 0), 0);
+
   // Issued quantities map (synced from Material Issues module)
   const issuedQuantities: Record<string, number> = job?.issuedQuantities || {};
 
@@ -196,11 +203,15 @@ const moveQuantities = Array.isArray(job?.moves) ? job.moves : [];
                 </div>
                 <div className="flex items-center gap-2">
                   <ErpLabel className="w-20 text-right">Completed</ErpLabel>
-                  <ErpDisplay value={job.completedQty || 0} className="w-32" />
+                  <ErpDisplay value={completedQty} className="w-32" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <ErpLabel className="w-20 text-right">Rejected</ErpLabel>
+                  <ErpDisplay value={rejectedQty} className="w-32" />
                 </div>
                 <div className="flex items-center gap-2">
                   <ErpLabel className="w-20 text-right">Scrapped</ErpLabel>
-                  <ErpDisplay value={job.scrappedQty || 0} className="w-32" />
+                  <ErpDisplay value={scrappedQty} className="w-32" />
                 </div>
               </div>
             </ErpFieldset>
@@ -375,7 +386,7 @@ const moveQuantities = Array.isArray(job?.moves) ? job.moves : [];
                               <TableCell className="text-xs py-1">Job Completed</TableCell>
                               <TableCell className="text-xs py-1">{new Date(job.completionDate).toLocaleString()}</TableCell>
                               <TableCell className="text-xs py-1">{job.completedBy || "System"}</TableCell>
-                              <TableCell className="text-xs py-1">Completed qty: {job.completedQty || job.quantity}</TableCell>
+                              <TableCell className="text-xs py-1">Completed qty: {completedQty}</TableCell>
                             </TableRow>
                           )}
                           {(!job.releasedAt && !job.startDate && !job.completionDate) && (

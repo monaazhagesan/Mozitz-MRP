@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use App\Models\InventoryStock;
+use App\Models\MoveTransaction;
 
 class JobController extends Controller
 {
@@ -613,17 +614,40 @@ public function update(Request $request, $id)
         ], 500);
     }
 }
+// Persists a shop-floor move transaction atomically: job_moves state, the
+// move_transactions audit log, job status, and — when the terminal
+// operation's completed quantity increases — the resulting finished-goods
+// stock posting. Previously these were 2-3 separate, non-atomic requests
+// from the frontend, so a failure partway through could leave the audit
+// log out of sync with the actual move state, or (before this endpoint
+// existed at all) silently drop the move entirely.
 public function updateMoves(Request $request)
 {
     DB::beginTransaction();
 
     try {
-
         $jobId = $request->job_id;
-        $moves = $request->moves;
 
-        // 1️⃣ Update job_moves table
+        $job = Job::where('user_id', auth()->id())
+            ->findOrFail($jobId);
+
+        $moves = $request->moves ?? [];
+        $transactions = $request->transactions ?? [];
+
+        $finishedGoodsDelta = 0.0;
+
+        // 1️⃣ Update job_moves table, tracking any increase in completed qty.
         foreach ($moves as $mv) {
+            $existing = JobMove::where('job_id', $jobId)
+                ->where('seq', $mv['seq'])
+                ->first();
+
+            $previousCompleted = (float) ($existing->completed ?? 0);
+            $newCompleted = (float) ($mv['completed'] ?? 0);
+
+            if ($newCompleted > $previousCompleted) {
+                $finishedGoodsDelta += $newCompleted - $previousCompleted;
+            }
 
             JobMove::updateOrCreate(
                 [
@@ -641,102 +665,71 @@ public function updateMoves(Request $request)
             );
         }
 
-        // 2️⃣ Update job status (IMPORTANT FIX)
+        // 2️⃣ Log the move-transaction audit entries in the same transaction
+        // as the state change they describe, instead of a separate request.
+        foreach ($transactions as $txn) {
+            MoveTransaction::create([
+                'user_id' => auth()->id(),
+                'job_id' => $jobId,
+                'seq' => $txn['seq'],
+                'operation_name' => $txn['operation_name'] ?? null,
+                'transaction_type' => $txn['transaction_type'] ?? 'move',
+                'quantity' => $txn['quantity'] ?? 0,
+                'from_status' => $txn['from_status'] ?? null,
+                'to_status' => $txn['to_status'] ?? null,
+                'reason' => $txn['reason'] ?? null,
+                'user' => $txn['user'] ?? 'System',
+                'transaction_time' => now(),
+            ]);
+        }
+
+        // 3️⃣ Update job status.
         if ($request->has('job_status')) {
-            Job::where('user_id', auth()->id())
-    ->where('id', $jobId)
-    ->update([
-        'status' => $request->job_status
-    ]);
+            $job->status = $request->job_status;
+            $job->save();
+        }
+
+        // 4️⃣ Quantity that just completed its final operation becomes
+        // finished-goods stock for the job's assembly item.
+        if ($finishedGoodsDelta > 0 && $job->assembly) {
+            $stock = InventoryStock::where('user_id', auth()->id())
+                ->where('item_code', $job->assembly)
+                ->first();
+
+            if ($stock) {
+                $stock->quantity_on_hand = (float) $stock->quantity_on_hand + $finishedGoodsDelta;
+                $stock->available_quantity = (float) $stock->quantity_on_hand - (float) $stock->allocated_quantity;
+                $stock->save();
+            } else {
+                InventoryStock::create([
+                    'user_id' => auth()->id(),
+                    'item_code' => $job->assembly,
+                    'item_name' => $job->product_name,
+                    'item_type' => 'Product',
+                    'uom' => $job->uom ?? 'Nos',
+                    'quantity_on_hand' => $finishedGoodsDelta,
+                    'allocated_quantity' => 0,
+                    'available_quantity' => $finishedGoodsDelta,
+                ]);
+            }
+
+            StockTransaction::create([
+                'user_id' => auth()->id(),
+                'item_code' => $job->assembly,
+                'transaction_type' => 'Production',
+                'reference_type' => 'Job',
+                'reference_number' => $job->job_number,
+                'quantity' => $finishedGoodsDelta,
+                'notes' => "Completed via shop floor move transaction for job {$job->job_number}",
+            ]);
         }
 
         DB::commit();
 
         return response()->json([
             'success' => true,
-            'message' => 'Job moves + status updated successfully'
-        ]);
-
-    } catch (\Exception $e) {
-
-        DB::rollBack();
-
-        return response()->json([
-            'success' => false,
-            'message' => $e->getMessage()
-        ], 500);
-    }
-}
-public function updateMoveTransaction(Request $request)
-{
-    $jobId = $request->job_id;
-
-    // ✅ Verify ownership
-    $job = Job::where('user_id', auth()->id())
-        ->findOrFail($jobId);
-
-    $moves = $request->moves;
-
-    foreach ($moves as $mv) {
-
-        $row = JobMove::where('job_id', $job->id)
-            ->where('seq', $mv['seq'])
-            ->first();
-
-        if ($row) {
-            $row->in_queue = $mv['in_queue'];
-            $row->running = $mv['running'];
-            $row->to_move = $mv['to_move'];
-            $row->rejected = $mv['rejected'];
-            $row->scrapped = $mv['scrapped'];
-            $row->completed = $mv['completed'];
-            $row->save();
-        }
-    }
-
-    return response()->json([
-        'success' => true,
-        'message' => 'Moves updated'
-    ]);
-}
-
-public function bulkUpdate(Request $request)
-{
-    DB::beginTransaction();
-
-    try {
-
-        $jobId = $request->job_id;
-
-        // ✅ Verify ownership
-        $job = Job::where('user_id', auth()->id())
-            ->findOrFail($jobId);
-
-        $moves = $request->moves;
-
-        foreach ($moves as $move) {
-
-            JobMove::updateOrCreate(
-                [
-                    'job_id' => $job->id,
-                    'seq' => $move['seq'],
-                ],
-                [
-                    'in_queue' => $move['in_queue'] ?? 0,
-                    'running' => $move['running'] ?? 0,
-                    'to_move' => $move['to_move'] ?? 0,
-                    'rejected' => $move['rejected'] ?? 0,
-                    'scrapped' => $move['scrapped'] ?? 0,
-                    'completed' => $move['completed'] ?? 0,
-                ]
-            );
-        }
-
-        DB::commit();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Move updated successfully'
+            'message' => 'Job moves + status updated successfully',
+            'finished_goods_posted' => $finishedGoodsDelta,
         ]);
 
     } catch (\Exception $e) {

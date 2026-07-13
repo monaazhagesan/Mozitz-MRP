@@ -333,8 +333,6 @@ Route::post('/jobs', [JobController::class, 'store']);
 Route::get('/jobs/{id}', [JobController::class, 'show']);
 Route::put('/jobs/{id}', [JobController::class, 'update']);
 Route::delete('/jobs/{id}', [JobController::class, 'destroy']);
-Route::post('/job-move/update-bulk', [JobController::class, 'updateMoveTransaction']);
-Route::post('/job-moves/bulk-update', [JobController::class, 'bulkUpdate']);
 Route::post('/job-moves/update', [JobController::class, 'updateMoves']);
 
 

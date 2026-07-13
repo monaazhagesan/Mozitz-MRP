@@ -45,6 +45,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useState, useEffect, useCallback } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -96,7 +97,31 @@ const generateJobNumber = (jobs: any[]) => {
 
 const Planning = () => {
   const { toast } = useToast();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  // Pre-fill data for a rework job, handed off from the Orders dashboard's
+  // "Create Rework Job" action (navigate state, not URL params, since it
+  // includes a free-text notes string).
+  const [jobPrefill, setJobPrefill] = useState<{
+    itemCode: string;
+    itemName: string;
+    quantity: number;
+    salesOrderNum: string;
+    notes?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const rework = (location.state as any)?.reworkJob;
+    if (rework) {
+      setJobPrefill(rework);
+      setIsDialogOpen(true);
+      // Clear the navigation state so refreshing/revisiting this page
+      // doesn't keep re-opening the dialog with the same prefill.
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isFindJobsDialogOpen, setIsFindJobsDialogOpen] = useState(false);
   const [isSearchResultsOpen, setIsSearchResultsOpen] = useState(false);
@@ -127,6 +152,8 @@ const fetchJobs = async () => {
     const normalizedJobs = apiJobs.map((job: any) => ({
   ...job,
   bomItems: job.bomItems || job.components || job.components_list || [],
+  jobType: job.jobType || job.type || "Standard",
+  jobClass: job.jobClass || job.class || "STANDARD",
 }));
 setJobs(normalizedJobs);
 
@@ -1480,8 +1507,8 @@ if (!newJobData.completionDate) {
         sales_order_number: newJobData.salesOrderNum || "",
         customer_id: newJobData.customerId || null,
         customer_name: newJobData.customerName || "",
-        class: newJobData.class || "Standard",
-        type: newJobData.type || "Standard",
+        class: newJobData.jobClass || "Standard",
+        type: newJobData.jobType || "Standard",
         uom: newJobData.uom || "Ea",
         status: "Pending",
         priority: newJobData.priority || "Medium",
@@ -1836,10 +1863,14 @@ const handleFindJobs = useCallback(
         {/* New ERP-Style Job Card Dialog */}
         <JobCardDialog
           open={isDialogOpen}
-          onOpenChange={setIsDialogOpen}
+          onOpenChange={(open) => {
+            setIsDialogOpen(open);
+            if (!open) setJobPrefill(null);
+          }}
           pendingOrders={pendingOrders}
           orders={orders}
           nextJobNumber={nextJobNumber}
+          initialData={jobPrefill}
           onCreateJob={handleCreateJobFromDialog}
           generateJobNumber={memoizedGenerateJobNumber}
           calculateInProgressJobQty={calculateInProgressJobQty}
@@ -1923,7 +1954,18 @@ const handleFindJobs = useCallback(
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(filteredJobs.length > 0 ? filteredJobs : jobs).map((job: any) => (
+                    {(filteredJobs.length > 0 ? filteredJobs : jobs).map((job: any) => {
+                      const rejectedQty = Array.isArray(job.moves)
+                        ? job.moves.reduce((sum: number, m: any) => sum + Number(m.rejected || 0), 0)
+                        : 0;
+                      // A rework job's notes always end with "from <origin job number>"
+                      // (see the Create Rework Job handler below) — that's the only
+                      // link back to the job it was reworked from, so it doubles as
+                      // the check for "has this rejection already been reworked?".
+                      const hasReworkJob = jobs.some(
+                        (j: any) => typeof j.notes === "string" && j.notes.endsWith(`from ${job.job_number}`)
+                      );
+                      return (
                       <TableRow key={job.id}>
                         <TableCell className="font-medium text-primary whitespace-nowrap">{job.job_number}</TableCell>
                         <TableCell className="max-w-[200px] truncate">{job.product_name}</TableCell>
@@ -1993,6 +2035,32 @@ const handleFindJobs = useCallback(
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
+                            {rejectedQty > 0 && (
+                              hasReworkJob ? (
+                                <Badge variant="outline" className="text-[10px] whitespace-nowrap">
+                                  Rework Created
+                                </Badge>
+                              ) : (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 px-2 text-xs"
+                                  title="Create Rework Job"
+                                  onClick={() => {
+                                    setJobPrefill({
+                                      itemCode: job.assembly || "",
+                                      itemName: job.product_name || job.assembly || "",
+                                      quantity: rejectedQty,
+                                      salesOrderNum: job.sales_order_number || "",
+                                      notes: `Rework for ${rejectedQty} rejected unit(s) from ${job.job_number}`,
+                                    });
+                                    setIsDialogOpen(true);
+                                  }}
+                                >
+                                  Create Rework Job
+                                </Button>
+                              )
+                            )}
                             {job.jobType?.toLowerCase() !== "discrete" && job.status !== "Completed" && (
                               <Button
                                 variant="ghost"
@@ -2007,7 +2075,8 @@ const handleFindJobs = useCallback(
                           </div>
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
