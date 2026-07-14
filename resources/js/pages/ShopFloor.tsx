@@ -123,6 +123,17 @@ const ShopFloor = () => {
     }).catch(() => setResources([]));
   }, []);
 
+  // Operator picker source (Operators master, Settings > Operators) — active
+  // operators feed the autocomplete datalist alongside names already seen in
+  // this job's own history, so a name typed before the master existed still
+  // autocompletes too.
+  const [operatorsMaster, setOperatorsMaster] = useState<any[]>([]);
+  useEffect(() => {
+    axios.get("/api/operators").then((res) => {
+      setOperatorsMaster((res.data?.data ?? res.data ?? []).filter((o: any) => o.is_active));
+    }).catch(() => setOperatorsMaster([]));
+  }, []);
+
   // Scrap Reason dialog state
   const [isScrapDialogOpen, setIsScrapDialogOpen] = useState(false);
   const [scrapReason, setScrapReason] = useState("");
@@ -1198,9 +1209,14 @@ const ShopFloor = () => {
                   )}
                 </div>
 
-                {/* Operator name autocomplete, sourced from this job's own transaction history */}
+                {/* Operator name autocomplete, sourced from the Operators master
+                    (Settings > Operators) plus this job's own transaction history
+                    so names used before the master existed still autocomplete. */}
                 <datalist id="operator-names">
-                  {Array.from(new Set(transactions.map((t) => t.operator_name).filter(Boolean))).map((name) => (
+                  {Array.from(new Set([
+                    ...operatorsMaster.map((o: any) => o.name),
+                    ...transactions.map((t) => t.operator_name).filter(Boolean),
+                  ])).map((name) => (
                     <option key={name as string} value={name as string} />
                   ))}
                 </datalist>

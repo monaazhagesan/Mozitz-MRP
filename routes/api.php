@@ -16,6 +16,7 @@ use App\Http\Controllers\BomHeaderController;
 use App\Http\Controllers\BomOperationController;
 use App\Http\Controllers\OperationController;
 use App\Http\Controllers\ResourceController;
+use App\Http\Controllers\OperatorController;
 use App\Http\Controllers\JobAllocationController;
 use App\Http\Controllers\ItemDemandController;
 use App\Http\Controllers\JobController;
@@ -160,6 +161,12 @@ Route::get('/resources/{id}', [ResourceController::class, 'show']);
 Route::post('/resources', [ResourceController::class, 'store']);
 Route::put('/resources/{id}', [ResourceController::class, 'update']);
 Route::delete('/resources/{id}', [ResourceController::class, 'destroy']);
+
+Route::get('/operators', [OperatorController::class, 'index']);
+Route::get('/operators/{id}', [OperatorController::class, 'show']);
+Route::post('/operators', [OperatorController::class, 'store']);
+Route::put('/operators/{id}', [OperatorController::class, 'update']);
+Route::delete('/operators/{id}', [OperatorController::class, 'destroy']);
 
 
 Route::get('/job-allocations', [JobAllocationController::class, 'index']);

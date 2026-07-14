@@ -37,6 +37,7 @@ const navigationItems = [
   { id: "barcodes", label: "Barcodes" },
   { id: "operations", label: "Operations" },
   { id: "resources", label: "Resources" },
+  { id: "operators", label: "Operators" },
   { id: "locations", label: "Locations" },
   { id: "print-templates", label: "Print templates" },
   { id: "warehouse-app", label: "Warehouse app" },
@@ -960,6 +961,7 @@ const Settings = () => {
   useEffect(() => {
     loadOperations();
     loadResources();
+    loadOperators();
   }, []);
 
   // Get unique machines from operations (drives the Resources "Parent Machine" dropdown,
@@ -1058,6 +1060,126 @@ const Settings = () => {
       toast({
         title: "Error",
         description: error.response?.data?.message || "Failed to update resource status",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Operators state (backed by /api/operators)
+  interface OperatorRow {
+    id: string;
+    name: string;
+    employee_code: string;
+    department: string;
+    is_active: boolean;
+  }
+
+  const [operators, setOperators] = useState<OperatorRow[]>([]);
+  const [operatorsLoading, setOperatorsLoading] = useState(false);
+  const [newOperator, setNewOperator] = useState<Omit<OperatorRow, 'id' | 'is_active'>>({
+    name: "",
+    employee_code: "",
+    department: "",
+  });
+  const [operatorErrors, setOperatorErrors] = useState<Record<string, string>>({});
+  const [savingOperator, setSavingOperator] = useState(false);
+
+  const loadOperators = async () => {
+    setOperatorsLoading(true);
+    try {
+      const res = await axios.get("/api/operators");
+      setOperators(Array.isArray(res.data) ? res.data : []);
+    } catch (error) {
+      console.error("Failed to load operators:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load operators",
+        variant: "destructive",
+      });
+    } finally {
+      setOperatorsLoading(false);
+    }
+  };
+
+  const handleAddOperator = async () => {
+    setOperatorErrors({});
+    if (!newOperator.name.trim()) {
+      setOperatorErrors({ name: "Name is required" });
+      return;
+    }
+
+    setSavingOperator(true);
+    try {
+      const res = await axios.post("/api/operators", {
+        name: newOperator.name.trim(),
+        employee_code: newOperator.employee_code.trim() || null,
+        department: newOperator.department.trim() || null,
+      });
+      setOperators([...operators, res.data]);
+      setNewOperator({ name: "", employee_code: "", department: "" });
+      toast({
+        title: "Operator Added",
+        description: `${res.data.name} has been added`,
+      });
+    } catch (error: any) {
+      if (error.response?.status === 422) {
+        const errors = error.response.data?.errors || {};
+        setOperatorErrors({
+          name: errors.name?.[0] || "",
+          employee_code: errors.employee_code?.[0] || "",
+          department: errors.department?.[0] || "",
+        });
+        toast({
+          title: "Validation Failed",
+          description: Object.values(errors).flat().join(" ") as string,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: error.response?.data?.message || "Failed to add operator",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setSavingOperator(false);
+    }
+  };
+
+  const handleDeleteOperator = async (id: string) => {
+    const operator = operators.find(o => o.id === id);
+    try {
+      await axios.delete(`/api/operators/${id}`);
+      setOperators(operators.filter(o => o.id !== id));
+      toast({
+        title: "Operator Removed",
+        description: `${operator?.name} has been removed`,
+      });
+    } catch (error: any) {
+      toast({
+        title: error.response?.status === 409 ? "Cannot Delete Operator" : "Error",
+        description: error.response?.data?.message || "Failed to delete operator",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleToggleOperatorActive = async (id: string) => {
+    const operator = operators.find(o => o.id === id);
+    if (!operator) return;
+    const nextActive = !operator.is_active;
+    setOperators(operators.map(o => (o.id === id ? { ...o, is_active: nextActive } : o)));
+    try {
+      await axios.put(`/api/operators/${id}`, {
+        name: operator.name,
+        department: operator.department || null,
+        is_active: nextActive,
+      });
+    } catch (error: any) {
+      setOperators(operators.map(o => (o.id === id ? { ...o, is_active: !nextActive } : o)));
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || "Failed to update operator status",
         variant: "destructive",
       });
     }
@@ -2217,6 +2339,137 @@ const Settings = () => {
                 </p>
               </div>
             )}
+          </div>
+        );
+
+      case "operators":
+        return (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-semibold text-foreground mb-2">Operators</h2>
+              <p className="text-sm text-muted-foreground">
+                Manage the shop floor operators who can be assigned to production operations.
+              </p>
+            </div>
+
+            <Card>
+              <CardContent className="p-0">
+                {/* Table Header */}
+                <div className="border-b">
+                  <div className="grid grid-cols-12 gap-4 px-4 py-3 bg-muted/50">
+                    <div className="col-span-3">
+                      <span className="text-sm font-medium text-muted-foreground flex items-center gap-1">
+                        Name <ArrowUp className="h-3 w-3" />
+                      </span>
+                    </div>
+                    <div className="col-span-3">
+                      <span className="text-sm font-medium text-muted-foreground">Employee Code</span>
+                    </div>
+                    <div className="col-span-3">
+                      <span className="text-sm font-medium text-muted-foreground">Department</span>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-sm font-medium text-muted-foreground">Status</span>
+                    </div>
+                    <div className="col-span-1"></div>
+                  </div>
+                </div>
+
+                {/* Table Body */}
+                <div className="divide-y">
+                  {operatorsLoading && (
+                    <div className="px-4 py-6 text-sm text-muted-foreground text-center">Loading operators...</div>
+                  )}
+                  {!operatorsLoading && operators.length === 0 && (
+                    <div className="px-4 py-6 text-sm text-muted-foreground text-center">No operators defined yet. Add one below.</div>
+                  )}
+                  {!operatorsLoading && operators.map((operator) => (
+                    <div key={operator.id} className="grid grid-cols-12 gap-4 items-center px-4 py-3 hover:bg-muted/50 transition-colors">
+                      <div className="col-span-3">
+                        <div className="flex items-center gap-2">
+                          <User className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium">{operator.name}</span>
+                        </div>
+                      </div>
+                      <div className="col-span-3">
+                        <Badge variant="outline">{operator.employee_code}</Badge>
+                      </div>
+                      <div className="col-span-3">
+                        <span className="text-sm text-muted-foreground">{operator.department || "-"}</span>
+                      </div>
+                      <div className="col-span-2">
+                        <Switch
+                          checked={operator.is_active}
+                          onCheckedChange={() => handleToggleOperatorActive(operator.id)}
+                        />
+                      </div>
+                      <div className="col-span-1 flex justify-end">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteOperator(operator.id)}
+                          className="h-8 w-8 p-0"
+                        >
+                          <Trash2 className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add New Operator Form */}
+                <div className="border-t px-4 py-4">
+                  <div className="grid grid-cols-12 gap-4 items-end">
+                    <div className="col-span-3">
+                      <Label className="text-xs text-muted-foreground mb-1 block">Name *</Label>
+                      <Input
+                        placeholder="e.g. Ramesh Kumar"
+                        value={newOperator.name}
+                        onChange={(e) => setNewOperator({ ...newOperator, name: e.target.value })}
+                        className={cn("h-9", operatorErrors.name && "border-destructive")}
+                      />
+                      {operatorErrors.name && (
+                        <p className="text-xs text-destructive mt-1">{operatorErrors.name}</p>
+                      )}
+                    </div>
+                    <div className="col-span-3">
+                      <Label className="text-xs text-muted-foreground mb-1 block">Employee Code</Label>
+                      <Input
+                        placeholder="Auto-generated if left blank"
+                        value={newOperator.employee_code}
+                        onChange={(e) => setNewOperator({ ...newOperator, employee_code: e.target.value })}
+                        className={cn("h-9", operatorErrors.employee_code && "border-destructive")}
+                      />
+                      {operatorErrors.employee_code && (
+                        <p className="text-xs text-destructive mt-1">{operatorErrors.employee_code}</p>
+                      )}
+                    </div>
+                    <div className="col-span-3">
+                      <Label className="text-xs text-muted-foreground mb-1 block">Department</Label>
+                      <Input
+                        placeholder="e.g. Assembly"
+                        value={newOperator.department}
+                        onChange={(e) => setNewOperator({ ...newOperator, department: e.target.value })}
+                        className="h-9"
+                      />
+                    </div>
+                    <div className="col-span-2"></div>
+                    <div className="col-span-1"></div>
+                  </div>
+                  <div className="mt-3">
+                    <Button
+                      variant="link"
+                      onClick={handleAddOperator}
+                      className="text-primary p-0 h-auto"
+                      disabled={!newOperator.name.trim() || savingOperator}
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      {savingOperator ? "Adding..." : "Add operator"}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         );
 
