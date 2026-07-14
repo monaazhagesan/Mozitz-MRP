@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -9,6 +10,7 @@ use App\Models\User;
 
 class PoReturn extends Model
 {
+    use BelongsToOrganization;
     use HasFactory, HasUuids;
 
     protected $table = 'po_returns';

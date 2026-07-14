@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use App\Models\User;
+use App\Models\Organization;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Validator;
 use App\Mail\UserResetPasswordMail;
@@ -54,6 +55,16 @@ public function getProfile()
          'country' => $request->country,
         'currency' => $request->currency,
     ]);
+
+    // Every login needs an organization for the BelongsToOrganization/
+    // OrganizationScope data-sharing model to work — a signup starts as the
+    // sole member of a fresh organization, matching how existing users were
+    // backfilled (see 2026_07_14_144403_add_organization_id_to_users_table).
+    $organization = Organization::create([
+        'name' => $request->company ?: (($request->first_name ?: $request->email) . "'s Organization"),
+    ]);
+    $user->organization_id = $organization->id;
+    $user->save();
 
     Auth::login($user);
 

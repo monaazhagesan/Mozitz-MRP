@@ -103,7 +103,6 @@ public function deleteOperationsByBomId(Request $request)
     ]);
 
     $deleted = BomOperation::where('bom_id', $request->bom_id)
-        ->where('user_id', auth()->id())
         ->delete();
 
     return response()->json([

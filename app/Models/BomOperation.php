@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 
 class BomOperation extends Model
 {
+    use BelongsToOrganization;
     protected $table = 'bom_operations';
     protected $primaryKey = 'id';
     public $incrementing = false;

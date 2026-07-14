@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\User;
 
 
 class StockAdjustment extends Model
 {
+    use BelongsToOrganization;
     protected $table = 'stock_adjustments';
 
     public $incrementing = false;

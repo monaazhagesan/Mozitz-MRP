@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 
 class StorageBin extends Model
 {
+    use BelongsToOrganization;
     protected $table = 'storage_bins';
     public $incrementing = false;
     protected $keyType = 'string';

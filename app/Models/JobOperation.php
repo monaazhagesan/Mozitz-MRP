@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 
 class JobOperation extends Model
 {
+    use BelongsToOrganization;
     protected $fillable = [
         'job_id',
         'sequence',

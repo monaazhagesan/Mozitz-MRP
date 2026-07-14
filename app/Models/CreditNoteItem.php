@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
 class CreditNoteItem extends Model
 {
+    use BelongsToOrganization;
     protected $table = 'credit_note_items';
     protected $primaryKey = 'id';
     public $incrementing = false;

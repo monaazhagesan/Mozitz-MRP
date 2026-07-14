@@ -46,8 +46,7 @@ class JobController extends Controller
                 continue;
             }
 
-            $stock = InventoryStock::where('user_id', Auth::id())
-                ->where('item_code', $itemCode)
+            $stock = InventoryStock::where('item_code', $itemCode)
                 ->lockForUpdate()
                 ->first();
 
@@ -111,8 +110,7 @@ class JobController extends Controller
             ->get();
 
         foreach ($allocations as $allocation) {
-            $stock = InventoryStock::where('user_id', Auth::id())
-                ->where('item_code', $allocation->item_code)
+            $stock = InventoryStock::where('item_code', $allocation->item_code)
                 ->lockForUpdate()
                 ->first();
 
@@ -169,8 +167,7 @@ class JobController extends Controller
                 continue;
             }
 
-            $stock = InventoryStock::where('user_id', Auth::id())
-                ->where('item_code', $itemCode)
+            $stock = InventoryStock::where('item_code', $itemCode)
                 ->lockForUpdate()
                 ->first();
 
@@ -236,8 +233,7 @@ class JobController extends Controller
 
         try {
 
-        $existingJob = Job::where('user_id', Auth::id())
-    ->where('job_number', $request->job_number)
+        $existingJob = Job::where('job_number', $request->job_number)
     ->first();
 
 if ($existingJob) {
@@ -371,8 +367,7 @@ if ($existingJob) {
             // orders still in their pre-production state, so an order that's
             // already Processing/Delivered/Cancelled isn't silently overwritten.
             if (!empty($job->sales_order_number)) {
-                $linkedOrder = \App\Models\Order::where('user_id', Auth::id())
-                    ->where('order_no', $job->sales_order_number)
+                $linkedOrder = \App\Models\Order::where('order_no', $job->sales_order_number)
                     ->first();
 
                 if ($linkedOrder && in_array($linkedOrder->status, ['Awaiting Confirmation', 'Confirmed'])) {
@@ -426,8 +421,7 @@ if ($existingJob) {
             'moves',
             'lots',
             'moveTransactions'
-       ])->where('user_id', auth()->id())
-  ->findOrFail($id);
+       ])->findOrFail($id);
 
         return response()->json($job);
     }
@@ -437,8 +431,7 @@ if ($existingJob) {
      */
     public function index(Request $request)
 {
-   $query = Job::where('user_id', auth()->id())
-    ->with([
+   $query = Job::with([
         'components',
         'quantities',
         'operations',
@@ -468,8 +461,7 @@ public function destroy($id)
 
     try {
 
-        $job = Job::where('user_id', auth()->id())
-    ->findOrFail($id);
+        $job = Job::findOrFail($id);
 
         // Delete child records first
         $job->components()->delete();
@@ -516,8 +508,7 @@ public function update(Request $request, $id)
 
     try {
 
-        $job = Job::where('user_id', auth()->id())
-    ->findOrFail($id);
+        $job = Job::findOrFail($id);
 
         $previousStatus = $job->status;
         $newStatus = $request->status ?? $job->status;
@@ -630,8 +621,7 @@ public function updateMoves(Request $request)
     try {
         $jobId = $request->job_id;
 
-        $job = Job::where('user_id', auth()->id())
-            ->findOrFail($jobId);
+        $job = Job::findOrFail($jobId);
 
         $moves = $request->moves ?? [];
         $transactions = $request->transactions ?? [];
@@ -697,8 +687,7 @@ public function updateMoves(Request $request)
         // 4️⃣ Quantity that just completed its final operation becomes
         // finished-goods stock for the job's assembly item.
         if ($finishedGoodsDelta > 0 && $job->assembly) {
-            $stock = InventoryStock::where('user_id', auth()->id())
-                ->where('item_code', $job->assembly)
+            $stock = InventoryStock::where('item_code', $job->assembly)
                 ->first();
 
             if ($stock) {

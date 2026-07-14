@@ -13,16 +13,14 @@ class OperatorController extends Controller
 {
     public function index(Request $request)
     {
-        $operators = Operator::where('user_id', auth()->id())
-            ->orderBy('name')
-            ->get();
+        $operators = Operator::orderBy('name')->get();
 
         return response()->json($operators);
     }
 
     public function show($id)
     {
-        $operator = Operator::where('user_id', auth()->id())->findOrFail($id);
+        $operator = Operator::findOrFail($id);
 
         return response()->json($operator);
     }
@@ -55,7 +53,7 @@ class OperatorController extends Controller
 
     public function update(Request $request, $id)
     {
-        $operator = Operator::where('user_id', auth()->id())->findOrFail($id);
+        $operator = Operator::findOrFail($id);
 
         try {
             $data = $this->validateData($request, $id);
@@ -81,13 +79,12 @@ class OperatorController extends Controller
 
     public function destroy($id)
     {
-        $operator = Operator::where('user_id', auth()->id())->findOrFail($id);
+        $operator = Operator::findOrFail($id);
 
         // Business rule: keep an operator's historical Shop Floor activity
         // attributable — don't let the name disappear out from under
         // already-logged move_transactions rows.
-        $usage = MoveTransaction::where('user_id', auth()->id())
-            ->where('operator_name', $operator->name)
+        $usage = MoveTransaction::where('operator_name', $operator->name)
             ->count();
 
         if ($usage > 0) {
@@ -103,8 +100,7 @@ class OperatorController extends Controller
 
     private function generateEmployeeCode(): string
     {
-        $last = Operator::where('user_id', auth()->id())
-            ->where('employee_code', 'like', 'OP-%')
+        $last = Operator::where('employee_code', 'like', 'OP-%')
             ->orderByRaw('CAST(SUBSTRING(employee_code, 4) AS UNSIGNED) DESC')
             ->first();
 
@@ -125,7 +121,7 @@ class OperatorController extends Controller
                 'max:150',
                 Rule::unique('operators', 'name')
                     ->ignore($id)
-                    ->where('user_id', auth()->id()),
+                    ->where('organization_id', auth()->user()->organization_id),
             ],
             'employee_code' => [
                 'nullable',
@@ -133,7 +129,7 @@ class OperatorController extends Controller
                 'max:50',
                 Rule::unique('operators', 'employee_code')
                     ->ignore($id)
-                    ->where('user_id', auth()->id()),
+                    ->where('organization_id', auth()->user()->organization_id),
             ],
             'department' => 'nullable|string|max:100',
         ]);

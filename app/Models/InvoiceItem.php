@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 
 class InvoiceItem extends Model
 {
+    use BelongsToOrganization;
     use HasUuids;
 
     protected $fillable = [

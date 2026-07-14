@@ -29,8 +29,7 @@ class MoveTransactionController extends Controller
         try {
             DB::beginTransaction();
 
-            $job = Job::where('user_id', auth()->id())
-                ->findOrFail($request->job_id);
+            $job = Job::findOrFail($request->job_id);
 
             $transaction = MoveTransaction::create([
                 'user_id' => auth()->id(),
@@ -69,11 +68,9 @@ class MoveTransactionController extends Controller
      public function getByJob($jobId)
     {
         // ✅ Verify ownership
-        $job = Job::where('user_id', auth()->id())
-            ->findOrFail($jobId);
+        $job = Job::findOrFail($jobId);
 
-        $transactions = MoveTransaction::where('user_id', auth()->id())
-            ->where('job_id', $job->id)
+        $transactions = MoveTransaction::where('job_id', $job->id)
             ->orderBy('transaction_time', 'desc')
             ->get();
 
@@ -88,14 +85,12 @@ class MoveTransactionController extends Controller
    public function summary($jobId)
     {
         // ✅ Verify ownership
-        $job = Job::where('user_id', auth()->id())
-            ->findOrFail($jobId);
+        $job = Job::findOrFail($jobId);
 
         $summary = MoveTransaction::select(
                 'transaction_type',
                 DB::raw('SUM(quantity) as total')
             )
-            ->where('user_id', auth()->id())
             ->where('job_id', $job->id)
             ->groupBy('transaction_type')
             ->get();

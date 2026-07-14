@@ -16,8 +16,7 @@ class OperationController extends Controller
 {
     public function index(Request $request)
     {
-        $operations = Operation::where('user_id', auth()->id())
-            ->orderBy('sequence')
+        $operations = Operation::orderBy('sequence')
             ->orderBy('created_at')
             ->get();
 
@@ -26,7 +25,7 @@ class OperationController extends Controller
 
     public function show($id)
     {
-        $operation = Operation::where('user_id', auth()->id())->findOrFail($id);
+        $operation = Operation::findOrFail($id);
 
         return response()->json($operation);
     }
@@ -37,7 +36,7 @@ class OperationController extends Controller
             $data = $this->validateData($request);
             $data['id'] = (string) Str::uuid();
             $data['user_id'] = auth()->id();
-            $data['sequence'] = (int) (Operation::where('user_id', auth()->id())->max('sequence') ?? 0) + 1;
+            $data['sequence'] = (int) (Operation::max('sequence') ?? 0) + 1;
 
             $operation = Operation::create($data);
 
@@ -52,7 +51,7 @@ class OperationController extends Controller
 
     public function update(Request $request, $id)
     {
-        $operation = Operation::where('user_id', auth()->id())->findOrFail($id);
+        $operation = Operation::findOrFail($id);
 
         try {
             $data = $this->validateData($request, $id);
@@ -69,14 +68,13 @@ class OperationController extends Controller
 
     public function destroy($id)
     {
-        $operation = Operation::where('user_id', auth()->id())->findOrFail($id);
+        $operation = Operation::findOrFail($id);
 
         // Business rule: a machine name that a Resource has registered as its
         // "parent machine" must keep resolving to a real Operation, otherwise
         // the Resource is left pointing at nothing.
         if (!empty($operation->machine)) {
-            $dependentResources = Resource::where('user_id', auth()->id())
-                ->where('parent_machine', $operation->machine)
+            $dependentResources = Resource::where('parent_machine', $operation->machine)
                 ->count();
 
             if ($dependentResources > 0) {
@@ -88,8 +86,7 @@ class OperationController extends Controller
 
         // Business rule: an operation/department already used in a BOM or Job
         // routing cannot be silently removed out from under production.
-        $bomUsage = BomOperation::where('user_id', auth()->id())
-            ->where('department', $operation->department)
+        $bomUsage = BomOperation::where('department', $operation->department)
             ->count();
 
         if ($bomUsage > 0) {
@@ -98,8 +95,7 @@ class OperationController extends Controller
             ], 409);
         }
 
-        $jobUsage = JobOperation::where('user_id', auth()->id())
-            ->where('department', $operation->department)
+        $jobUsage = JobOperation::where('department', $operation->department)
             ->whereNotIn('status', ['Completed', 'Cancelled'])
             ->count();
 
@@ -124,7 +120,7 @@ class OperationController extends Controller
                 'max:150',
                 Rule::unique('operations', 'operation_name')
                     ->ignore($id)
-                    ->where('user_id', auth()->id())
+                    ->where('organization_id', auth()->user()->organization_id)
                     ->where('department', $request->input('department')),
             ],
             'machine' => 'nullable|string|max:150',

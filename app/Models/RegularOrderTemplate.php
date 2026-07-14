@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\User;
 
 class RegularOrderTemplate extends Model
 {
+    use BelongsToOrganization;
     protected $fillable = [
         'user_id',
         'customer_id',

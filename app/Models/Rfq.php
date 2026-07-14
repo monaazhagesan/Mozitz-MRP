@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
@@ -9,6 +10,7 @@ use App\Models\User;
 
 class Rfq extends Model
 {
+    use BelongsToOrganization;
     use HasFactory;
 
     protected $table = 'rfqs';

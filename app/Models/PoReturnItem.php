@@ -1,11 +1,14 @@
 <?php
 
 namespace App\Models;
+
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\Model;
 
 class PoReturnItem extends Model
 {
+    use BelongsToOrganization;
     protected $table = 'po_return_items';
     
     public $incrementing = false;

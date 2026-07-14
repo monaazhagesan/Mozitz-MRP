@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 use App\Models\User;
@@ -9,6 +10,7 @@ use App\Models\User;
 
 class StockTransaction extends Model
 {
+    use BelongsToOrganization;
     protected $table = 'stock_transactions';
     public $incrementing = false;
     protected $keyType = 'string';

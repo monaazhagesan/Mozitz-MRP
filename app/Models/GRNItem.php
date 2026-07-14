@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str; // ✅ import Str
 
 class GRNItem extends Model
 {
+    use BelongsToOrganization;
     protected $table = 'grn_items';
     protected $primaryKey = 'id';
     public $incrementing = false;

@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 
 class Operator extends Model
 {
+    use BelongsToOrganization;
     protected $table = 'operators';
     protected $primaryKey = 'id';
     public $incrementing = false;

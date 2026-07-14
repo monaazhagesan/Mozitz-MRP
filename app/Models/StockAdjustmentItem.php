@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 
 class StockAdjustmentItem extends Model
 {
+    use BelongsToOrganization;
     protected $table = 'stock_adjustment_items';
 
     public $timestamps = true;

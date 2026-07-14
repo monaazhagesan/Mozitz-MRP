@@ -27,16 +27,14 @@ class ResourceController extends Controller
 
     public function index(Request $request)
     {
-        $resources = Resource::where('user_id', auth()->id())
-            ->orderBy('machine_name')
-            ->get();
+        $resources = Resource::orderBy('machine_name')->get();
 
         return response()->json($resources);
     }
 
     public function show($id)
     {
-        $resource = Resource::where('user_id', auth()->id())->findOrFail($id);
+        $resource = Resource::findOrFail($id);
 
         return response()->json($resource);
     }
@@ -69,7 +67,7 @@ class ResourceController extends Controller
 
     public function update(Request $request, $id)
     {
-        $resource = Resource::where('user_id', auth()->id())->findOrFail($id);
+        $resource = Resource::findOrFail($id);
 
         try {
             $data = $this->validateData($request, $id);
@@ -95,12 +93,11 @@ class ResourceController extends Controller
 
     public function destroy($id)
     {
-        $resource = Resource::where('user_id', auth()->id())->findOrFail($id);
+        $resource = Resource::findOrFail($id);
 
         // Business rule: a resource actively used as a BOM/Job work center
         // cannot be removed out from under production planning.
-        $bomUsage = BomOperation::where('user_id', auth()->id())
-            ->where('work_center', $resource->machine_name)
+        $bomUsage = BomOperation::where('work_center', $resource->machine_name)
             ->count();
 
         if ($bomUsage > 0) {
@@ -109,8 +106,7 @@ class ResourceController extends Controller
             ], 409);
         }
 
-        $jobUsage = JobOperation::where('user_id', auth()->id())
-            ->where('work_center', $resource->machine_name)
+        $jobUsage = JobOperation::where('work_center', $resource->machine_name)
             ->whereNotIn('status', ['Completed', 'Cancelled'])
             ->count();
 
@@ -127,8 +123,7 @@ class ResourceController extends Controller
 
     private function generateMachineCode(): string
     {
-        $last = Resource::where('user_id', auth()->id())
-            ->where('machine_code', 'like', 'MCH-%')
+        $last = Resource::where('machine_code', 'like', 'MCH-%')
             ->orderByRaw('CAST(SUBSTRING(machine_code, 5) AS UNSIGNED) DESC')
             ->first();
 
@@ -149,7 +144,7 @@ class ResourceController extends Controller
                 'max:150',
                 Rule::unique('resources', 'machine_name')
                     ->ignore($id)
-                    ->where('user_id', auth()->id()),
+                    ->where('organization_id', auth()->user()->organization_id),
             ],
             'machine_code' => [
                 'nullable',
@@ -157,7 +152,7 @@ class ResourceController extends Controller
                 'max:50',
                 Rule::unique('resources', 'machine_code')
                     ->ignore($id)
-                    ->where('user_id', auth()->id()),
+                    ->where('organization_id', auth()->user()->organization_id),
             ],
             'machine_type' => ['nullable', 'string', Rule::in(self::MACHINE_TYPES)],
             'parent_machine' => [
@@ -169,8 +164,7 @@ class ResourceController extends Controller
                         return;
                     }
 
-                    $exists = Operation::where('user_id', auth()->id())
-                        ->where('machine', $value)
+                    $exists = Operation::where('machine', $value)
                         ->exists();
 
                     if (!$exists) {

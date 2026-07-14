@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class RfqItem extends Model
 {
+    use BelongsToOrganization;
     use HasFactory;
 
     public $incrementing = false;

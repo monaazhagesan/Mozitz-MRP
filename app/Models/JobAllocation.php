@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 
 class JobAllocation extends Model
 {
+    use BelongsToOrganization;
     protected $table = 'job_allocations';
     protected $primaryKey = 'id';
     public $incrementing = false;

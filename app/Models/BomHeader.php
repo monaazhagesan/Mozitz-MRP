@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\User;
 
 
 class BomHeader extends Model
 {
+    use BelongsToOrganization;
     protected $table = 'bom_headers';
     protected $primaryKey = 'id';
     public $incrementing = false;

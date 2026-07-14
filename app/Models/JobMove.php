@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class JobMove extends Model
 {
+    use BelongsToOrganization;
     protected $fillable = [
         'job_id',
         'seq',

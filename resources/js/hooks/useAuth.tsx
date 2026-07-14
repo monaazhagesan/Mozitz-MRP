@@ -6,6 +6,7 @@ interface User {
   id: number;
   email: string;
    currency?: string;
+  organization_id?: number;
 }
 
 interface Session {

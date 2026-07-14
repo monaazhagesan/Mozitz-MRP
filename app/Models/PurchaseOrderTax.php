@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
 class PurchaseOrderTax extends Model
 {
+    use BelongsToOrganization;
     protected $table = 'purchase_order_taxes';
 
     protected $primaryKey = 'id';
