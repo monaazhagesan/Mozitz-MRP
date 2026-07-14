@@ -208,6 +208,7 @@ Route::get('/team/{id}', [TeamController::class, 'show'])->middleware('permissio
 Route::post('/team', [TeamController::class, 'store'])->middleware('permission:settings.manage_team');
 Route::put('/team/{id}', [TeamController::class, 'update'])->middleware('permission:settings.manage_team');
 Route::delete('/team/{id}', [TeamController::class, 'destroy'])->middleware('permission:settings.manage_team');
+Route::put('/team/{id}/permissions', [TeamController::class, 'updatePermissions'])->middleware('permission:settings.manage_team');
 
 Route::get('/organization-settings', [OrganizationSettingsController::class, 'show']);
 Route::put('/organization-settings', [OrganizationSettingsController::class, 'update'])->middleware('permission:settings.manage_general');

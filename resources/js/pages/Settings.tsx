@@ -295,13 +295,14 @@ const Settings = () => {
     is_active: boolean;
     role: { id: string; name: string; is_system: boolean } | null;
     departments: { id: string; name: string }[];
+    permission_overrides?: { id: number; granted: boolean; permission: { id: string; key: string; label: string; module: string } }[];
   }
   interface RoleRow {
     id: string;
     name: string;
     is_system: boolean;
     users_count: number;
-    permissions: { id: string; key: string; label: string; module: string }[];
+    permissions: { id: string; key: string; label: string; module: string; category?: string }[];
   }
   interface DepartmentRow {
     id: string;
@@ -313,6 +314,7 @@ const Settings = () => {
     key: string;
     label: string;
     module: string;
+    category: "visibility" | "workflow" | "admin";
   }
 
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -323,10 +325,86 @@ const Settings = () => {
 
   const [newTeamMember, setNewTeamMember] = useState({
     name: "", email: "", mobile: "", password: "", role_id: "", department_ids: [] as string[],
+    granted_permissions: [] as string[], revoked_permissions: [] as string[],
   });
   const [teamMemberErrors, setTeamMemberErrors] = useState<Record<string, string>>({});
   const [savingTeamMember, setSavingTeamMember] = useState(false);
   const [teamDialogOpen, setTeamDialogOpen] = useState(false);
+
+  // "Customize permissions" — per-user exceptions layered on top of a
+  // role's defaults. Reused for both the not-yet-created member in the Add
+  // dialog (target "new", applied on submit) and an existing member (target
+  // = their id, saved immediately via PUT /api/team/{id}/permissions).
+  const [permCustomizeOpen, setPermCustomizeOpen] = useState(false);
+  const [permCustomizeTarget, setPermCustomizeTarget] = useState<"new" | number | null>(null);
+  const [permCustomizeRoleId, setPermCustomizeRoleId] = useState("");
+  const [permCustomizeChecked, setPermCustomizeChecked] = useState<Record<string, boolean>>({});
+  const [permCustomizeTab, setPermCustomizeTab] = useState<"visibility" | "workflow" | "admin">("visibility");
+  const [savingPermCustomize, setSavingPermCustomize] = useState(false);
+
+  const getRoleDefaultKeys = (roleId: string): string[] =>
+    roles.find((r) => r.id === roleId)?.permissions.map((p) => p.key) || [];
+
+  const openCustomizePermissionsForNew = () => {
+    const defaults = getRoleDefaultKeys(newTeamMember.role_id);
+    const checked: Record<string, boolean> = {};
+    permissionsCatalog.forEach((p) => { checked[p.key] = defaults.includes(p.key); });
+    newTeamMember.granted_permissions.forEach((k) => { checked[k] = true; });
+    newTeamMember.revoked_permissions.forEach((k) => { checked[k] = false; });
+    setPermCustomizeChecked(checked);
+    setPermCustomizeRoleId(newTeamMember.role_id);
+    setPermCustomizeTarget("new");
+    setPermCustomizeTab("visibility");
+    setPermCustomizeOpen(true);
+  };
+
+  const openCustomizePermissionsForMember = (member: TeamMember) => {
+    const roleId = member.role?.id || "";
+    const defaults = getRoleDefaultKeys(roleId);
+    const checked: Record<string, boolean> = {};
+    permissionsCatalog.forEach((p) => { checked[p.key] = defaults.includes(p.key); });
+    (member.permission_overrides || []).forEach((o) => { checked[o.permission.key] = o.granted; });
+    setPermCustomizeChecked(checked);
+    setPermCustomizeRoleId(roleId);
+    setPermCustomizeTarget(member.id);
+    setPermCustomizeTab("visibility");
+    setPermCustomizeOpen(true);
+  };
+
+  const handleApplyPermissionCustomization = async () => {
+    const defaults = getRoleDefaultKeys(permCustomizeRoleId);
+    const granted: string[] = [];
+    const revoked: string[] = [];
+    permissionsCatalog.forEach((p) => {
+      const isChecked = !!permCustomizeChecked[p.key];
+      const isDefault = defaults.includes(p.key);
+      if (isChecked && !isDefault) granted.push(p.key);
+      if (!isChecked && isDefault) revoked.push(p.key);
+    });
+
+    if (permCustomizeTarget === "new") {
+      setNewTeamMember({ ...newTeamMember, granted_permissions: granted, revoked_permissions: revoked });
+      setPermCustomizeOpen(false);
+      return;
+    }
+
+    if (typeof permCustomizeTarget === "number") {
+      setSavingPermCustomize(true);
+      try {
+        await axios.put(`/api/team/${permCustomizeTarget}/permissions`, {
+          granted_permissions: granted,
+          revoked_permissions: revoked,
+        });
+        await loadTeam();
+        toast({ title: "Permissions Updated" });
+        setPermCustomizeOpen(false);
+      } catch (error: any) {
+        toast({ title: "Error", description: error.response?.data?.message || "Failed to update permissions", variant: "destructive" });
+      } finally {
+        setSavingPermCustomize(false);
+      }
+    }
+  };
 
   const loadTeam = async () => {
     setTeamLoading(true);
@@ -393,9 +471,11 @@ const Settings = () => {
         password: newTeamMember.password,
         role_id: newTeamMember.role_id || null,
         department_ids: newTeamMember.department_ids,
+        granted_permissions: newTeamMember.granted_permissions,
+        revoked_permissions: newTeamMember.revoked_permissions,
       });
       setTeamMembers([...teamMembers, res.data]);
-      setNewTeamMember({ name: "", email: "", mobile: "", password: "", role_id: "", department_ids: [] });
+      setNewTeamMember({ name: "", email: "", mobile: "", password: "", role_id: "", department_ids: [], granted_permissions: [], revoked_permissions: [] });
       setTeamDialogOpen(false);
       toast({ title: "Team Member Added", description: `${res.data.email} has been added` });
     } catch (error: any) {
@@ -1817,7 +1897,10 @@ const Settings = () => {
                     <Separator />
                     <div className="space-y-2">
                       <Label>Role</Label>
-                      <Select value={newTeamMember.role_id} onValueChange={(v) => setNewTeamMember({ ...newTeamMember, role_id: v })}>
+                      <Select
+                        value={newTeamMember.role_id}
+                        onValueChange={(v) => setNewTeamMember({ ...newTeamMember, role_id: v, granted_permissions: [], revoked_permissions: [] })}
+                      >
                         <SelectTrigger>
                           <SelectValue placeholder="Select a role" />
                         </SelectTrigger>
@@ -1828,8 +1911,34 @@ const Settings = () => {
                         </SelectContent>
                       </Select>
                     </div>
+
+                    {newTeamMember.role_id && (() => {
+                      const roleName = roles.find((r) => r.id === newTeamMember.role_id)?.name || "";
+                      const defaults = getRoleDefaultKeys(newTeamMember.role_id);
+                      const hasCustomizations = newTeamMember.granted_permissions.length > 0 || newTeamMember.revoked_permissions.length > 0;
+                      const effectiveCount = defaults.length + newTeamMember.granted_permissions.length - newTeamMember.revoked_permissions.length;
+                      return (
+                        <div className="space-y-1 border rounded-md p-3">
+                          <div className="flex items-center justify-between">
+                            <p className="font-semibold text-sm">{hasCustomizations ? "Custom permissions" : "Default permissions"}</p>
+                            <button
+                              type="button"
+                              className="text-sm text-primary hover:underline"
+                              onClick={openCustomizePermissionsForNew}
+                            >
+                              Edit
+                            </button>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {effectiveCount} of {permissionsCatalog.length} permissions enabled
+                            {hasCustomizations ? ` — customized from ${roleName}'s defaults` : ` (from ${roleName})`}
+                          </p>
+                        </div>
+                      );
+                    })()}
+
                     <div className="space-y-2">
-                      <Label>Departments</Label>
+                      <Label>Departments (Access Scope)</Label>
                       <div className="border rounded-md p-3 space-y-2 max-h-40 overflow-auto">
                         {departmentsList.length === 0 ? (
                           <p className="text-sm text-muted-foreground">No departments defined yet.</p>
@@ -1898,6 +2007,14 @@ const Settings = () => {
                         {member.role && (
                           <Badge variant="secondary">{member.role.name}</Badge>
                         )}
+                        {!!member.permission_overrides?.length && (
+                          <Badge variant="outline" className="text-[10px]">
+                            {member.permission_overrides.length} customized
+                          </Badge>
+                        )}
+                        <Button variant="ghost" size="sm" onClick={() => openCustomizePermissionsForMember(member)}>
+                          Permissions
+                        </Button>
                         <Switch
                           checked={member.is_active}
                           onCheckedChange={() => handleToggleTeamMemberActive(member)}
@@ -2479,12 +2596,23 @@ const Settings = () => {
                     <div className="col-span-1"></div>
                     <div className="col-span-2">
                       <Label className="text-xs text-muted-foreground mb-1 block">Department *</Label>
-                      <Input
-                        placeholder="e.g. Production"
+                      <Select
                         value={newOperation.department}
-                        onChange={(e) => setNewOperation({ ...newOperation, department: e.target.value })}
-                        className={cn("h-9", operationErrors.department && "border-destructive")}
-                      />
+                        onValueChange={(v) => setNewOperation({ ...newOperation, department: v })}
+                      >
+                        <SelectTrigger className={cn("h-9", operationErrors.department && "border-destructive")}>
+                          <SelectValue placeholder="Select department" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {departmentsList.length > 0 ? (
+                            departmentsList.map((dept) => (
+                              <SelectItem key={dept.id} value={dept.name}>{dept.name}</SelectItem>
+                            ))
+                          ) : (
+                            <SelectItem value="none" disabled>No departments defined</SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
                       {operationErrors.department && (
                         <p className="text-xs text-destructive mt-1">{operationErrors.department}</p>
                       )}
@@ -2540,6 +2668,22 @@ const Settings = () => {
                 </div>
               </CardContent>
             </Card>
+
+            {departmentsList.length === 0 && (
+              <div className="bg-muted/50 border rounded-lg p-4">
+                <p className="text-sm text-muted-foreground">
+                  <Info className="h-4 w-4 inline mr-2" />
+                  No departments defined yet. Add one in the{" "}
+                  <button
+                    onClick={() => setActiveSection("departments")}
+                    className="text-primary hover:underline"
+                  >
+                    Departments settings
+                  </button>
+                  {" "}before creating operations.
+                </p>
+              </div>
+            )}
           </div>
         );
 
@@ -3506,6 +3650,71 @@ const Settings = () => {
           </div>
         </div>
       </div>
+
+      {/* Customize Permissions — per-user exceptions on top of a role's
+          defaults, shared by the Add Team Member dialog and each existing
+          member's "Permissions" action. */}
+      <Dialog open={permCustomizeOpen} onOpenChange={setPermCustomizeOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Customize Permissions</DialogTitle>
+            <DialogDescription>
+              Starts from {roles.find((r) => r.id === permCustomizeRoleId)?.name || "the selected role"}'s defaults —
+              toggle anything to grant or revoke it just for this person.
+            </DialogDescription>
+          </DialogHeader>
+          <Tabs value={permCustomizeTab} onValueChange={(v) => setPermCustomizeTab(v as typeof permCustomizeTab)}>
+            <TabsList>
+              <TabsTrigger value="visibility">
+                Visibility {permissionsCatalog.filter(p => p.category === "visibility" && permCustomizeChecked[p.key]).length}/{permissionsCatalog.filter(p => p.category === "visibility").length}
+              </TabsTrigger>
+              <TabsTrigger value="workflow">
+                Workflows {permissionsCatalog.filter(p => p.category === "workflow" && permCustomizeChecked[p.key]).length}/{permissionsCatalog.filter(p => p.category === "workflow").length}
+              </TabsTrigger>
+              <TabsTrigger value="admin">
+                Admin {permissionsCatalog.filter(p => p.category === "admin" && permCustomizeChecked[p.key]).length}/{permissionsCatalog.filter(p => p.category === "admin").length}
+              </TabsTrigger>
+            </TabsList>
+            {(["visibility", "workflow", "admin"] as const).map((category) => (
+              <TabsContent key={category} value={category} className="space-y-3 mt-4">
+                {permissionsCatalog.filter((p) => p.category === category).map((perm) => (
+                  <div key={perm.key} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`customize-perm-${perm.key}`}
+                      checked={!!permCustomizeChecked[perm.key]}
+                      onCheckedChange={(checked) => setPermCustomizeChecked({ ...permCustomizeChecked, [perm.key]: !!checked })}
+                    />
+                    <label htmlFor={`customize-perm-${perm.key}`} className="text-sm cursor-pointer">{perm.label}</label>
+                  </div>
+                ))}
+                {permissionsCatalog.filter((p) => p.category === category).length === 0 && (
+                  <p className="text-sm text-muted-foreground">No permissions in this category yet.</p>
+                )}
+              </TabsContent>
+            ))}
+          </Tabs>
+          <div className="flex justify-between items-center pt-4 border-t">
+            <button
+              type="button"
+              className="text-sm text-muted-foreground hover:underline"
+              onClick={() => {
+                const defaults = getRoleDefaultKeys(permCustomizeRoleId);
+                const checked: Record<string, boolean> = {};
+                permissionsCatalog.forEach((p) => { checked[p.key] = defaults.includes(p.key); });
+                setPermCustomizeChecked(checked);
+              }}
+            >
+              Reset to default
+            </button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setPermCustomizeOpen(false)}>Cancel</Button>
+              <Button onClick={handleApplyPermissionCustomization} disabled={savingPermCustomize}>
+                {savingPermCustomize ? "Applying..." : "Apply"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 };

@@ -16,6 +16,7 @@ class Permission extends Model
         'key',
         'label',
         'module',
+        'category',
     ];
 
     public function roles()

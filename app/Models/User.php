@@ -49,17 +49,11 @@ class User extends Authenticatable
     protected $appends = ['permissions'];
 
     /**
-     * Flat permission-key list for the frontend's hasPermission() helper —
-     * uses the already-loaded `role.permissions` relation when present
-     * (AuthController eager-loads it) rather than firing an extra query.
+     * Flat permission-key list for the frontend's hasPermission() helper.
      */
     public function getPermissionsAttribute(): array
     {
-        if (!$this->role) {
-            return [];
-        }
-
-        return $this->role->permissions->pluck('key')->values()->all();
+        return $this->effectivePermissionKeys();
     }
 
     public function organization()
@@ -77,22 +71,53 @@ class User extends Authenticatable
         return $this->belongsToMany(Department::class, 'department_user');
     }
 
+    public function permissionOverrides()
+    {
+        return $this->hasMany(UserPermissionOverride::class);
+    }
+
     public function isSuperAdmin(): bool
     {
         return (bool) $this->role?->is_system;
     }
 
     /**
-     * Super Admin always passes, regardless of whether every permission is
-     * actually synced to its pivot row — new permission keys added later
-     * are automatically covered without a data migration.
+     * A role's permissions, with this user's individual grant/revoke
+     * exceptions applied on top — `granted = true` adds a permission the
+     * role doesn't have, `granted = false` removes one the role does have.
+     * Super Admin bypasses overrides entirely and always gets the full
+     * catalog, so a stray revoke row can never lock out an org's own admin.
+     * Deliberately not cached: this is called at most a handful of times
+     * per request, and caching it on the instance previously went stale
+     * whenever overrides were written and then re-read on the same $user
+     * object within one request (e.g. right after TeamController's
+     * updatePermissions() saves and reloads it).
      */
-    public function hasPermission(string $key): bool
+    public function effectivePermissionKeys(): array
     {
         if ($this->isSuperAdmin()) {
-            return true;
+            return Permission::pluck('key')->all();
         }
 
-        return $this->role?->permissions()->where('key', $key)->exists() ?? false;
+        $keys = collect($this->role?->permissions->pluck('key') ?? [])
+            ->mapWithKeys(fn ($key) => [$key => true]);
+
+        foreach ($this->permissionOverrides as $override) {
+            if (!$override->permission) {
+                continue;
+            }
+            if ($override->granted) {
+                $keys[$override->permission->key] = true;
+            } else {
+                $keys->forget($override->permission->key);
+            }
+        }
+
+        return $keys->keys()->values()->all();
+    }
+
+    public function hasPermission(string $key): bool
+    {
+        return in_array($key, $this->effectivePermissionKeys(), true);
     }
 }

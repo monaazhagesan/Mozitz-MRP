@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Permission;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -10,9 +11,11 @@ use Illuminate\Validation\ValidationException;
 
 class TeamController extends Controller
 {
+    private const OVERRIDE_RELATIONS = ['role.permissions', 'departments', 'permissionOverrides.permission'];
+
     public function index(Request $request)
     {
-        $users = User::with(['role.permissions', 'departments'])
+        $users = User::with(self::OVERRIDE_RELATIONS)
             ->where('organization_id', auth()->user()->organization_id)
             ->orderBy('first_name')
             ->get();
@@ -22,7 +25,7 @@ class TeamController extends Controller
 
     public function show($id)
     {
-        $user = User::with(['role.permissions', 'departments'])
+        $user = User::with(self::OVERRIDE_RELATIONS)
             ->where('organization_id', auth()->user()->organization_id)
             ->findOrFail($id);
 
@@ -40,6 +43,10 @@ class TeamController extends Controller
                 'role_id' => ['nullable', Rule::exists('roles', 'id')->where('organization_id', auth()->user()->organization_id)],
                 'department_ids' => 'sometimes|array',
                 'department_ids.*' => ['string', Rule::exists('departments', 'id')->where('organization_id', auth()->user()->organization_id)],
+                'granted_permissions' => 'sometimes|array',
+                'granted_permissions.*' => 'string',
+                'revoked_permissions' => 'sometimes|array',
+                'revoked_permissions.*' => 'string',
             ]);
 
             $user = User::create([
@@ -58,7 +65,11 @@ class TeamController extends Controller
                 $user->departments()->sync($data['department_ids']);
             }
 
-            return response()->json($user->load(['role.permissions', 'departments']), 201);
+            if (!empty($data['granted_permissions']) || !empty($data['revoked_permissions'])) {
+                $this->applyPermissionOverrides($user, $data['granted_permissions'] ?? [], $data['revoked_permissions'] ?? []);
+            }
+
+            return response()->json($user->load(self::OVERRIDE_RELATIONS), 201);
         } catch (ValidationException $e) {
             return response()->json([
                 'message' => 'Validation Failed',
@@ -107,12 +118,62 @@ class TeamController extends Controller
                 $user->departments()->sync($data['department_ids']);
             }
 
-            return response()->json($user->load(['role.permissions', 'departments']));
+            return response()->json($user->load(self::OVERRIDE_RELATIONS));
         } catch (ValidationException $e) {
             return response()->json([
                 'message' => 'Validation Failed',
                 'errors' => $e->errors(),
             ], 422);
+        }
+    }
+
+    /**
+     * Replaces this user's permission overrides wholesale — the "Customize
+     * permissions" action, separate from the main edit form. Sending a key
+     * in neither list clears any existing override for it (reverts to the
+     * role's default).
+     */
+    public function updatePermissions(Request $request, $id)
+    {
+        $user = User::where('organization_id', auth()->user()->organization_id)->findOrFail($id);
+
+        $data = $request->validate([
+            'granted_permissions' => 'sometimes|array',
+            'granted_permissions.*' => 'string',
+            'revoked_permissions' => 'sometimes|array',
+            'revoked_permissions.*' => 'string',
+        ]);
+
+        $this->applyPermissionOverrides($user, $data['granted_permissions'] ?? [], $data['revoked_permissions'] ?? [], true);
+
+        return response()->json($user->load(self::OVERRIDE_RELATIONS));
+    }
+
+    private function applyPermissionOverrides(User $user, array $grantedKeys, array $revokedKeys, bool $replaceAll = false): void
+    {
+        if ($replaceAll) {
+            $user->permissionOverrides()->delete();
+        }
+
+        $permissionIdsByKey = Permission::whereIn('key', array_merge($grantedKeys, $revokedKeys))->pluck('id', 'key');
+
+        $rows = [];
+        foreach ($grantedKeys as $key) {
+            if (isset($permissionIdsByKey[$key])) {
+                $rows[] = ['user_id' => $user->id, 'permission_id' => $permissionIdsByKey[$key], 'granted' => true];
+            }
+        }
+        foreach ($revokedKeys as $key) {
+            if (isset($permissionIdsByKey[$key])) {
+                $rows[] = ['user_id' => $user->id, 'permission_id' => $permissionIdsByKey[$key], 'granted' => false];
+            }
+        }
+
+        foreach ($rows as $row) {
+            \App\Models\UserPermissionOverride::updateOrCreate(
+                ['user_id' => $row['user_id'], 'permission_id' => $row['permission_id']],
+                ['granted' => $row['granted']]
+            );
         }
     }
 
