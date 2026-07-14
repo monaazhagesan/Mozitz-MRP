@@ -10,7 +10,20 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Search, Eye, Play, CheckCircle, Clock, Factory, ArrowRight, AlertTriangle, XCircle, History } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useAuth } from "@/hooks/useAuth";
 import axios from "axios";
+
+// Fixed reason codes for a delay log — no master table for this yet, matches
+// common MES downtime categories closely enough for grouping/reporting.
+const DELAY_REASONS = [
+  "Material Shortage",
+  "Machine Breakdown",
+  "Operator Unavailable",
+  "Changeover / Setup",
+  "Quality Hold",
+  "Power Outage",
+  "Other",
+];
 
 // ERP-style input component
 const ErpInput = ({ className = "", ...props }: React.ComponentProps<"input">) => (
@@ -35,6 +48,8 @@ interface MoveQuantity {
   scrapped: number;
   completed: number;
   startQty?: number; // for first operation
+  operatorName?: string;
+  resourceId?: string;
 }
 
 interface RejectionTransaction {
@@ -67,18 +82,22 @@ interface MoveTransactionRecord {
   job_id: number;
   seq: number;
   operation_name: string | null;
-  transaction_type: 'start' | 'move' | 'reject' | 'scrap' | 'complete';
+  transaction_type: 'start' | 'move' | 'reject' | 'scrap' | 'complete' | 'delay';
   quantity: number;
   from_status: string | null;
   to_status: string | null;
   reason: string | null;
   user: string;
+  operator_name: string | null;
+  resource_id: string | null;
+  duration_minutes: number | null;
   transaction_time: string;
   created_at: string;
 }
 
 const ShopFloor = () => {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const hasInitializedRef = useRef(false);
@@ -94,6 +113,28 @@ const ShopFloor = () => {
 
   // Move quantities state for each operation
   const [moveQuantities, setMoveQuantities] = useState<{ [seq: number]: MoveQuantity }>({});
+
+  // Machine picker source (existing Resources master) — fetched once, reused
+  // for the Job Move table's Machine column and the Log Delay dialog.
+  const [resources, setResources] = useState<any[]>([]);
+  useEffect(() => {
+    axios.get("/api/resources").then((res) => {
+      setResources(res.data?.data ?? res.data ?? []);
+    }).catch(() => setResources([]));
+  }, []);
+
+  // Scrap Reason dialog state
+  const [isScrapDialogOpen, setIsScrapDialogOpen] = useState(false);
+  const [scrapReason, setScrapReason] = useState("");
+
+  // Log Delay dialog state
+  const [isDelayDialogOpen, setIsDelayDialogOpen] = useState(false);
+  const [delaySeq, setDelaySeq] = useState<number | null>(null);
+  const [delayResourceId, setDelayResourceId] = useState("");
+  const [delayOperator, setDelayOperator] = useState("");
+  const [delayReason, setDelayReason] = useState(DELAY_REASONS[0]);
+  const [delayMinutes, setDelayMinutes] = useState("");
+  const [delayNotes, setDelayNotes] = useState("");
 
   console.log("SELECTED JOB:", selectedJob);
   console.log("OPERATIONS:", selectedJob?.operations);
@@ -164,6 +205,8 @@ const ShopFloor = () => {
         rejected: move?.rejected ?? 0,
         scrapped: move?.scrapped ?? 0,
         completed: move?.completed ?? 0,
+        operatorName: "",
+        resourceId: "",
       };
     });
 
@@ -176,7 +219,7 @@ const ShopFloor = () => {
   };
 
   // Update individual move quantity cell
-  const updateMoveQuantity = (seq: number, field: keyof MoveQuantity, value: number) => {
+  const updateMoveQuantity = (seq: number, field: keyof MoveQuantity, value: number | string) => {
     setMoveQuantities(prev => ({
       ...prev,
       [seq]: {
@@ -296,7 +339,9 @@ const ShopFloor = () => {
         operation_name: getOperationName(seq),
         from_status: "Running",
         to_status: nextSeq ? "In Queue" : "Completed",
-        user: "Current User",
+        user: user?.email || "Current User",
+        operator_name: current.operatorName || null,
+        resource_id: current.resourceId || null,
       });
     }
 
@@ -454,7 +499,9 @@ const ShopFloor = () => {
             operation_name: getOperationName(seq),
             from_status: "In Queue",
             to_status: "Running",
-            user: "Current User",
+            user: user?.email || "Current User",
+            operator_name: current.operatorName || null,
+            resource_id: current.resourceId || null,
           },
         ],
         job_status: jobStatus,
@@ -494,41 +541,6 @@ const ShopFloor = () => {
     }
   };
 
-  const saveJobMoveQuantities = async (
-    quantities: { [seq: number]: MoveQuantity },
-    newTransactions: MoveTransaction[] = []
-  ) => {
-    try {
-      const payload = {
-        ...selectedJob,
-        moveQuantities: quantities,
-        moveTransactions: [
-          ...(selectedJob?.moveTransactions ?? []),
-          ...newTransactions,
-        ],
-      };
-
-      const res = await axios.put(`/api/jobs/${selectedJob.id}`, payload);
-
-      const savedJob = res.data;
-
-      console.log("PUT RESPONSE:", savedJob);
-
-      // 🔥 ALWAYS trust backend response
-      setJobs((prev) =>
-        prev.map((job: any) =>
-          job.id === savedJob.id ? savedJob : job
-        )
-      );
-
-      setSelectedJob(savedJob);
-
-      // 🔥 normalize fallback
-      setMoveQuantities(savedJob.moveQuantities || {});
-    } catch (err) {
-      console.error("DB update failed", err);
-    }
-  };
   // Get operation name by sequence
   const getOperationName = (seq: number) => {
     const operations = selectedJob?.operations || [];
@@ -554,6 +566,26 @@ const ShopFloor = () => {
     }
     setRejectReason("");
     setIsRejectDialogOpen(true);
+  };
+
+  // Check if there are quantities to scrap
+  const hasScrapQuantities = () => {
+    const sequences = Object.keys(moveQuantities).map(Number);
+    return sequences.some((seq) => (moveQuantities[seq]?.toScrap || 0) > 0);
+  };
+
+  // Open scrap dialog
+  const openScrapDialog = () => {
+    if (!hasScrapQuantities()) {
+      toast({
+        title: "No Quantities to Scrap",
+        description: "Enter quantities in 'To Scrap' column first.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setScrapReason("");
+    setIsScrapDialogOpen(true);
   };
 
   // Handle Reject Transaction - resolves the Running quantity at each
@@ -624,7 +656,9 @@ const ShopFloor = () => {
         from_status: "Running",
         to_status: "Rejected",
         reason: rejectReason.trim(),
-        user: "Current User",
+        user: user?.email || "Current User",
+        operator_name: current.operatorName || null,
+        resource_id: current.resourceId || null,
       });
 
       if (remainingQty > 0) {
@@ -636,7 +670,9 @@ const ShopFloor = () => {
           operation_name: opName,
           from_status: "Running",
           to_status: nextSeq ? "In Queue" : "Completed",
-          user: "Current User",
+          user: user?.email || "Current User",
+          operator_name: current.operatorName || null,
+          resource_id: current.resourceId || null,
         });
       }
     }
@@ -720,36 +756,62 @@ const ShopFloor = () => {
     }
   };
 
-  // Handle Scrap Transaction - moves quantities from Running to Scrapped
-  const handleScrapTransaction = () => {
+  // Handle Scrap Transaction - deducts the scrapped portion from Running at
+  // each operation with a To Scrap entry and records it, via the same atomic
+  // /api/job-moves/update endpoint Move/Reject already use. Unlike Reject,
+  // the remainder simply stays in Running (it wasn't pulled out of process,
+  // just reduced) rather than auto-advancing to the next operation.
+  const handleScrapTransaction = async () => {
+    if (!selectedJob) return;
+
+    if (!scrapReason.trim()) {
+      toast({
+        title: "Reason Required",
+        description: "Please enter a reason for scrapping.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const sequences = Object.keys(moveQuantities).map(Number).sort((a, b) => a - b);
-    let hasChanges = false;
+
     let errorMessage = "";
-
     const newQuantities = { ...moveQuantities };
+    const touchedSeqs = new Set<number>();
+    const txnPayloads: any[] = [];
 
-    sequences.forEach((seq) => {
+    for (const seq of sequences) {
       const current = newQuantities[seq];
-      const toScrapQty = current.toScrap || 0;
+      const toScrapQty = Number(current?.toScrap || 0);
+      if (!toScrapQty) continue;
 
-      if (toScrapQty > 0) {
-        // Validate: toScrap cannot exceed running quantity
-        if (toScrapQty > current.running) {
-          errorMessage = `Seq ${seq}: Cannot scrap ${toScrapQty} - only ${current.running} in Running.`;
-          return;
-        }
-
-        hasChanges = true;
-
-        // Deduct from Running and add to Scrapped
-        newQuantities[seq] = {
-          ...newQuantities[seq],
-          running: current.running - toScrapQty,
-          toScrap: 0,
-          scrapped: (current.scrapped || 0) + toScrapQty,
-        };
+      if (toScrapQty > (current?.running || 0)) {
+        errorMessage = `Seq ${seq}: Cannot scrap ${toScrapQty} - only ${current.running} in Running.`;
+        break;
       }
-    });
+
+      newQuantities[seq] = {
+        ...current,
+        running: (current.running || 0) - toScrapQty,
+        toScrap: 0,
+        scrapped: (current.scrapped || 0) + toScrapQty,
+      };
+      touchedSeqs.add(seq);
+
+      txnPayloads.push({
+        job_id: selectedJob.id,
+        seq,
+        quantity: toScrapQty,
+        transaction_type: "scrap",
+        operation_name: getOperationName(seq),
+        from_status: "Running",
+        to_status: "Scrapped",
+        reason: scrapReason.trim(),
+        user: user?.email || "Current User",
+        operator_name: current.operatorName || null,
+        resource_id: current.resourceId || null,
+      });
+    }
 
     if (errorMessage) {
       toast({
@@ -760,18 +822,131 @@ const ShopFloor = () => {
       return;
     }
 
-    if (hasChanges) {
-      setMoveQuantities(newQuantities);
-      saveJobMoveQuantities(newQuantities);
-
-      toast({
-        title: "Scrap Transaction Completed",
-        description: "Scrapped quantities recorded.",
-      });
-    } else {
+    if (touchedSeqs.size === 0) {
       toast({
         title: "No Quantities to Scrap",
         description: "Enter quantities in 'To Scrap' column first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const movesPayload = Array.from(touchedSeqs).map((seq) => ({
+      seq,
+      in_queue: newQuantities[seq].inQueue || 0,
+      running: newQuantities[seq].running || 0,
+      to_move: 0,
+      rejected: newQuantities[seq].rejected || 0,
+      scrapped: newQuantities[seq].scrapped || 0,
+      completed: newQuantities[seq].completed || 0,
+    }));
+
+    try {
+      const jobStatus = calculateJobStatus(newQuantities, selectedJob);
+
+      await axios.post("/api/job-moves/update", {
+        job_id: selectedJob.id,
+        moves: movesPayload,
+        transactions: txnPayloads,
+        job_status: jobStatus,
+      });
+
+      const refreshed = await axios.get(`/api/jobs/${selectedJob.id}`);
+      const job = refreshed.data;
+
+      setSelectedJob(job);
+
+      const rebuilt: any = {};
+      (job.moves || []).forEach((m: any) => {
+        rebuilt[m.seq] = {
+          inQueue: m.in_queue || 0,
+          running: m.running || 0,
+          toMove: 0,
+          toReject: 0,
+          toScrap: 0,
+          rejected: m.rejected || 0,
+          scrapped: m.scrapped || 0,
+          completed: m.completed || 0,
+          startQty: 0,
+          operatorName: "",
+          resourceId: "",
+        };
+      });
+      setMoveQuantities(rebuilt);
+
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? job : j)));
+
+      setIsScrapDialogOpen(false);
+      setScrapReason("");
+
+      toast({
+        title: "Success",
+        description: "Scrapped quantities recorded.",
+      });
+    } catch (err: any) {
+      console.error(err);
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Log a Delay transaction — a zero-quantity move_transactions row (no
+  // job_moves change, no job_status change) that only records why production
+  // stalled, feeding the Production Analytics "Availability"/delay-reasons
+  // figures.
+  const handleLogDelay = async () => {
+    if (!selectedJob || delaySeq === null) return;
+
+    const minutes = Number(delayMinutes);
+    if (!minutes || minutes <= 0) {
+      toast({
+        title: "Duration Required",
+        description: "Enter how many minutes this delay lasted.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await axios.post("/api/job-moves/update", {
+        job_id: selectedJob.id,
+        moves: [],
+        transactions: [
+          {
+            job_id: selectedJob.id,
+            seq: delaySeq,
+            quantity: 0,
+            transaction_type: "delay",
+            operation_name: getOperationName(delaySeq),
+            reason: delayNotes.trim() ? `${delayReason}: ${delayNotes.trim()}` : delayReason,
+            duration_minutes: minutes,
+            user: user?.email || "Current User",
+            operator_name: delayOperator || null,
+            resource_id: delayResourceId || null,
+          },
+        ],
+      });
+
+      setIsDelayDialogOpen(false);
+      setDelaySeq(null);
+      setDelayResourceId("");
+      setDelayOperator("");
+      setDelayReason(DELAY_REASONS[0]);
+      setDelayMinutes("");
+      setDelayNotes("");
+
+      toast({
+        title: "Delay Logged",
+        description: "Downtime recorded for this job.",
+      });
+    } catch (err: any) {
+      console.error(err);
+      toast({
+        title: "Error",
+        description: err.message,
         variant: "destructive",
       });
     }
@@ -984,6 +1159,31 @@ const ShopFloor = () => {
                   <Button
                     variant="outline"
                     size="sm"
+                    className="h-7 text-xs bg-orange-50 hover:bg-orange-100 border-orange-300 text-orange-700"
+                    onClick={openScrapDialog}
+                    disabled={selectedJob.status === "Completed"}
+                  >
+                    Scrap
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs bg-[#d8d8c8] hover:bg-[#c8c8b8] border-[#b8b8a0] text-gray-700"
+                    onClick={() => {
+                      setDelaySeq(null);
+                      setDelayResourceId("");
+                      setDelayOperator("");
+                      setDelayReason(DELAY_REASONS[0]);
+                      setDelayMinutes("");
+                      setDelayNotes("");
+                      setIsDelayDialogOpen(true);
+                    }}
+                  >
+                    Log Delay
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     className="h-7 text-xs bg-[#d8d8c8] hover:bg-[#c8c8b8] border-[#b8b8a0] text-gray-700"
                     onClick={() => setIsHistoryDialogOpen(true)}
                   >
@@ -998,6 +1198,13 @@ const ShopFloor = () => {
                   )}
                 </div>
 
+                {/* Operator name autocomplete, sourced from this job's own transaction history */}
+                <datalist id="operator-names">
+                  {Array.from(new Set(transactions.map((t) => t.operator_name).filter(Boolean))).map((name) => (
+                    <option key={name as string} value={name as string} />
+                  ))}
+                </datalist>
+
                 {/* Move Table */}
                 <div className="border border-[#b8b8a0] overflow-auto bg-white">
                   <Table>
@@ -1005,12 +1212,16 @@ const ShopFloor = () => {
                       <TableRow className="bg-[#d8d8c8] hover:bg-[#d8d8c8]">
                         <TableHead className="text-[11px] py-1 px-2 font-medium text-gray-700 border-r border-[#b8b8a0] w-12">Seq</TableHead>
                         <TableHead className="text-[11px] py-1 px-2 font-medium text-gray-700 border-r border-[#b8b8a0]">Operation</TableHead>
+                        <TableHead className="text-[11px] py-1 px-2 font-medium text-gray-700 border-r border-[#b8b8a0]">Operator</TableHead>
+                        <TableHead className="text-[11px] py-1 px-2 font-medium text-gray-700 border-r border-[#b8b8a0]">Machine</TableHead>
                         <TableHead className="text-[11px] py-1 px-2 font-medium text-gray-700 border-r border-[#b8b8a0] bg-green-50">In Queue</TableHead>
                         <TableHead className="text-[11px] py-1 px-2 font-medium text-gray-700 border-r border-[#b8b8a0]">Start Qty</TableHead>
                         <TableHead className="text-[11px] py-1 px-2 font-medium text-gray-700 border-r border-[#b8b8a0] bg-blue-50">Running</TableHead>
                         <TableHead className="text-[11px] py-1 px-2 font-medium text-gray-700 border-r border-[#b8b8a0] bg-yellow-50">To Move</TableHead>
                         <TableHead className="text-[11px] py-1 px-2 font-medium text-gray-700 border-r border-[#b8b8a0] bg-red-50">To Reject</TableHead>
                         <TableHead className="text-[11px] py-1 px-2 font-medium text-gray-700 border-r border-[#b8b8a0]">Rejected</TableHead>
+                        <TableHead className="text-[11px] py-1 px-2 font-medium text-gray-700 border-r border-[#b8b8a0] bg-orange-50">To Scrap</TableHead>
+                        <TableHead className="text-[11px] py-1 px-2 font-medium text-gray-700 border-r border-[#b8b8a0]">Scrapped</TableHead>
                         <TableHead className="text-[11px] py-1 px-2 font-medium text-gray-700 border-r border-[#b8b8a0]">Completed</TableHead>
                         <TableHead className="text-[11px] py-1 px-2 font-medium text-gray-700 w-16 text-center">Action</TableHead>
                       </TableRow>
@@ -1039,6 +1250,32 @@ const ShopFloor = () => {
                               </TableCell>
                               <TableCell className="text-[11px] py-1 px-2 border-r border-[#b8b8a0]">
                                 {op?.name || op?.operationCode || op?.description || `Operation ${seq / 10}`}
+                              </TableCell>
+                              {/* Operator - free text, autocompletes from this job's own history */}
+                              <TableCell className="text-[11px] py-1 px-2 border-r border-[#b8b8a0]">
+                                <input
+                                  list="operator-names"
+                                  type="text"
+                                  value={qtyData.operatorName || ""}
+                                  onChange={(e) => updateMoveQuantity(seq, "operatorName", e.target.value)}
+                                  placeholder="Operator"
+                                  className="w-full h-5 px-1 text-[11px] border border-gray-300 bg-white focus:outline-none focus:border-blue-400"
+                                  disabled={selectedJob.status === "Completed"}
+                                />
+                              </TableCell>
+                              {/* Machine - from the Resources master */}
+                              <TableCell className="text-[11px] py-1 px-2 border-r border-[#b8b8a0]">
+                                <select
+                                  value={qtyData.resourceId || ""}
+                                  onChange={(e) => updateMoveQuantity(seq, "resourceId", e.target.value)}
+                                  className="w-full h-5 px-1 text-[11px] border border-gray-300 bg-white focus:outline-none focus:border-blue-400"
+                                  disabled={selectedJob.status === "Completed"}
+                                >
+                                  <option value="">—</option>
+                                  {resources.map((r: any) => (
+                                    <option key={r.id} value={r.id}>{r.machine_name}</option>
+                                  ))}
+                                </select>
                               </TableCell>
                               {/* In Queue - Read Only */}
                               <TableCell className="text-[11px] py-1 px-2 border-r border-[#b8b8a0] bg-green-50">
@@ -1100,6 +1337,22 @@ const ShopFloor = () => {
                               {/* Rejected - Read Only (cumulative) */}
                               <TableCell className="text-[11px] py-1 px-2 border-r border-[#b8b8a0]">
                                 <span className="font-medium text-red-600">{qtyData.rejected}</span>
+                              </TableCell>
+                              {/* To Scrap - User enters how much to scrap from Running */}
+                              <TableCell className="text-[11px] py-1 px-2 border-r border-[#b8b8a0] bg-orange-50">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={qtyData.running}
+                                  value={qtyData.toScrap || 0}
+                                  onChange={(e) => updateMoveQuantity(seq, 'toScrap', Math.min(parseInt(e.target.value) || 0, qtyData.running))}
+                                  className="w-full h-5 px-1 text-[11px] border border-gray-300 bg-orange-50 focus:outline-none focus:border-orange-400"
+                                  disabled={selectedJob.status === "Completed" || qtyData.running === 0}
+                                />
+                              </TableCell>
+                              {/* Scrapped - Read Only (cumulative) */}
+                              <TableCell className="text-[11px] py-1 px-2 border-r border-[#b8b8a0]">
+                                <span className="font-medium text-orange-600">{qtyData.scrapped}</span>
                               </TableCell>
                               {/* Completed - Read Only */}
                               <TableCell className="text-[11px] py-1 px-2 border-r border-[#b8b8a0]">
@@ -1195,6 +1448,160 @@ const ShopFloor = () => {
                   className="bg-red-600 hover:bg-red-700 text-white"
                 >
                   Confirm Rejection
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Scrap Reason Dialog */}
+        <Dialog open={isScrapDialogOpen} onOpenChange={setIsScrapDialogOpen}>
+          <DialogContent className="sm:max-w-md bg-[#e8e8d8] border-[#b8b8a0]">
+            <div className="space-y-4">
+              <div className="bg-[#4a5568] text-white px-4 py-2 -mx-6 -mt-6">
+                <h3 className="text-sm font-semibold">Scrap Reason</h3>
+              </div>
+
+              <div className="space-y-3 pt-2">
+                <div>
+                  <ErpLabel>Reason for Scrapping *</ErpLabel>
+                  <textarea
+                    value={scrapReason}
+                    onChange={(e) => setScrapReason(e.target.value)}
+                    placeholder="Enter reason for scrapping the quantity..."
+                    className="w-full h-24 px-2 py-1 text-sm bg-[#fffff0] text-gray-800 border border-[#b8b8a0] focus:outline-none focus:ring-1 focus:ring-[#b8b8a0] resize-none mt-1"
+                  />
+                </div>
+
+                <div className="text-xs text-gray-600">
+                  <span className="font-medium">Note:</span> Scrapped quantities will be recorded with this reason and timestamp.
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#b8b8a0]">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setIsScrapDialogOpen(false);
+                    setScrapReason("");
+                  }}
+                  className="bg-[#d8d8c8] hover:bg-[#c8c8b8] border-[#b8b8a0]"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleScrapTransaction}
+                  className="bg-orange-600 hover:bg-orange-700 text-white"
+                >
+                  Confirm Scrap
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Log Delay Dialog */}
+        <Dialog open={isDelayDialogOpen} onOpenChange={setIsDelayDialogOpen}>
+          <DialogContent className="sm:max-w-md bg-[#e8e8d8] border-[#b8b8a0]">
+            <div className="space-y-4">
+              <div className="bg-[#4a5568] text-white px-4 py-2 -mx-6 -mt-6">
+                <h3 className="text-sm font-semibold">Log Delay</h3>
+              </div>
+
+              <div className="space-y-3 pt-2">
+                <div>
+                  <ErpLabel>Operation *</ErpLabel>
+                  <select
+                    value={delaySeq ?? ""}
+                    onChange={(e) => setDelaySeq(e.target.value ? Number(e.target.value) : null)}
+                    className="w-full h-8 px-2 text-sm bg-[#fffff0] text-gray-800 border border-[#b8b8a0] focus:outline-none focus:ring-1 focus:ring-[#b8b8a0] mt-1"
+                  >
+                    <option value="">Select operation...</option>
+                    {Object.keys(moveQuantities).map(Number).sort((a, b) => a - b).map((seq) => (
+                      <option key={seq} value={seq}>{seq} — {getOperationName(seq)}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <ErpLabel>Machine</ErpLabel>
+                  <select
+                    value={delayResourceId}
+                    onChange={(e) => setDelayResourceId(e.target.value)}
+                    className="w-full h-8 px-2 text-sm bg-[#fffff0] text-gray-800 border border-[#b8b8a0] focus:outline-none focus:ring-1 focus:ring-[#b8b8a0] mt-1"
+                  >
+                    <option value="">—</option>
+                    {resources.map((r: any) => (
+                      <option key={r.id} value={r.id}>{r.machine_name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <ErpLabel>Operator</ErpLabel>
+                  <input
+                    list="operator-names"
+                    type="text"
+                    value={delayOperator}
+                    onChange={(e) => setDelayOperator(e.target.value)}
+                    placeholder="Operator"
+                    className="w-full h-8 px-2 text-sm bg-[#fffff0] text-gray-800 border border-[#b8b8a0] focus:outline-none focus:ring-1 focus:ring-[#b8b8a0] mt-1"
+                  />
+                </div>
+
+                <div>
+                  <ErpLabel>Reason *</ErpLabel>
+                  <select
+                    value={delayReason}
+                    onChange={(e) => setDelayReason(e.target.value)}
+                    className="w-full h-8 px-2 text-sm bg-[#fffff0] text-gray-800 border border-[#b8b8a0] focus:outline-none focus:ring-1 focus:ring-[#b8b8a0] mt-1"
+                  >
+                    {DELAY_REASONS.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <ErpLabel>Duration (minutes) *</ErpLabel>
+                  <input
+                    type="number"
+                    min="1"
+                    value={delayMinutes}
+                    onChange={(e) => setDelayMinutes(e.target.value)}
+                    placeholder="e.g. 30"
+                    className="w-full h-8 px-2 text-sm bg-[#fffff0] text-gray-800 border border-[#b8b8a0] focus:outline-none focus:ring-1 focus:ring-[#b8b8a0] mt-1"
+                  />
+                </div>
+
+                <div>
+                  <ErpLabel>Notes</ErpLabel>
+                  <textarea
+                    value={delayNotes}
+                    onChange={(e) => setDelayNotes(e.target.value)}
+                    placeholder="Optional additional detail..."
+                    className="w-full h-16 px-2 py-1 text-sm bg-[#fffff0] text-gray-800 border border-[#b8b8a0] focus:outline-none focus:ring-1 focus:ring-[#b8b8a0] resize-none mt-1"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#b8b8a0]">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsDelayDialogOpen(false)}
+                  className="bg-[#d8d8c8] hover:bg-[#c8c8b8] border-[#b8b8a0]"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleLogDelay}
+                  className="bg-[#4a5568] hover:bg-[#374151] text-white"
+                >
+                  Log Delay
                 </Button>
               </div>
             </div>

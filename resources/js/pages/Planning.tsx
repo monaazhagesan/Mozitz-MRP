@@ -2258,6 +2258,13 @@ const handleFindJobs = useCallback(
           open={isViewDialogOpen}
           onOpenChange={setIsViewDialogOpen}
           job={selectedJob}
+          linkedReworkJobs={
+            selectedJob
+              ? jobs.filter(
+                  (j: any) => typeof j.notes === "string" && j.notes.endsWith(`from ${selectedJob.job_number}`)
+                )
+              : []
+          }
         />
 
         {/* Job Search Results Dialog */}

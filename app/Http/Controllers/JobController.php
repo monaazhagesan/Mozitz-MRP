@@ -424,7 +424,8 @@ if ($existingJob) {
             'quantities',
             'operations',
             'moves',
-            'lots'
+            'lots',
+            'moveTransactions'
        ])->where('user_id', auth()->id())
   ->findOrFail($id);
 
@@ -442,7 +443,8 @@ if ($existingJob) {
         'quantities',
         'operations',
         'moves',
-        'lots'
+        'lots',
+        'moveTransactions'
     ])
     ->latest();
 
@@ -679,6 +681,9 @@ public function updateMoves(Request $request)
                 'to_status' => $txn['to_status'] ?? null,
                 'reason' => $txn['reason'] ?? null,
                 'user' => $txn['user'] ?? 'System',
+                'operator_name' => $txn['operator_name'] ?? null,
+                'resource_id' => $txn['resource_id'] ?? null,
+                'duration_minutes' => $txn['duration_minutes'] ?? null,
                 'transaction_time' => now(),
             ]);
         }

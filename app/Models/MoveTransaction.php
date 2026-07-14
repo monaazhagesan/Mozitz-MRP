@@ -23,6 +23,9 @@ class MoveTransaction extends Model
         'to_status',
         'reason',
         'user',
+        'operator_name',
+        'resource_id',
+        'duration_minutes',
         'transaction_time',
     ];
 
