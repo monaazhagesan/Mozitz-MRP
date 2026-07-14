@@ -614,8 +614,38 @@ public function update(Request $request, $id)
 // from the frontend, so a failure partway through could leave the audit
 // log out of sync with the actual move state, or (before this endpoint
 // existed at all) silently drop the move entirely.
+// transaction_type -> the permission required to submit that kind of
+// Shop Floor transaction. Checked against every type actually present in
+// this request's batch, not just the first one, since a single call can
+// carry a move + a reject together (see handleRejectTransaction on the
+// frontend).
+private const TRANSACTION_PERMISSIONS = [
+    'start' => 'shopfloor.start',
+    'move' => 'shopfloor.move',
+    'reject' => 'shopfloor.reject',
+    'scrap' => 'shopfloor.scrap',
+    'delay' => 'shopfloor.log_delay',
+];
+
 public function updateMoves(Request $request)
 {
+    $transactions = $request->transactions ?? [];
+
+    $requiredPermissions = collect($transactions)
+        ->pluck('transaction_type')
+        ->unique()
+        ->map(fn ($type) => self::TRANSACTION_PERMISSIONS[$type] ?? null)
+        ->filter()
+        ->unique();
+
+    foreach ($requiredPermissions as $permission) {
+        if (!auth()->user()?->hasPermission($permission)) {
+            return response()->json([
+                'message' => 'You do not have permission to perform this Shop Floor action.',
+            ], 403);
+        }
+    }
+
     DB::beginTransaction();
 
     try {
@@ -624,7 +654,6 @@ public function updateMoves(Request $request)
         $job = Job::findOrFail($jobId);
 
         $moves = $request->moves ?? [];
-        $transactions = $request->transactions ?? [];
 
         $finishedGoodsDelta = 0.0;
 

@@ -2,11 +2,25 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
+interface Role {
+  id: string;
+  name: string;
+  is_system: boolean;
+}
+
+interface Department {
+  id: string;
+  name: string;
+}
+
 interface User {
   id: number;
   email: string;
    currency?: string;
   organization_id?: number;
+  role?: Role | null;
+  permissions?: string[];
+  departments?: Department[];
 }
 
 interface Session {
@@ -24,6 +38,7 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<any>;
   signInWithGoogle: () => Promise<any>;
   loading: boolean;
+  hasPermission: (key: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -206,8 +221,17 @@ const resetPassword = async (email: string) => {
     navigate('/auth');
   };
 
+  // Super Admin (role.is_system) always passes, mirroring the backend's
+  // User::hasPermission() fast-path — new permission keys added later are
+  // automatically covered without the frontend needing an update.
+  const hasPermission = (key: string): boolean => {
+    if (!user) return false;
+    if (user.role?.is_system) return true;
+    return user.permissions?.includes(key) ?? false;
+  };
+
   return (
-    <AuthContext.Provider value={{ user,session, signUp, signIn, signOut, resetPassword, signInWithGoogle, loading }}>
+    <AuthContext.Provider value={{ user, session, signUp, signIn, signOut, resetPassword, signInWithGoogle, loading, hasPermission }}>
       {children}
     </AuthContext.Provider>
   );

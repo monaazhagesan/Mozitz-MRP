@@ -97,7 +97,7 @@ interface MoveTransactionRecord {
 
 const ShopFloor = () => {
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const hasInitializedRef = useRef(false);
@@ -1153,7 +1153,8 @@ const ShopFloor = () => {
                     size="sm"
                     className="h-7 text-xs bg-[#d8d8c8] hover:bg-[#c8c8b8] border-[#b8b8a0] text-gray-700"
                     onClick={handleMoveTransaction}
-                    disabled={selectedJob.status === "Completed"}
+                    disabled={selectedJob.status === "Completed" || !hasPermission("shopfloor.move")}
+                    title={!hasPermission("shopfloor.move") ? "You don't have permission to move quantities" : undefined}
                   >
                     <Play className="h-3 w-3 mr-1" />
                     Move Transaction
@@ -1163,7 +1164,8 @@ const ShopFloor = () => {
                     size="sm"
                     className="h-7 text-xs bg-red-50 hover:bg-red-100 border-red-300 text-red-700"
                     onClick={openRejectDialog}
-                    disabled={selectedJob.status === "Completed"}
+                    disabled={selectedJob.status === "Completed" || !hasPermission("shopfloor.reject")}
+                    title={!hasPermission("shopfloor.reject") ? "You don't have permission to reject quantities" : undefined}
                   >
                     Reject
                   </Button>
@@ -1172,7 +1174,8 @@ const ShopFloor = () => {
                     size="sm"
                     className="h-7 text-xs bg-orange-50 hover:bg-orange-100 border-orange-300 text-orange-700"
                     onClick={openScrapDialog}
-                    disabled={selectedJob.status === "Completed"}
+                    disabled={selectedJob.status === "Completed" || !hasPermission("shopfloor.scrap")}
+                    title={!hasPermission("shopfloor.scrap") ? "You don't have permission to scrap quantities" : undefined}
                   >
                     Scrap
                   </Button>
@@ -1189,6 +1192,8 @@ const ShopFloor = () => {
                       setDelayNotes("");
                       setIsDelayDialogOpen(true);
                     }}
+                    disabled={!hasPermission("shopfloor.log_delay")}
+                    title={!hasPermission("shopfloor.log_delay") ? "You don't have permission to log delays" : undefined}
                   >
                     Log Delay
                   </Button>
@@ -1380,7 +1385,8 @@ const ShopFloor = () => {
                                   size="sm"
                                   variant="outline"
                                   className="h-5 px-2 text-[10px] bg-green-50 hover:bg-green-100 border-green-300 text-green-700"
-                                  disabled={selectedJob.status === "Completed" || qtyData.inQueue === 0}
+                                  disabled={selectedJob.status === "Completed" || qtyData.inQueue === 0 || !hasPermission("shopfloor.start")}
+                                  title={!hasPermission("shopfloor.start") ? "You don't have permission to start this operation" : undefined}
                                   onClick={() => {
                                     const startQty = qtyData.startQty || 0;
 

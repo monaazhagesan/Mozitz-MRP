@@ -491,9 +491,9 @@ const Layout = ({ children }: LayoutProps) => {
                     <Link className="lyt-dropdown-item" to="/settings" onClick={() => userDropdown.setOpen(false)}>
                       <Settings size={14} /> Settings
                     </Link>
-                    <a className="lyt-dropdown-item" href="#">
+                    <Link className="lyt-dropdown-item" to="/settings?section=team" onClick={() => userDropdown.setOpen(false)}>
                       <UsersIcon size={14} /> Team
-                    </a>
+                    </Link>
                     <a className="lyt-dropdown-item" href="#">
                       <CreditCard size={14} /> Subscription
                     </a>

@@ -7,8 +7,11 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use App\Models\User;
 use App\Models\Organization;
+use App\Models\Permission;
+use App\Models\Role;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use App\Mail\UserResetPasswordMail;
 use Illuminate\Support\Facades\Mail;
 use Laravel\Sanctum\HasApiTokens;
@@ -64,13 +67,59 @@ public function getProfile()
         'name' => $request->company ?: (($request->first_name ?: $request->email) . "'s Organization"),
     ]);
     $user->organization_id = $organization->id;
+
+    $superAdminRoleId = $this->seedDefaultRoles($organization->id);
+    $user->role_id = $superAdminRoleId;
     $user->save();
 
     Auth::login($user);
 
     return response()->json([
-        'user' => $user
+        'user' => $user->load(['role.permissions', 'departments'])
     ]);
+}
+
+/**
+ * Mirrors 2026_07_14_160209_seed_default_roles_and_assign_super_admin —
+ * every organization needs this same starting role set, whether it was
+ * backfilled for an existing login or created fresh here at signup.
+ * Returns the new Super Admin role's id.
+ */
+private function seedDefaultRoles(int $organizationId): string
+{
+    $allModules = ['module.accounting', 'module.procurement', 'module.inventory', 'module.production', 'module.analytics', 'module.approvals', 'module.settings'];
+    $allShopfloor = ['shopfloor.view', 'shopfloor.start', 'shopfloor.move', 'shopfloor.reject', 'shopfloor.scrap', 'shopfloor.log_delay'];
+    $allSettings = ['settings.manage_team', 'settings.manage_roles', 'settings.manage_departments'];
+
+    $definitions = [
+        'Super Admin' => ['is_system' => true, 'permissions' => array_merge($allModules, $allShopfloor, $allSettings)],
+        'Admin' => ['is_system' => false, 'permissions' => array_merge($allModules, $allShopfloor, $allSettings)],
+        'Production Planner' => ['is_system' => false, 'permissions' => ['module.production', 'module.inventory', 'module.accounting']],
+        'Department Supervisor' => ['is_system' => false, 'permissions' => array_merge(['module.production'], $allShopfloor)],
+        'Operator' => ['is_system' => false, 'permissions' => array_merge(['module.production'], $allShopfloor)],
+        'Production Manager' => ['is_system' => false, 'permissions' => array_merge(['module.production', 'module.analytics', 'module.approvals'], $allShopfloor)],
+    ];
+
+    $permissionIdsByKey = Permission::pluck('id', 'key');
+    $superAdminRoleId = null;
+
+    foreach ($definitions as $name => $def) {
+        $role = Role::create([
+            'id' => (string) Str::uuid(),
+            'organization_id' => $organizationId,
+            'name' => $name,
+            'is_system' => $def['is_system'],
+        ]);
+
+        $ids = collect($def['permissions'])->map(fn ($key) => $permissionIdsByKey[$key] ?? null)->filter();
+        $role->permissions()->sync($ids);
+
+        if ($name === 'Super Admin') {
+            $superAdminRoleId = $role->id;
+        }
+    }
+
+    return $superAdminRoleId;
 }
 
 
@@ -170,20 +219,28 @@ $user = Auth::user();
             ], 401);
         }
 
+        if (!$user->is_active) {
+            return response()->json([
+                'message' => 'This account has been deactivated. Contact your organization admin.'
+            ], 403);
+        }
+
         Auth::login($user);
         $request->session()->regenerate();
 
         return response()->json([
-            'user' => Auth::user()
+            'user' => Auth::user()->load(['role.permissions', 'departments'])
         ]);
     }
 
 
      public function checkSession(Request $request)
     {
+        $user = Auth::user();
+
         return response()->json([
             'logged_in' => Auth::check(),
-            'user' => Auth::user(),
+            'user' => $user ? $user->load(['role.permissions', 'departments']) : null,
         ]);
     }
 

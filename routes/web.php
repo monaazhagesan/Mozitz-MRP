@@ -27,7 +27,6 @@ use App\Http\Controllers\RfqVendorController;
 use App\Http\Controllers\StockTransactionController;
 use App\Http\Controllers\StorageBinController;
 use App\Http\Controllers\SupplierPayableController;
-use App\Http\Controllers\UserRoleController;
 
 /*
 |--------------------------------------------------------------------------
@@ -171,5 +170,3 @@ Route::post('/storage-bins/import', [StorageBinController::class, 'import']);
 Route::get('/supplier-payables', [SupplierPayableController::class, 'index']);
 Route::post('/supplier-payables/import', [SupplierPayableController::class, 'import']);
 
-Route::get('/user-roles', [UserRoleController::class, 'index']);
-Route::post('/user-roles/import', [UserRoleController::class, 'import']);

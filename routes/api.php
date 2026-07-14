@@ -21,7 +21,9 @@ use App\Http\Controllers\JobAllocationController;
 use App\Http\Controllers\ItemDemandController;
 use App\Http\Controllers\JobController;
 use App\Http\Controllers\InvoiceController;
-use App\Http\Controllers\UserRoleController;
+use App\Http\Controllers\DepartmentController;
+use App\Http\Controllers\RoleController;
+use App\Http\Controllers\TeamController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\StorageBinController;
 use App\Http\Controllers\DefaultLocationController;
@@ -188,10 +190,23 @@ Route::get('/invoices/{id}', [InvoiceController::class, 'show']);
 Route::post('/invoices/{id}/payments', [InvoiceController::class, 'recordPayment']);
 Route::put('/invoices/{id}', [InvoiceController::class, 'update']);
 
-Route::get('/user-roles', [UserRoleController::class, 'index']);
-Route::post('/user-roles/import', [UserRoleController::class, 'import']);
-Route::post('/user-roles', [UserRoleController::class, 'store']);
-Route::delete('/user-roles/{user}/role', [UserRoleController::class, 'removeRole']);
+Route::get('/departments', [DepartmentController::class, 'index']);
+Route::get('/departments/{id}', [DepartmentController::class, 'show']);
+Route::post('/departments', [DepartmentController::class, 'store'])->middleware('permission:settings.manage_departments');
+Route::put('/departments/{id}', [DepartmentController::class, 'update'])->middleware('permission:settings.manage_departments');
+Route::delete('/departments/{id}', [DepartmentController::class, 'destroy'])->middleware('permission:settings.manage_departments');
+
+Route::get('/roles', [RoleController::class, 'index']);
+Route::get('/roles/{id}', [RoleController::class, 'show']);
+Route::post('/roles', [RoleController::class, 'store'])->middleware('permission:settings.manage_roles');
+Route::put('/roles/{id}', [RoleController::class, 'update'])->middleware('permission:settings.manage_roles');
+Route::delete('/roles/{id}', [RoleController::class, 'destroy'])->middleware('permission:settings.manage_roles');
+
+Route::get('/team', [TeamController::class, 'index'])->middleware('permission:settings.manage_team');
+Route::get('/team/{id}', [TeamController::class, 'show'])->middleware('permission:settings.manage_team');
+Route::post('/team', [TeamController::class, 'store'])->middleware('permission:settings.manage_team');
+Route::put('/team/{id}', [TeamController::class, 'update'])->middleware('permission:settings.manage_team');
+Route::delete('/team/{id}', [TeamController::class, 'destroy'])->middleware('permission:settings.manage_team');
 
 Route::apiResource('/locations', LocationController::class);
 Route::get('/storage-bins', [StorageBinController::class, 'apiIndex']);

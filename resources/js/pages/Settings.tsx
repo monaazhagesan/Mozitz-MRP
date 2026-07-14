@@ -12,19 +12,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Shield, UserPlus, Mail, ChevronRight, Trash2, Plus, ArrowUp, GripVertical, Info, Check, MapPin, User, Lock, ChevronDown, Cog, QrCode, Barcode } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
-import { z } from "zod";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import axios from 'axios';
 import { toast } from 'sonner';
-
-const userSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  role: z.string().min(1, "Role is required")
-});
+import { useSearchParams } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 
 const navigationItems = [
   { id: "profile", label: "Profile" },
@@ -43,7 +38,19 @@ const navigationItems = [
   { id: "warehouse-app", label: "Warehouse app" },
   { id: "manufacturing", label: "Manufacturing" },
   { id: "team", label: "Team Management" },
+  { id: "roles", label: "Role Management" },
+  { id: "departments", label: "Departments" },
 ];
+
+// Nav items without an entry here are visible to every authenticated org
+// member (matches today's behavior); these three are the only sections this
+// pass actually enforces, so they're the only ones hidden from users who
+// lack the permission.
+const SECTION_PERMISSIONS: Record<string, string> = {
+  team: "settings.manage_team",
+  roles: "settings.manage_roles",
+  departments: "settings.manage_departments",
+};
 
 // Component for individual location bin section
 const LocationBinSection = ({
@@ -279,14 +286,267 @@ const Settings = () => {
   };
 
 
-  const [users, setUsers] = useState<any[]>([]);
-  const [selectedRole, setSelectedRole] = useState<string>("");
-  const [userEmail, setUserEmail] = useState<string>("");
-  const [userPassword, setUserPassword] = useState<string>("");
+  // ---- Teams / Roles / Departments (backed by /api/team, /api/roles, /api/departments) ----
+  interface TeamMember {
+    id: number;
+    first_name: string | null;
+    email: string;
+    phone: string | null;
+    is_active: boolean;
+    role: { id: string; name: string; is_system: boolean } | null;
+    departments: { id: string; name: string }[];
+  }
+  interface RoleRow {
+    id: string;
+    name: string;
+    is_system: boolean;
+    users_count: number;
+    permissions: { id: string; key: string; label: string; module: string }[];
+  }
+  interface DepartmentRow {
+    id: string;
+    name: string;
+    is_active: boolean;
+  }
+  interface PermissionRow {
+    id: string;
+    key: string;
+    label: string;
+    module: string;
+  }
+
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [roles, setRoles] = useState<RoleRow[]>([]);
+  const [departmentsList, setDepartmentsList] = useState<DepartmentRow[]>([]);
+  const [permissionsCatalog, setPermissionsCatalog] = useState<PermissionRow[]>([]);
+
+  const [newTeamMember, setNewTeamMember] = useState({
+    name: "", email: "", mobile: "", password: "", role_id: "", department_ids: [] as string[],
+  });
+  const [teamMemberErrors, setTeamMemberErrors] = useState<Record<string, string>>({});
+  const [savingTeamMember, setSavingTeamMember] = useState(false);
+  const [teamDialogOpen, setTeamDialogOpen] = useState(false);
+
+  const loadTeam = async () => {
+    setTeamLoading(true);
+    try {
+      const res = await axios.get("/api/team");
+      setTeamMembers(Array.isArray(res.data) ? res.data : []);
+    } catch (error) {
+      // A non-manager legitimately gets a 403 here — the section itself is
+      // already hidden from them, so fail quietly rather than toasting.
+    } finally {
+      setTeamLoading(false);
+    }
+  };
+
+  const loadRoles = async () => {
+    try {
+      const res = await axios.get("/api/roles");
+      setRoles(Array.isArray(res.data) ? res.data : []);
+    } catch (error) {
+      setRoles([]);
+    }
+  };
+
+  const loadDepartmentsList = async () => {
+    try {
+      const res = await axios.get("/api/departments");
+      setDepartmentsList(Array.isArray(res.data) ? res.data : []);
+    } catch (error) {
+      setDepartmentsList([]);
+    }
+  };
+
+  const loadPermissionsCatalog = async () => {
+    // No dedicated /api/permissions endpoint — the full catalog rides along
+    // on every role (each role response includes its `permissions` list,
+    // and Admin/Super Admin are seeded with the entire catalog), so the
+    // first role's permission list already IS the full catalog.
+    try {
+      const res = await axios.get("/api/roles");
+      const withAll = (res.data || []).find((r: RoleRow) => r.permissions?.length > 0);
+      setPermissionsCatalog(withAll?.permissions || []);
+    } catch (error) {
+      setPermissionsCatalog([]);
+    }
+  };
+
+  const handleAddTeamMember = async () => {
+    setTeamMemberErrors({});
+    if (!newTeamMember.name.trim() || !newTeamMember.email.trim() || !newTeamMember.password.trim()) {
+      setTeamMemberErrors({
+        name: !newTeamMember.name.trim() ? "Employee name is required" : "",
+        email: !newTeamMember.email.trim() ? "Email is required" : "",
+        password: !newTeamMember.password.trim() ? "Password is required" : "",
+      });
+      return;
+    }
+
+    setSavingTeamMember(true);
+    try {
+      const res = await axios.post("/api/team", {
+        name: newTeamMember.name.trim(),
+        email: newTeamMember.email.trim(),
+        mobile: newTeamMember.mobile.trim() || null,
+        password: newTeamMember.password,
+        role_id: newTeamMember.role_id || null,
+        department_ids: newTeamMember.department_ids,
+      });
+      setTeamMembers([...teamMembers, res.data]);
+      setNewTeamMember({ name: "", email: "", mobile: "", password: "", role_id: "", department_ids: [] });
+      setTeamDialogOpen(false);
+      toast({ title: "Team Member Added", description: `${res.data.email} has been added` });
+    } catch (error: any) {
+      if (error.response?.status === 422) {
+        const errors = error.response.data?.errors || {};
+        setTeamMemberErrors({
+          name: errors.name?.[0] || "",
+          email: errors.email?.[0] || "",
+          password: errors.password?.[0] || "",
+        });
+        toast({ title: "Validation Failed", description: Object.values(errors).flat().join(" ") as string, variant: "destructive" });
+      } else {
+        toast({ title: "Error", description: error.response?.data?.message || "Failed to add team member", variant: "destructive" });
+      }
+    } finally {
+      setSavingTeamMember(false);
+    }
+  };
+
+  const handleToggleTeamMemberActive = async (member: TeamMember) => {
+    const nextActive = !member.is_active;
+    setTeamMembers(teamMembers.map(m => m.id === member.id ? { ...m, is_active: nextActive } : m));
+    try {
+      // Deactivating goes through destroy() (also carries the last-Super-Admin
+      // guard); reactivating is a plain field update.
+      if (nextActive) {
+        await axios.put(`/api/team/${member.id}`, { is_active: true });
+      } else {
+        await axios.delete(`/api/team/${member.id}`);
+      }
+    } catch (error: any) {
+      setTeamMembers(teamMembers.map(m => m.id === member.id ? { ...m, is_active: !nextActive } : m));
+      toast({ title: "Error", description: error.response?.data?.message || "Failed to update team member status", variant: "destructive" });
+    }
+  };
+
+  // ---- Role Management ----
+  const [roleDialogOpen, setRoleDialogOpen] = useState(false);
+  const [editingRole, setEditingRole] = useState<RoleRow | null>(null);
+  const [roleForm, setRoleForm] = useState<{ name: string; permissions: string[] }>({ name: "", permissions: [] });
+  const [savingRole, setSavingRole] = useState(false);
+
+  const openCreateRole = () => {
+    setEditingRole(null);
+    setRoleForm({ name: "", permissions: [] });
+    setRoleDialogOpen(true);
+  };
+
+  const openEditRole = (role: RoleRow) => {
+    setEditingRole(role);
+    setRoleForm({ name: role.name, permissions: role.permissions.map(p => p.key) });
+    setRoleDialogOpen(true);
+  };
+
+  const toggleRolePermission = (key: string) => {
+    setRoleForm(prev => ({
+      ...prev,
+      permissions: prev.permissions.includes(key) ? prev.permissions.filter(k => k !== key) : [...prev.permissions, key],
+    }));
+  };
+
+  const handleSaveRole = async () => {
+    if (!roleForm.name.trim()) {
+      toast({ title: "Validation Error", description: "Role name is required", variant: "destructive" });
+      return;
+    }
+    setSavingRole(true);
+    try {
+      if (editingRole) {
+        const res = await axios.put(`/api/roles/${editingRole.id}`, roleForm);
+        setRoles(roles.map(r => r.id === editingRole.id ? res.data : r));
+      } else {
+        const res = await axios.post("/api/roles", roleForm);
+        setRoles([...roles, res.data]);
+      }
+      setRoleDialogOpen(false);
+      toast({ title: editingRole ? "Role Updated" : "Role Created", description: roleForm.name });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.response?.data?.message || "Failed to save role", variant: "destructive" });
+    } finally {
+      setSavingRole(false);
+    }
+  };
+
+  const handleDeleteRole = async (role: RoleRow) => {
+    try {
+      await axios.delete(`/api/roles/${role.id}`);
+      setRoles(roles.filter(r => r.id !== role.id));
+      toast({ title: "Role Deleted", description: role.name });
+    } catch (error: any) {
+      toast({ title: "Cannot Delete Role", description: error.response?.data?.message || "Failed to delete role", variant: "destructive" });
+    }
+  };
+
+  // ---- Departments (mirrors the Operators section pattern) ----
+  const [newDepartment, setNewDepartment] = useState({ name: "" });
+  const [departmentErrors, setDepartmentErrors] = useState<Record<string, string>>({});
+  const [savingDepartment, setSavingDepartment] = useState(false);
+
+  const handleAddDepartment = async () => {
+    setDepartmentErrors({});
+    if (!newDepartment.name.trim()) {
+      setDepartmentErrors({ name: "Department name is required" });
+      return;
+    }
+    setSavingDepartment(true);
+    try {
+      const res = await axios.post("/api/departments", { name: newDepartment.name.trim() });
+      setDepartmentsList([...departmentsList, res.data]);
+      setNewDepartment({ name: "" });
+      toast({ title: "Department Added", description: res.data.name });
+    } catch (error: any) {
+      if (error.response?.status === 422) {
+        const errors = error.response.data?.errors || {};
+        setDepartmentErrors({ name: errors.name?.[0] || "" });
+      } else {
+        toast({ title: "Error", description: error.response?.data?.message || "Failed to add department", variant: "destructive" });
+      }
+    } finally {
+      setSavingDepartment(false);
+    }
+  };
+
+  const handleDeleteDepartment = async (id: string) => {
+    const department = departmentsList.find(d => d.id === id);
+    try {
+      await axios.delete(`/api/departments/${id}`);
+      setDepartmentsList(departmentsList.filter(d => d.id !== id));
+      toast({ title: "Department Removed", description: department?.name });
+    } catch (error: any) {
+      toast({ title: "Cannot Delete Department", description: error.response?.data?.message || "Failed to delete department", variant: "destructive" });
+    }
+  };
+
+  const handleToggleDepartmentActive = async (dept: DepartmentRow) => {
+    const nextActive = !dept.is_active;
+    setDepartmentsList(departmentsList.map(d => d.id === dept.id ? { ...d, is_active: nextActive } : d));
+    try {
+      await axios.put(`/api/departments/${dept.id}`, { name: dept.name, is_active: nextActive });
+    } catch (error: any) {
+      setDepartmentsList(departmentsList.map(d => d.id === dept.id ? { ...d, is_active: !nextActive } : d));
+      toast({ title: "Error", description: error.response?.data?.message || "Failed to update department status", variant: "destructive" });
+    }
+  };
+
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("all");
-  const [activeSection, setActiveSection] = useState<string>("profile");
+  const { hasPermission } = useAuth();
+  const [searchParams] = useSearchParams();
+  const [activeSection, setActiveSection] = useState<string>(searchParams.get("section") || "profile");
 
 
   // Location states
@@ -302,117 +562,14 @@ const Settings = () => {
   const [newBuyEnabled, setNewBuyEnabled] = useState(true);
 
   useEffect(() => {
-    fetchUsersWithRoles();
+    loadTeam();
+    loadRoles();
+    loadDepartmentsList();
+    loadPermissionsCatalog();
     loadLocations();
     loadStorageBins();
     loadDefaultLocations();
   }, []);
-
-  const fetchUsersWithRoles = async () => {
-    try {
-      const { data } = await axios.get('/api/user-roles', {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-
-      setUsers(data);
-
-    } catch (error: any) {
-      toast({
-        title: "Error Loading Users",
-        description: error.response?.data?.message || error.message,
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleCreateUserWithRole = async () => {
-    try {
-      userSchema.parse({
-        email: userEmail,
-        password: userPassword,
-        role: selectedRole
-      });
-    } catch (error: any) {
-      toast({
-        title: "Validation Error",
-        description:
-          error.errors?.[0]?.message || "Please check your inputs",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      await axios.post(
-        '/api/user-roles',
-        {
-          email: userEmail,
-          password: userPassword,
-          role: selectedRole,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`,
-          },
-        }
-      );
-
-      toast({
-        title: "User Created",
-        description: `User ${userEmail} created with ${selectedRole} role`,
-      });
-
-      setDialogOpen(false);
-      setUserEmail("");
-      setUserPassword("");
-      setSelectedRole("");
-
-      await fetchUsersWithRoles();
-
-    } catch (error: any) {
-      toast({
-        title: "Error Creating User",
-        description:
-          error.response?.data?.message || error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRemoveRole = async (userId: string, role: string) => {
-    setLoading(true);
-
-    try {
-      await axios.delete(`/api/user-roles/${userId}/role`, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-        data: { role },
-      });
-
-      toast({
-        title: "Role Removed",
-        description: "Role has been successfully removed",
-      });
-
-      await fetchUsersWithRoles();
-
-    } catch (error: any) {
-      toast({
-        title: "Error Removing Role",
-        description: error.response?.data?.message || error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const [units, setUnits] = useState<string[]>([
     "BOX", "cm", "g", "kg", "l", "m", "ml", "mm", "pcs"
@@ -1442,16 +1599,20 @@ const Settings = () => {
         );
 
       case "team":
-        return (
+        return !hasPermission('settings.manage_team') ? (
+          <div className="text-center py-16 text-muted-foreground">
+            You don't have permission to manage the team. Contact your organization admin.
+          </div>
+        ) : (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-2xl font-semibold text-foreground mb-2">Your Team</h2>
                 <p className="text-muted-foreground">
-                  Manage team members and their access levels
+                  Create and manage the users who can access this organization's MRP/MES system.
                 </p>
               </div>
-              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <Dialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen}>
                 <DialogTrigger asChild>
                   <Button>
                     <UserPlus className="h-4 w-4 mr-2" />
@@ -1460,79 +1621,96 @@ const Settings = () => {
                 </DialogTrigger>
                 <DialogContent className="max-w-lg">
                   <DialogHeader>
-                    <DialogTitle>Add a User to the team</DialogTitle>
+                    <DialogTitle>Add a Team Member</DialogTitle>
                     <DialogDescription>
-                      Enter email address and select access level for the new team member
+                      They'll be able to log in immediately with the email and password entered here.
                     </DialogDescription>
                   </DialogHeader>
-                  <div className="space-y-6 py-4">
+                  <div className="space-y-4 py-4">
                     <div className="space-y-2">
-                      <Label className="text-destructive">Enter email address</Label>
+                      <Label>Employee Name *</Label>
+                      <Input
+                        placeholder="e.g. Ramesh Kumar"
+                        value={newTeamMember.name}
+                        onChange={(e) => setNewTeamMember({ ...newTeamMember, name: e.target.value })}
+                        className={cn(teamMemberErrors.name && "border-destructive")}
+                      />
+                      {teamMemberErrors.name && <p className="text-xs text-destructive">{teamMemberErrors.name}</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Email (Login ID) *</Label>
                       <Input
                         type="email"
                         placeholder="user@example.com"
-                        value={userEmail}
-                        onChange={(e) => setUserEmail(e.target.value)}
+                        value={newTeamMember.email}
+                        onChange={(e) => setNewTeamMember({ ...newTeamMember, email: e.target.value })}
+                        className={cn(teamMemberErrors.email && "border-destructive")}
                       />
-                      <p className="text-sm text-muted-foreground">
-                        A link will be sent to this email address where the new team member can complete User creation.
-                      </p>
+                      {teamMemberErrors.email && <p className="text-xs text-destructive">{teamMemberErrors.email}</p>}
                     </div>
                     <div className="space-y-2">
-                      <Label>Password (Temporary)</Label>
+                      <Label>Mobile Number</Label>
+                      <Input
+                        placeholder="e.g. 9876543210"
+                        value={newTeamMember.mobile}
+                        onChange={(e) => setNewTeamMember({ ...newTeamMember, mobile: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Password *</Label>
                       <Input
                         type="password"
                         placeholder="Minimum 6 characters"
-                        value={userPassword}
-                        onChange={(e) => setUserPassword(e.target.value)}
+                        value={newTeamMember.password}
+                        onChange={(e) => setNewTeamMember({ ...newTeamMember, password: e.target.value })}
+                        className={cn(teamMemberErrors.password && "border-destructive")}
                       />
+                      {teamMemberErrors.password && <p className="text-xs text-destructive">{teamMemberErrors.password}</p>}
                     </div>
                     <Separator />
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-semibold">Access level</p>
-                          <p className="text-sm text-muted-foreground mt-1">Default permissions</p>
-                        </div>
-                      </div>
-                      <Select value={selectedRole} onValueChange={setSelectedRole}>
+                    <div className="space-y-2">
+                      <Label>Role</Label>
+                      <Select value={newTeamMember.role_id} onValueChange={(v) => setNewTeamMember({ ...newTeamMember, role_id: v })}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select access level" />
+                          <SelectValue placeholder="Select a role" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="owner">
-                            <div className="flex flex-col items-start">
-                              <span className="font-medium">Owner</span>
-                              <span className="text-xs text-muted-foreground">Full access - Manage subscription & billing, team</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="user">
-                            <div className="flex flex-col items-start">
-                              <span className="font-medium">User</span>
-                              <span className="text-xs text-muted-foreground">Core features - Can manage users if permitted</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="operator_shop_floor">
-                            <div className="flex flex-col items-start">
-                              <span className="font-medium">Operator (Shop Floor)</span>
-                              <span className="text-xs text-muted-foreground">Limited - Complete assigned production tasks only</span>
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="operator_warehouse">
-                            <div className="flex flex-col items-start">
-                              <span className="font-medium">Operator (Warehouse)</span>
-                              <span className="text-xs text-muted-foreground">Limited - Complete warehouse picking/packing tasks</span>
-                            </div>
-                          </SelectItem>
+                          {roles.map((role) => (
+                            <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="space-y-2">
+                      <Label>Departments</Label>
+                      <div className="border rounded-md p-3 space-y-2 max-h-40 overflow-auto">
+                        {departmentsList.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">No departments defined yet.</p>
+                        ) : departmentsList.map((dept) => (
+                          <div key={dept.id} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`new-member-dept-${dept.id}`}
+                              checked={newTeamMember.department_ids.includes(dept.id)}
+                              onCheckedChange={(checked) => {
+                                setNewTeamMember({
+                                  ...newTeamMember,
+                                  department_ids: checked
+                                    ? [...newTeamMember.department_ids, dept.id]
+                                    : newTeamMember.department_ids.filter(id => id !== dept.id),
+                                });
+                              }}
+                            />
+                            <label htmlFor={`new-member-dept-${dept.id}`} className="text-sm cursor-pointer">{dept.name}</label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                     <div className="flex justify-end gap-2 pt-4">
-                      <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                      <Button variant="outline" onClick={() => setTeamDialogOpen(false)}>
                         Cancel
                       </Button>
-                      <Button onClick={handleCreateUserWithRole} disabled={loading}>
-                        {loading ? "Adding..." : "Add"}
+                      <Button onClick={handleAddTeamMember} disabled={savingTeamMember}>
+                        {savingTeamMember ? "Adding..." : "Add"}
                       </Button>
                     </div>
                   </div>
@@ -1542,142 +1720,230 @@ const Settings = () => {
 
             <Card>
               <CardContent className="pt-6">
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                  <TabsList>
-                    <TabsTrigger value="all">All</TabsTrigger>
-                    <TabsTrigger value="users">Users</TabsTrigger>
-                    <TabsTrigger value="operators">Operators</TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="all" className="space-y-4 mt-6">
-                    {users.length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        No team members found
-                      </div>
-                    ) : (
-                      users.map((user) => (
-                        <div key={user.user_id} className="flex items-center justify-between py-4 border-b last:border-0">
-                          <div className="flex items-center gap-3">
-                            <Avatar>
-                              <AvatarFallback>
-                                {user.email.substring(0, 2).toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <p className="font-medium">{user.email.split('@')[0]}</p>
-                              <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                                <Mail className="h-3 w-3" />
-                                <span>{user.email}</span>
-                              </div>
-                            </div>
+                {teamLoading ? (
+                  <div className="text-center py-8 text-muted-foreground">Loading team...</div>
+                ) : teamMembers.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">No team members found</div>
+                ) : (
+                  teamMembers.map((member) => (
+                    <div key={member.id} className="flex items-center justify-between py-4 border-b last:border-0">
+                      <div className="flex items-center gap-3">
+                        <Avatar>
+                          <AvatarFallback>
+                            {(member.first_name || member.email).substring(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="font-medium">{member.first_name || member.email.split('@')[0]}</p>
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <Mail className="h-3 w-3" />
+                            <span>{member.email}</span>
+                            {member.phone && <span>· {member.phone}</span>}
                           </div>
-                          <div className="flex items-center gap-3">
-                            <div className="flex gap-2">
-                              {user.roles.map((role: string) => (
-                                <Badge key={role} variant="secondary">
-                                  {role === 'operator_shop_floor' ? 'Operator (Shop Floor)' :
-                                    role === 'operator_warehouse' ? 'Operator (Warehouse)' :
-                                      role.charAt(0).toUpperCase() + role.slice(1)}
-                                </Badge>
-                              ))}
-                            </div>
-                            <div className="flex gap-1">
-                              {user.roles.map((role: string) => (
-                                <Button
-                                  key={role}
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => handleRemoveRole(user.user_id, role)}
-                                  disabled={loading}
-                                >
-                                  Remove
-                                </Button>
-                              ))}
-                            </div>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {member.departments.map((d) => (
+                              <Badge key={d.id} variant="outline" className="text-[10px]">{d.name}</Badge>
+                            ))}
                           </div>
                         </div>
-                      ))
-                    )}
-                  </TabsContent>
-
-                  <TabsContent value="users" className="space-y-4 mt-6">
-                    {users.filter(u => u.roles.some((r: string) => ['owner', 'user'].includes(r))).length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        No users found
                       </div>
-                    ) : (
-                      users
-                        .filter(u => u.roles.some((r: string) => ['owner', 'user'].includes(r)))
-                        .map((user) => (
-                          <div key={user.user_id} className="flex items-center justify-between py-4 border-b last:border-0">
-                            <div className="flex items-center gap-3">
-                              <Avatar>
-                                <AvatarFallback>
-                                  {user.email.substring(0, 2).toUpperCase()}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <p className="font-medium">{user.email.split('@')[0]}</p>
-                                <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                                  <Mail className="h-3 w-3" />
-                                  <span>{user.email}</span>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <div className="flex gap-2">
-                                {user.roles.map((role: string) => (
-                                  <Badge key={role} variant="secondary">
-                                    {role.charAt(0).toUpperCase() + role.slice(1)}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                    )}
-                  </TabsContent>
-
-                  <TabsContent value="operators" className="space-y-4 mt-6">
-                    {users.filter(u => u.roles.some((r: string) => r.startsWith('operator'))).length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        No operators found
+                      <div className="flex items-center gap-3">
+                        {member.role && (
+                          <Badge variant="secondary">{member.role.name}</Badge>
+                        )}
+                        <Switch
+                          checked={member.is_active}
+                          onCheckedChange={() => handleToggleTeamMemberActive(member)}
+                        />
                       </div>
-                    ) : (
-                      users
-                        .filter(u => u.roles.some((r: string) => r.startsWith('operator')))
-                        .map((user) => (
-                          <div key={user.user_id} className="flex items-center justify-between py-4 border-b last:border-0">
-                            <div className="flex items-center gap-3">
-                              <Avatar>
-                                <AvatarFallback>
-                                  {user.email.substring(0, 2).toUpperCase()}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <p className="font-medium">{user.email.split('@')[0]}</p>
-                                <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                                  <Mail className="h-3 w-3" />
-                                  <span>{user.email}</span>
-                                </div>
-                              </div>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        );
+
+      case "roles":
+        return !hasPermission('settings.manage_roles') ? (
+          <div className="text-center py-16 text-muted-foreground">
+            You don't have permission to manage roles. Contact your organization admin.
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-semibold text-foreground mb-2">Role Management</h2>
+                <p className="text-muted-foreground">
+                  Define roles and the permissions each one grants across the system.
+                </p>
+              </div>
+              <Button onClick={openCreateRole}>
+                <Plus className="h-4 w-4 mr-2" />
+                Create role
+              </Button>
+            </div>
+
+            <Card>
+              <CardContent className="p-0">
+                <div className="divide-y">
+                  {roles.map((role) => (
+                    <div key={role.id} className="flex items-center justify-between px-4 py-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{role.name}</span>
+                          {role.is_system && <Badge variant="outline" className="text-[10px]">System</Badge>}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {role.permissions.length} permission(s) · {role.users_count} member(s)
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => openEditRole(role)} disabled={role.is_system}>
+                          Edit
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => handleDeleteRole(role)}
+                          disabled={role.is_system}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
+              <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>{editingRole ? `Edit ${editingRole.name}` : "Create Role"}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-2">
+                  <div className="space-y-2">
+                    <Label>Role Name *</Label>
+                    <Input
+                      value={roleForm.name}
+                      onChange={(e) => setRoleForm({ ...roleForm, name: e.target.value })}
+                      placeholder="e.g. Quality Inspector"
+                    />
+                  </div>
+                  <div className="space-y-3">
+                    <Label>Permissions</Label>
+                    {Object.entries(
+                      permissionsCatalog.reduce((acc: Record<string, PermissionRow[]>, p) => {
+                        (acc[p.module] = acc[p.module] || []).push(p);
+                        return acc;
+                      }, {})
+                    ).map(([module, perms]) => (
+                      <div key={module} className="border rounded-md p-3">
+                        <p className="text-sm font-semibold mb-2">{module}</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {perms.map((perm) => (
+                            <div key={perm.key} className="flex items-center gap-2">
+                              <Checkbox
+                                id={`perm-${perm.key}`}
+                                checked={roleForm.permissions.includes(perm.key)}
+                                onCheckedChange={() => toggleRolePermission(perm.key)}
+                              />
+                              <label htmlFor={`perm-${perm.key}`} className="text-sm cursor-pointer">{perm.label}</label>
                             </div>
-                            <div className="flex items-center gap-3">
-                              <div className="flex gap-2">
-                                {user.roles.map((role: string) => (
-                                  <Badge key={role} variant="secondary">
-                                    {role === 'operator_shop_floor' ? 'Operator (Shop Floor)' :
-                                      role === 'operator_warehouse' ? 'Operator (Warehouse)' :
-                                        role}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                    )}
-                  </TabsContent>
-                </Tabs>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2">
+                    <Button variant="outline" onClick={() => setRoleDialogOpen(false)}>Cancel</Button>
+                    <Button onClick={handleSaveRole} disabled={savingRole}>
+                      {savingRole ? "Saving..." : "Save Role"}
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+        );
+
+      case "departments":
+        return !hasPermission('settings.manage_departments') ? (
+          <div className="text-center py-16 text-muted-foreground">
+            You don't have permission to manage departments. Contact your organization admin.
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-semibold text-foreground mb-2">Departments</h2>
+              <p className="text-sm text-muted-foreground">
+                Define the departments team members can be assigned to.
+              </p>
+            </div>
+
+            <Card>
+              <CardContent className="p-0">
+                <div className="border-b">
+                  <div className="grid grid-cols-12 gap-4 px-4 py-3 bg-muted/50">
+                    <div className="col-span-8">
+                      <span className="text-sm font-medium text-muted-foreground">Name</span>
+                    </div>
+                    <div className="col-span-2">
+                      <span className="text-sm font-medium text-muted-foreground">Status</span>
+                    </div>
+                    <div className="col-span-2"></div>
+                  </div>
+                </div>
+
+                <div className="divide-y">
+                  {departmentsList.length === 0 && (
+                    <div className="px-4 py-6 text-sm text-muted-foreground text-center">No departments defined yet. Add one below.</div>
+                  )}
+                  {departmentsList.map((dept) => (
+                    <div key={dept.id} className="grid grid-cols-12 gap-4 items-center px-4 py-3 hover:bg-muted/50 transition-colors">
+                      <div className="col-span-8">
+                        <span className="text-sm font-medium">{dept.name}</span>
+                      </div>
+                      <div className="col-span-2">
+                        <Switch checked={dept.is_active} onCheckedChange={() => handleToggleDepartmentActive(dept)} />
+                      </div>
+                      <div className="col-span-2 flex justify-end">
+                        <Button variant="ghost" size="sm" onClick={() => handleDeleteDepartment(dept.id)} className="h-8 w-8 p-0">
+                          <Trash2 className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="border-t px-4 py-4">
+                  <div className="grid grid-cols-12 gap-4 items-end">
+                    <div className="col-span-8">
+                      <Label className="text-xs text-muted-foreground mb-1 block">Department Name *</Label>
+                      <Input
+                        placeholder="e.g. Assembly"
+                        value={newDepartment.name}
+                        onChange={(e) => setNewDepartment({ name: e.target.value })}
+                        className={cn("h-9", departmentErrors.name && "border-destructive")}
+                      />
+                      {departmentErrors.name && <p className="text-xs text-destructive mt-1">{departmentErrors.name}</p>}
+                    </div>
+                    <div className="col-span-4"></div>
+                  </div>
+                  <div className="mt-3">
+                    <Button
+                      variant="link"
+                      onClick={handleAddDepartment}
+                      className="text-primary p-0 h-auto"
+                      disabled={!newDepartment.name.trim() || savingDepartment}
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      {savingDepartment ? "Adding..." : "Add department"}
+                    </Button>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -3065,7 +3331,10 @@ const Settings = () => {
       <div className="flex h-full">
         {/* Sidebar Navigation */}
         <div className="w-64 border-r bg-muted/30 p-4 space-y-1">
-          {navigationItems.map((item) => (
+          {navigationItems.filter((item) => {
+            const requiredPermission = SECTION_PERMISSIONS[item.id];
+            return !requiredPermission || hasPermission(requiredPermission);
+          }).map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveSection(item.id)}
