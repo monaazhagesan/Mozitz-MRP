@@ -16,6 +16,9 @@ class Organization extends Model
         'low_stock_alerts_enabled',
         'order_updates_enabled',
         'daily_reports_enabled',
+        'default_sales_location_id',
+        'default_manufacturing_location_id',
+        'default_purchases_location_id',
     ];
 
     protected $casts = [
@@ -29,5 +32,20 @@ class Organization extends Model
     public function users()
     {
         return $this->hasMany(User::class);
+    }
+
+    public function defaultSalesLocation()
+    {
+        return $this->belongsTo(Location::class, 'default_sales_location_id');
+    }
+
+    public function defaultManufacturingLocation()
+    {
+        return $this->belongsTo(Location::class, 'default_manufacturing_location_id');
+    }
+
+    public function defaultPurchasesLocation()
+    {
+        return $this->belongsTo(Location::class, 'default_purchases_location_id');
     }
 }

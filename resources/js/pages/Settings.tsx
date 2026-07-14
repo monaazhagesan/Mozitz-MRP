@@ -857,11 +857,7 @@ const Settings = () => {
   // Location management functions
   const loadLocations = async () => {
     try {
-      const response = await fetch('/api/locations');
-
-      if (!response.ok) throw new Error('Failed to load locations');
-
-      const data = await response.json();
+      const { data } = await axios.get('/api/locations');
 
       setLocations(Array.isArray(data) ? data : data.data);
 
@@ -872,18 +868,7 @@ const Settings = () => {
 
   const loadStorageBins = async () => {
     try {
-      const response = await fetch("/api/storage-bins", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to load storage bins: ${response.status}`);
-      }
-
-      const data = await response.json();
+      const { data } = await axios.get("/api/storage-bins");
 
       // safety check (optional but recommended)
       if (!Array.isArray(data)) {
@@ -899,19 +884,14 @@ const Settings = () => {
 
   const loadDefaultLocations = async () => {
     try {
-      const response = await fetch('/api/default-location');
+      const { data } = await axios.get('/api/default-location');
+      setDefaultLocations(data);
 
-      if (response.status === 404) {
+    } catch (error: any) {
+      if (error.response?.status === 404) {
         setDefaultLocations(null);
         return;
       }
-
-      if (!response.ok) throw new Error('Failed to load default location');
-
-      const data = await response.json();
-      setDefaultLocations(data);
-
-    } catch (error) {
       console.error("Error loading default locations:", error);
     }
   };
@@ -926,9 +906,9 @@ const Settings = () => {
         location_name: name,
         legal_name: newLegalName.trim(),
         address: newAddress.trim(),
-        sell_enabled: true,
-        make_enabled: true,
-        buy_enabled: true,
+        sell_enabled: newSellEnabled,
+        make_enabled: newMakeEnabled,
+        buy_enabled: newBuyEnabled,
       });
 
       const data = res.data;
@@ -938,6 +918,9 @@ const Settings = () => {
       setNewLocationName("");
       setNewLegalName("");
       setNewAddress("");
+      setNewSellEnabled(true);
+      setNewMakeEnabled(true);
+      setNewBuyEnabled(true);
 
       toast({
         title: "Location Added",
@@ -957,25 +940,19 @@ const Settings = () => {
   };
 
 
+  const updateLocationFieldLocal = (id: string, field: string, value: any) => {
+    setLocations((prev) =>
+      prev.map((loc) => (loc.id === id ? { ...loc, [field]: value } : loc))
+    );
+  };
+
   const handleUpdateLocation = async (
     id: string,
     field: string,
     value: any
   ) => {
     try {
-      const response = await fetch(`/api/locations/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({ [field]: value }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to update location');
-      }
+      await axios.put(`/api/locations/${id}`, { [field]: value });
 
       // ✅ safer state update (avoids stale state bug)
       setLocations((prev) =>
@@ -989,7 +966,7 @@ const Settings = () => {
 
       toast({
         title: "Error",
-        description: error.message || "Failed to update location",
+        description: error.response?.data?.message || "Failed to update location",
         variant: "destructive",
       });
     }
@@ -997,11 +974,7 @@ const Settings = () => {
 
   const handleDeleteLocation = async (id: string) => {
     try {
-      const response = await fetch(`/api/locations/${id}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) throw new Error('Failed to delete location');
+      await axios.delete(`/api/locations/${id}`);
 
       setLocations(locations.filter(loc => loc.id !== id));
 
@@ -1010,11 +983,11 @@ const Settings = () => {
         description: "Location has been removed",
       });
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting location:", error);
       toast({
         title: "Error",
-        description: "Failed to delete location",
+        description: error.response?.data?.message || "Failed to delete location",
         variant: "destructive",
       });
     }
@@ -1024,18 +997,10 @@ const Settings = () => {
     if (!binName.trim()) return;
 
     try {
-      const response = await fetch('/api/storage-bins', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location_id: locationId,
-          bin_name: binName.trim(),
-        }),
+      const { data } = await axios.post('/api/storage-bins', {
+        location_id: locationId,
+        bin_name: binName.trim(),
       });
-
-      if (!response.ok) throw new Error('Failed to add bin');
-
-      const data = await response.json();
 
       setStorageBins([...storageBins, data]);
 
@@ -1044,11 +1009,11 @@ const Settings = () => {
         description: `${data.bin_name} has been added`,
       });
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error adding bin:", error);
       toast({
         title: "Error",
-        description: "Failed to add bin",
+        description: error.response?.data?.message || "Failed to add bin",
         variant: "destructive",
       });
     }
@@ -1056,11 +1021,7 @@ const Settings = () => {
 
   const handleDeleteStorageBin = async (id: string) => {
     try {
-      const response = await fetch(`/api/storage-bins/${id}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) throw new Error('Failed to delete bin');
+      await axios.delete(`/api/storage-bins/${id}`);
 
       setStorageBins(storageBins.filter(bin => bin.id !== id));
 
@@ -1069,11 +1030,11 @@ const Settings = () => {
         description: "Storage bin has been removed",
       });
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting bin:", error);
       toast({
         title: "Error",
-        description: "Failed to delete bin",
+        description: error.response?.data?.message || "Failed to delete bin",
         variant: "destructive",
       });
     }
@@ -1081,15 +1042,7 @@ const Settings = () => {
 
   const handleUpdateDefaultLocation = async (field: string, value: string) => {
     try {
-      const response = await fetch('/api/default-location', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [field]: value }),
-      });
-
-      if (!response.ok) throw new Error('Failed to update default location');
-
-      const data = await response.json();
+      const { data } = await axios.post('/api/default-location', { [field]: value });
 
       setDefaultLocations(data);
 
@@ -1098,11 +1051,11 @@ const Settings = () => {
         description: "Default location has been set",
       });
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating default location:", error);
       toast({
         title: "Error",
-        description: "Failed to update default location",
+        description: error.response?.data?.message || "Failed to update default location",
         variant: "destructive",
       });
     }
@@ -2267,9 +2220,8 @@ const Settings = () => {
                           <div className="col-span-2">
                             <Input
                               value={location.location_name}
-                              onChange={(e) =>
-                                handleUpdateLocation(location.id, "location_name", e.target.value)
-                              }
+                              onChange={(e) => updateLocationFieldLocal(location.id, "location_name", e.target.value)}
+                              onBlur={(e) => handleUpdateLocation(location.id, "location_name", e.target.value)}
                               className="h-8"
                             />
                           </div>
@@ -2278,9 +2230,8 @@ const Settings = () => {
                           <div className="col-span-2">
                             <Input
                               value={location.legal_name || ""}
-                              onChange={(e) =>
-                                handleUpdateLocation(location.id, "legal_name", e.target.value)
-                              }
+                              onChange={(e) => updateLocationFieldLocal(location.id, "legal_name", e.target.value)}
+                              onBlur={(e) => handleUpdateLocation(location.id, "legal_name", e.target.value)}
                               className="h-8"
                             />
                           </div>
@@ -2289,9 +2240,8 @@ const Settings = () => {
                           <div className="col-span-3">
                             <Input
                               value={location.address || ""}
-                              onChange={(e) =>
-                                handleUpdateLocation(location.id, "address", e.target.value)
-                              }
+                              onChange={(e) => updateLocationFieldLocal(location.id, "address", e.target.value)}
+                              onBlur={(e) => handleUpdateLocation(location.id, "address", e.target.value)}
                               className="h-8"
                               placeholder="Address"
                             />
@@ -2332,8 +2282,12 @@ const Settings = () => {
 
                           {/* ACTION */}
                           <div className="col-span-1 flex justify-end">
-                            <Button variant="ghost" size="sm">
-                              <Lock className="h-4 w-4" />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteLocation(location.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
                           </div>
                         </div>
@@ -2401,16 +2355,6 @@ const Settings = () => {
                           </label>
 
                         </div>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                              <User className="h-4 w-4 text-muted-foreground" />
-                            </Button>
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                              <Lock className="h-4 w-4 text-muted-foreground" />
-                            </Button>
-                          </div>
-                        </td>
 
                         <div className="col-span-1 flex justify-end">
                           <Button onClick={handleAddLocation}>

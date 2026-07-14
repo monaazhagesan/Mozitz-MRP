@@ -215,13 +215,13 @@ Route::put('/organization-settings', [OrganizationSettingsController::class, 'up
 
 Route::apiResource('/locations', LocationController::class);
 Route::get('/storage-bins', [StorageBinController::class, 'apiIndex']);
-
+Route::post('/storage-bins', [StorageBinController::class, 'store']);
+Route::delete('/storage-bins/{id}', [StorageBinController::class, 'destroy']);
 
 Route::get('/default-location', [DefaultLocationController::class, 'show']);
 Route::post('/default-location', [DefaultLocationController::class, 'storeOrUpdate']);
 
 Route::apiResource('/categories', CategoryController::class);
-Route::apiResource('/locations', LocationController::class);
 
 Route::get('/company', [CompanyDetailController::class, 'index']);   // Get company info
 Route::post('/company', [CompanyDetailController::class, 'store']); // Save or update

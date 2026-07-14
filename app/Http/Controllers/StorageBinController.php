@@ -22,6 +22,28 @@ class StorageBinController extends Controller
     }
 }
 
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'location_id' => 'required|string|exists:locations,id',
+            'bin_name' => 'required|string|max:150',
+        ]);
+
+        $data['id'] = (string) Str::uuid();
+
+        $bin = StorageBin::create($data);
+
+        return response()->json($bin, 201);
+    }
+
+    public function destroy($id)
+    {
+        $bin = StorageBin::findOrFail($id);
+        $bin->delete();
+
+        return response()->json(['message' => 'Storage bin deleted successfully']);
+    }
+
     public function import(Request $request)
     {
         $file = $request->file('csv');
