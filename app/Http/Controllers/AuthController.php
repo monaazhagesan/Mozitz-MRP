@@ -89,7 +89,7 @@ private function seedDefaultRoles(int $organizationId): string
 {
     $allModules = ['module.accounting', 'module.procurement', 'module.inventory', 'module.production', 'module.analytics', 'module.approvals', 'module.settings'];
     $allShopfloor = ['shopfloor.view', 'shopfloor.start', 'shopfloor.move', 'shopfloor.reject', 'shopfloor.scrap', 'shopfloor.log_delay'];
-    $allSettings = ['settings.manage_team', 'settings.manage_roles', 'settings.manage_departments'];
+    $allSettings = ['settings.manage_team', 'settings.manage_roles', 'settings.manage_departments', 'settings.manage_general'];
 
     $definitions = [
         'Super Admin' => ['is_system' => true, 'permissions' => array_merge($allModules, $allShopfloor, $allSettings)],

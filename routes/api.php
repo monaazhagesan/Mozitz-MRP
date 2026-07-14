@@ -24,6 +24,7 @@ use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\TeamController;
+use App\Http\Controllers\OrganizationSettingsController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\StorageBinController;
 use App\Http\Controllers\DefaultLocationController;
@@ -207,6 +208,9 @@ Route::get('/team/{id}', [TeamController::class, 'show'])->middleware('permissio
 Route::post('/team', [TeamController::class, 'store'])->middleware('permission:settings.manage_team');
 Route::put('/team/{id}', [TeamController::class, 'update'])->middleware('permission:settings.manage_team');
 Route::delete('/team/{id}', [TeamController::class, 'destroy'])->middleware('permission:settings.manage_team');
+
+Route::get('/organization-settings', [OrganizationSettingsController::class, 'show']);
+Route::put('/organization-settings', [OrganizationSettingsController::class, 'update'])->middleware('permission:settings.manage_general');
 
 Route::apiResource('/locations', LocationController::class);
 Route::get('/storage-bins', [StorageBinController::class, 'apiIndex']);

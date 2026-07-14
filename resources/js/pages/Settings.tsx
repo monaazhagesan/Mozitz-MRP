@@ -541,6 +541,94 @@ const Settings = () => {
     }
   };
 
+  // ---- General Settings (backed by /api/organization-settings) ----
+  interface OrgSettings {
+    warehouse_name: string;
+    warehouse_code: string;
+    timezone: string;
+    low_stock_threshold: number | string;
+    critical_stock_threshold: number | string;
+    low_stock_alerts_enabled: boolean;
+    order_updates_enabled: boolean;
+    daily_reports_enabled: boolean;
+  }
+
+  const [orgSettings, setOrgSettings] = useState<OrgSettings>({
+    warehouse_name: "", warehouse_code: "", timezone: "",
+    low_stock_threshold: "", critical_stock_threshold: "",
+    low_stock_alerts_enabled: true, order_updates_enabled: true, daily_reports_enabled: true,
+  });
+  const [orgSettingsLoading, setOrgSettingsLoading] = useState(false);
+  const [savingWarehouseSettings, setSavingWarehouseSettings] = useState(false);
+  const [savingInventorySettings, setSavingInventorySettings] = useState(false);
+
+  const loadOrgSettings = async () => {
+    setOrgSettingsLoading(true);
+    try {
+      const res = await axios.get("/api/organization-settings");
+      setOrgSettings({
+        warehouse_name: res.data.warehouse_name || "",
+        warehouse_code: res.data.warehouse_code || "",
+        timezone: res.data.timezone || "",
+        low_stock_threshold: res.data.low_stock_threshold ?? "",
+        critical_stock_threshold: res.data.critical_stock_threshold ?? "",
+        low_stock_alerts_enabled: !!res.data.low_stock_alerts_enabled,
+        order_updates_enabled: !!res.data.order_updates_enabled,
+        daily_reports_enabled: !!res.data.daily_reports_enabled,
+      });
+    } catch (error) {
+      // Non-managers can still view Settings' other tabs; a 403 here just
+      // means General Settings shows its defaults instead of erroring out.
+    } finally {
+      setOrgSettingsLoading(false);
+    }
+  };
+
+  const handleSaveWarehouseSettings = async () => {
+    setSavingWarehouseSettings(true);
+    try {
+      const res = await axios.put("/api/organization-settings", {
+        warehouse_name: orgSettings.warehouse_name,
+        warehouse_code: orgSettings.warehouse_code,
+        timezone: orgSettings.timezone,
+      });
+      setOrgSettings((prev) => ({ ...prev, ...res.data }));
+      toast({ title: "Settings Saved", description: "Warehouse settings updated" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.response?.data?.message || "Failed to save warehouse settings", variant: "destructive" });
+    } finally {
+      setSavingWarehouseSettings(false);
+    }
+  };
+
+  const handleSaveInventorySettings = async () => {
+    setSavingInventorySettings(true);
+    try {
+      const res = await axios.put("/api/organization-settings", {
+        low_stock_threshold: orgSettings.low_stock_threshold || 0,
+        critical_stock_threshold: orgSettings.critical_stock_threshold || 0,
+      });
+      setOrgSettings((prev) => ({ ...prev, ...res.data }));
+      toast({ title: "Settings Saved", description: "Inventory thresholds updated" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.response?.data?.message || "Failed to save inventory settings", variant: "destructive" });
+    } finally {
+      setSavingInventorySettings(false);
+    }
+  };
+
+  const handleToggleNotification = async (key: "low_stock_alerts_enabled" | "order_updates_enabled" | "daily_reports_enabled") => {
+    const nextValue = !orgSettings[key];
+    setOrgSettings((prev) => ({ ...prev, [key]: nextValue }));
+    try {
+      const res = await axios.put("/api/organization-settings", { [key]: nextValue });
+      setOrgSettings((prev) => ({ ...prev, ...res.data }));
+    } catch (error: any) {
+      setOrgSettings((prev) => ({ ...prev, [key]: !nextValue }));
+      toast({ title: "Error", description: error.response?.data?.message || "Failed to update notification setting", variant: "destructive" });
+    }
+  };
+
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("all");
@@ -562,6 +650,7 @@ const Settings = () => {
   const [newBuyEnabled, setNewBuyEnabled] = useState(true);
 
   useEffect(() => {
+    loadOrgSettings();
     loadTeam();
     loadRoles();
     loadDepartmentsList();
@@ -1515,7 +1604,8 @@ const Settings = () => {
           </div>
         );
 
-      case "general":
+      case "general": {
+        const canManageGeneral = hasPermission('settings.manage_general');
         return (
           <div className="space-y-6">
             <div>
@@ -1528,17 +1618,36 @@ const Settings = () => {
               <CardContent className="space-y-6 pt-6">
                 <div className="space-y-2">
                   <Label htmlFor="warehouse-name">Warehouse Name</Label>
-                  <Input id="warehouse-name" defaultValue="Main Distribution Center" />
+                  <Input
+                    id="warehouse-name"
+                    value={orgSettings.warehouse_name}
+                    onChange={(e) => setOrgSettings({ ...orgSettings, warehouse_name: e.target.value })}
+                    disabled={!canManageGeneral || orgSettingsLoading}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="warehouse-code">Warehouse Code</Label>
-                  <Input id="warehouse-code" defaultValue="WH-001" />
+                  <Input
+                    id="warehouse-code"
+                    value={orgSettings.warehouse_code}
+                    onChange={(e) => setOrgSettings({ ...orgSettings, warehouse_code: e.target.value })}
+                    disabled={!canManageGeneral || orgSettingsLoading}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="timezone">Timezone</Label>
-                  <Input id="timezone" defaultValue="UTC-5 (Eastern Time)" />
+                  <Input
+                    id="timezone"
+                    value={orgSettings.timezone}
+                    onChange={(e) => setOrgSettings({ ...orgSettings, timezone: e.target.value })}
+                    disabled={!canManageGeneral || orgSettingsLoading}
+                  />
                 </div>
-                <Button>Save Changes</Button>
+                {canManageGeneral && (
+                  <Button onClick={handleSaveWarehouseSettings} disabled={savingWarehouseSettings || orgSettingsLoading}>
+                    {savingWarehouseSettings ? "Saving..." : "Save Changes"}
+                  </Button>
+                )}
               </CardContent>
             </Card>
 
@@ -1549,13 +1658,29 @@ const Settings = () => {
               <CardContent className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="low-stock">Low Stock Threshold (%)</Label>
-                  <Input id="low-stock" type="number" defaultValue="20" />
+                  <Input
+                    id="low-stock"
+                    type="number"
+                    value={orgSettings.low_stock_threshold}
+                    onChange={(e) => setOrgSettings({ ...orgSettings, low_stock_threshold: e.target.value })}
+                    disabled={!canManageGeneral || orgSettingsLoading}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="critical-stock">Critical Stock Threshold (%)</Label>
-                  <Input id="critical-stock" type="number" defaultValue="10" />
+                  <Input
+                    id="critical-stock"
+                    type="number"
+                    value={orgSettings.critical_stock_threshold}
+                    onChange={(e) => setOrgSettings({ ...orgSettings, critical_stock_threshold: e.target.value })}
+                    disabled={!canManageGeneral || orgSettingsLoading}
+                  />
                 </div>
-                <Button>Save Changes</Button>
+                {canManageGeneral && (
+                  <Button onClick={handleSaveInventorySettings} disabled={savingInventorySettings || orgSettingsLoading}>
+                    {savingInventorySettings ? "Saving..." : "Save Changes"}
+                  </Button>
+                )}
               </CardContent>
             </Card>
 
@@ -1571,7 +1696,14 @@ const Settings = () => {
                       Receive notifications when inventory is running low
                     </p>
                   </div>
-                  <Button variant="outline" size="sm">Enabled</Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!canManageGeneral}
+                    onClick={() => handleToggleNotification("low_stock_alerts_enabled")}
+                  >
+                    {orgSettings.low_stock_alerts_enabled ? "Enabled" : "Disabled"}
+                  </Button>
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between">
@@ -1581,7 +1713,14 @@ const Settings = () => {
                       Get notified about order status changes
                     </p>
                   </div>
-                  <Button variant="outline" size="sm">Enabled</Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!canManageGeneral}
+                    onClick={() => handleToggleNotification("order_updates_enabled")}
+                  >
+                    {orgSettings.order_updates_enabled ? "Enabled" : "Disabled"}
+                  </Button>
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between">
@@ -1591,12 +1730,20 @@ const Settings = () => {
                       Receive daily summary of warehouse operations
                     </p>
                   </div>
-                  <Button variant="outline" size="sm">Enabled</Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!canManageGeneral}
+                    onClick={() => handleToggleNotification("daily_reports_enabled")}
+                  >
+                    {orgSettings.daily_reports_enabled ? "Enabled" : "Disabled"}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
           </div>
         );
+      }
 
       case "team":
         return !hasPermission('settings.manage_team') ? (
