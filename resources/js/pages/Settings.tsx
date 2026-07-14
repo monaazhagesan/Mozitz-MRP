@@ -24,18 +24,13 @@ import { useAuth } from '@/hooks/useAuth';
 const navigationItems = [
   { id: "profile", label: "Profile" },
   { id: "general", label: "General" },
-  { id: "units", label: "Units of measure" },
   { id: "tax-rates", label: "Tax rates" },
-  { id: "categories", label: "Categories" },
   { id: "custom-fields", label: "Custom fields" },
-  { id: "costing", label: "Costing" },
   { id: "barcodes", label: "Barcodes" },
   { id: "operations", label: "Operations" },
   { id: "resources", label: "Resources" },
   { id: "operators", label: "Operators" },
   { id: "locations", label: "Locations" },
-  { id: "print-templates", label: "Print templates" },
-  { id: "warehouse-app", label: "Warehouse app" },
   { id: "manufacturing", label: "Manufacturing" },
   { id: "team", label: "Team Management" },
   { id: "roles", label: "Role Management" },
@@ -631,16 +626,46 @@ const Settings = () => {
     low_stock_alerts_enabled: boolean;
     order_updates_enabled: boolean;
     daily_reports_enabled: boolean;
+    barcode_type: string;
+    barcode_width: number | string;
+    barcode_height: number | string;
+    barcode_label_size: string;
+    barcode_show_item_code: boolean;
+    barcode_show_item_name: boolean;
+    barcode_show_location: boolean;
+    barcode_prefix: string;
+    barcode_suffix: string;
+    barcode_starting_number: number | string;
+    barcode_number_length: number | string;
+    barcode_printer_type: string;
+    barcode_labels_per_row: number | string;
+    barcode_page_size: string;
+    barcode_margin: number | string;
+    barcode_auto_print_on_creation: boolean;
+    barcode_camera_scanning_enabled: boolean;
+    barcode_beep_on_scan: boolean;
+    barcode_vibrate_on_scan: boolean;
+    barcode_auto_redirect_on_scan: boolean;
   }
 
   const [orgSettings, setOrgSettings] = useState<OrgSettings>({
     warehouse_name: "", warehouse_code: "", timezone: "",
     low_stock_threshold: "", critical_stock_threshold: "",
     low_stock_alerts_enabled: true, order_updates_enabled: true, daily_reports_enabled: true,
+    barcode_type: "code128", barcode_width: 50, barcode_height: 25, barcode_label_size: "standard",
+    barcode_show_item_code: true, barcode_show_item_name: true, barcode_show_location: false,
+    barcode_prefix: "INV", barcode_suffix: "", barcode_starting_number: 1001, barcode_number_length: 6,
+    barcode_printer_type: "thermal", barcode_labels_per_row: 3, barcode_page_size: "a4", barcode_margin: 5,
+    barcode_auto_print_on_creation: false, barcode_camera_scanning_enabled: true,
+    barcode_beep_on_scan: true, barcode_vibrate_on_scan: true, barcode_auto_redirect_on_scan: false,
   });
   const [orgSettingsLoading, setOrgSettingsLoading] = useState(false);
   const [savingWarehouseSettings, setSavingWarehouseSettings] = useState(false);
   const [savingInventorySettings, setSavingInventorySettings] = useState(false);
+  const [savingBarcodeFormat, setSavingBarcodeFormat] = useState(false);
+  const [savingBarcodeNumbering, setSavingBarcodeNumbering] = useState(false);
+  const [savingPrintSettings, setSavingPrintSettings] = useState(false);
+  const [savingScanningSettings, setSavingScanningSettings] = useState(false);
 
   const loadOrgSettings = async () => {
     setOrgSettingsLoading(true);
@@ -655,6 +680,26 @@ const Settings = () => {
         low_stock_alerts_enabled: !!res.data.low_stock_alerts_enabled,
         order_updates_enabled: !!res.data.order_updates_enabled,
         daily_reports_enabled: !!res.data.daily_reports_enabled,
+        barcode_type: res.data.barcode_type || "code128",
+        barcode_width: res.data.barcode_width ?? 50,
+        barcode_height: res.data.barcode_height ?? 25,
+        barcode_label_size: res.data.barcode_label_size || "standard",
+        barcode_show_item_code: !!res.data.barcode_show_item_code,
+        barcode_show_item_name: !!res.data.barcode_show_item_name,
+        barcode_show_location: !!res.data.barcode_show_location,
+        barcode_prefix: res.data.barcode_prefix || "",
+        barcode_suffix: res.data.barcode_suffix || "",
+        barcode_starting_number: res.data.barcode_starting_number ?? 1001,
+        barcode_number_length: res.data.barcode_number_length ?? 6,
+        barcode_printer_type: res.data.barcode_printer_type || "thermal",
+        barcode_labels_per_row: res.data.barcode_labels_per_row ?? 3,
+        barcode_page_size: res.data.barcode_page_size || "a4",
+        barcode_margin: res.data.barcode_margin ?? 5,
+        barcode_auto_print_on_creation: !!res.data.barcode_auto_print_on_creation,
+        barcode_camera_scanning_enabled: !!res.data.barcode_camera_scanning_enabled,
+        barcode_beep_on_scan: !!res.data.barcode_beep_on_scan,
+        barcode_vibrate_on_scan: !!res.data.barcode_vibrate_on_scan,
+        barcode_auto_redirect_on_scan: !!res.data.barcode_auto_redirect_on_scan,
       });
     } catch (error) {
       // Non-managers can still view Settings' other tabs; a 403 here just
@@ -709,6 +754,82 @@ const Settings = () => {
     }
   };
 
+  const handleSaveBarcodeFormat = async () => {
+    setSavingBarcodeFormat(true);
+    try {
+      const res = await axios.put("/api/organization-settings", {
+        barcode_type: orgSettings.barcode_type,
+        barcode_width: orgSettings.barcode_width || 0,
+        barcode_height: orgSettings.barcode_height || 0,
+        barcode_label_size: orgSettings.barcode_label_size,
+        barcode_show_item_code: orgSettings.barcode_show_item_code,
+        barcode_show_item_name: orgSettings.barcode_show_item_name,
+        barcode_show_location: orgSettings.barcode_show_location,
+      });
+      setOrgSettings((prev) => ({ ...prev, ...res.data }));
+      toast({ title: "Settings Saved", description: "Barcode format settings updated" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.response?.data?.message || "Failed to save barcode format settings", variant: "destructive" });
+    } finally {
+      setSavingBarcodeFormat(false);
+    }
+  };
+
+  const handleSaveBarcodeNumbering = async () => {
+    setSavingBarcodeNumbering(true);
+    try {
+      const res = await axios.put("/api/organization-settings", {
+        barcode_prefix: orgSettings.barcode_prefix,
+        barcode_suffix: orgSettings.barcode_suffix,
+        barcode_starting_number: orgSettings.barcode_starting_number || 0,
+        barcode_number_length: orgSettings.barcode_number_length || 4,
+      });
+      setOrgSettings((prev) => ({ ...prev, ...res.data }));
+      toast({ title: "Settings Saved", description: "Barcode numbering settings updated" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.response?.data?.message || "Failed to save barcode numbering settings", variant: "destructive" });
+    } finally {
+      setSavingBarcodeNumbering(false);
+    }
+  };
+
+  const handleSavePrintSettings = async () => {
+    setSavingPrintSettings(true);
+    try {
+      const res = await axios.put("/api/organization-settings", {
+        barcode_printer_type: orgSettings.barcode_printer_type,
+        barcode_labels_per_row: orgSettings.barcode_labels_per_row || 1,
+        barcode_page_size: orgSettings.barcode_page_size,
+        barcode_margin: orgSettings.barcode_margin || 0,
+        barcode_auto_print_on_creation: orgSettings.barcode_auto_print_on_creation,
+      });
+      setOrgSettings((prev) => ({ ...prev, ...res.data }));
+      toast({ title: "Settings Saved", description: "Print settings updated" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.response?.data?.message || "Failed to save print settings", variant: "destructive" });
+    } finally {
+      setSavingPrintSettings(false);
+    }
+  };
+
+  const handleSaveScanningSettings = async () => {
+    setSavingScanningSettings(true);
+    try {
+      const res = await axios.put("/api/organization-settings", {
+        barcode_camera_scanning_enabled: orgSettings.barcode_camera_scanning_enabled,
+        barcode_beep_on_scan: orgSettings.barcode_beep_on_scan,
+        barcode_vibrate_on_scan: orgSettings.barcode_vibrate_on_scan,
+        barcode_auto_redirect_on_scan: orgSettings.barcode_auto_redirect_on_scan,
+      });
+      setOrgSettings((prev) => ({ ...prev, ...res.data }));
+      toast({ title: "Settings Saved", description: "Scanning settings updated" });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.response?.data?.message || "Failed to save scanning settings", variant: "destructive" });
+    } finally {
+      setSavingScanningSettings(false);
+    }
+  };
+
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("all");
@@ -739,120 +860,6 @@ const Settings = () => {
     loadStorageBins();
     loadDefaultLocations();
   }, []);
-
-  const [units, setUnits] = useState<string[]>([
-    "BOX", "cm", "g", "kg", "l", "m", "ml", "mm", "pcs"
-  ]);
-  const [newUnit, setNewUnit] = useState("");
-
-  const handleAddUnit = () => {
-    if (newUnit.trim()) {
-      setUnits([...units, newUnit.trim()]);
-      setNewUnit("");
-      toast({
-        title: "Unit Added",
-        description: `${newUnit} has been added to units of measure`,
-      });
-    }
-  };
-
-  const handleDeleteUnit = (unit: string) => {
-    setUnits(units.filter(u => u !== unit));
-    toast({
-      title: "Unit Removed",
-      description: `${unit} has been removed`,
-    });
-  };
-
-  interface Category {
-    id: string;
-    name: string;
-  }
-
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [newCategory, setNewCategory] = useState("");
-
-  const loadCategories = async () => {
-    try {
-      const response = await fetch('/api/categories');
-
-      if (!response.ok) throw new Error('Failed to load categories');
-
-      const data = await response.json();
-      setCategories(data);
-
-    } catch (error) {
-      console.error("Error loading categories:", error);
-    }
-  };
-
-  useEffect(() => {
-    loadCategories();
-  }, []);
-
-  const handleAddCategory = async () => {
-    if (!newCategory.trim()) return;
-
-    try {
-      const response = await fetch('/api/categories', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: newCategory.trim(),
-        }),
-      });
-
-      if (!response.ok) throw new Error('Failed to add category');
-
-      const data = await response.json();
-
-      setCategories([...categories, data]);
-      setNewCategory("");
-
-      toast({
-        title: "Category Added",
-        description: `${data.name} has been added to categories`,
-      });
-
-    } catch (error) {
-      console.error("Error adding category:", error);
-      toast({
-        title: "Error",
-        description: "Failed to add category",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleDeleteCategory = async (id: string) => {
-    const category = categories.find(c => c.id === id);
-
-    try {
-      const response = await fetch(`/api/categories/${id}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) throw new Error('Failed to delete category');
-
-      setCategories(categories.filter(c => c.id !== id));
-
-      toast({
-        title: "Category Removed",
-        description: `${category?.name} has been removed`,
-      });
-
-    } catch (error) {
-      console.error("Error deleting category:", error);
-      toast({
-        title: "Error",
-        description: "Failed to delete category",
-        variant: "destructive",
-      });
-    }
-  };
-
 
   // Location management functions
   const loadLocations = async () => {
@@ -1492,74 +1499,6 @@ const Settings = () => {
 
   const renderContent = () => {
     switch (activeSection) {
-      case "units":
-        return (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-semibold text-foreground mb-2">Units of measure</h2>
-              <p className="text-sm text-muted-foreground">
-                Define which measurement units can be used for items in Katana.{" "}
-                <a href="#" className="text-primary hover:underline">Learn more</a>
-              </p>
-              <p className="text-sm text-muted-foreground mt-2">
-                This ensures that item quantities, dimensions, and weights are consistently and accurately recorded.
-              </p>
-            </div>
-
-            <Card>
-              <CardContent className="p-0">
-                <div className="border-b">
-                  <div className="flex items-center px-4 py-3 bg-muted/50">
-                    <span className="text-sm font-medium text-muted-foreground flex items-center gap-1">
-                      Name <ArrowUp className="h-3 w-3" />
-                    </span>
-                  </div>
-                </div>
-
-                <div className="divide-y">
-                  {units.map((unit, index) => (
-                    <div key={index} className="flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors">
-                      <span className="text-sm">{unit}</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteUnit(unit)}
-                        className="h-8 w-8 p-0"
-                      >
-                        <Trash2 className="h-4 w-4 text-muted-foreground" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="px-4 py-3 border-t">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      placeholder="Enter unit name"
-                      value={newUnit}
-                      onChange={(e) => setNewUnit(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          handleAddUnit();
-                        }
-                      }}
-                      className="max-w-xs"
-                    />
-                    <Button
-                      variant="link"
-                      onClick={handleAddUnit}
-                      className="text-primary"
-                    >
-                      <Plus className="h-4 w-4 mr-1" />
-                      Add row
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        );
-
       case "tax-rates":
         return (
           <div className="space-y-6">
@@ -1567,73 +1506,6 @@ const Settings = () => {
               <h2 className="text-2xl font-semibold text-foreground mb-2">Tax rates</h2>
               ...
             </div>
-          </div>
-        );
-
-      case "categories":
-        return (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-semibold text-foreground mb-2">Categories</h2>
-              <p className="text-sm text-muted-foreground">
-                Use categories to organize items, enhancing inventory management efficiency.{" "}
-                <a href="#" className="text-primary hover:underline">Learn more</a>
-              </p>
-              <p className="text-sm text-muted-foreground mt-2">
-                By grouping similar items, categories facilitate more straightforward navigation and filtering.
-              </p>
-            </div>
-
-            <Card>
-              <CardContent className="p-0">
-                <div className="border-b">
-                  <div className="flex items-center px-4 py-3 bg-muted/50">
-                    <span className="text-sm font-medium text-muted-foreground flex items-center gap-1">
-                      Name <ArrowUp className="h-3 w-3" />
-                    </span>
-                  </div>
-                </div>
-
-                <div className="divide-y">
-                  {categories.map((category) => (
-                    <div key={category.id} className="flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors">
-                      <span className="text-sm">{category.name}</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteCategory(category.id)}
-                        className="h-8 w-8 p-0"
-                      >
-                        <Trash2 className="h-4 w-4 text-muted-foreground" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="px-4 py-3 border-t">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      placeholder="Enter category name"
-                      value={newCategory}
-                      onChange={(e) => setNewCategory(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          handleAddCategory();
-                        }
-                      }}
-                      className="max-w-xs"
-                    />
-                    <Button
-                      onClick={handleAddCategory}
-                      className="text-primary"
-                    >
-                      <Plus className="h-4 w-4 mr-1" />
-                      Add Category
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
           </div>
         );
 
@@ -2974,7 +2846,12 @@ const Settings = () => {
           </div>
         );
 
-      case "barcodes":
+      case "barcodes": {
+        const canManageBarcodes = hasPermission('settings.manage_general');
+        const barcodePreviewNumber = String(orgSettings.barcode_starting_number || 0).padStart(
+          Number(orgSettings.barcode_number_length) || 4,
+          '0'
+        );
         return (
           <div className="space-y-6">
             <div>
@@ -2996,7 +2873,11 @@ const Settings = () => {
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="barcode-type">Barcode Type</Label>
-                    <Select defaultValue="code128">
+                    <Select
+                      value={orgSettings.barcode_type}
+                      onValueChange={(value) => setOrgSettings({ ...orgSettings, barcode_type: value })}
+                      disabled={!canManageBarcodes || orgSettingsLoading}
+                    >
                       <SelectTrigger id="barcode-type">
                         <SelectValue placeholder="Select barcode type" />
                       </SelectTrigger>
@@ -3015,15 +2896,31 @@ const Settings = () => {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="barcode-width">Barcode Width (mm)</Label>
-                    <Input id="barcode-width" type="number" defaultValue="50" />
+                    <Input
+                      id="barcode-width"
+                      type="number"
+                      value={orgSettings.barcode_width}
+                      onChange={(e) => setOrgSettings({ ...orgSettings, barcode_width: e.target.value })}
+                      disabled={!canManageBarcodes || orgSettingsLoading}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="barcode-height">Barcode Height (mm)</Label>
-                    <Input id="barcode-height" type="number" defaultValue="25" />
+                    <Input
+                      id="barcode-height"
+                      type="number"
+                      value={orgSettings.barcode_height}
+                      onChange={(e) => setOrgSettings({ ...orgSettings, barcode_height: e.target.value })}
+                      disabled={!canManageBarcodes || orgSettingsLoading}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="label-size">Label Size</Label>
-                    <Select defaultValue="standard">
+                    <Select
+                      value={orgSettings.barcode_label_size}
+                      onValueChange={(value) => setOrgSettings({ ...orgSettings, barcode_label_size: value })}
+                      disabled={!canManageBarcodes || orgSettingsLoading}
+                    >
                       <SelectTrigger id="label-size">
                         <SelectValue placeholder="Select label size" />
                       </SelectTrigger>
@@ -3046,25 +2943,39 @@ const Settings = () => {
                       <p className="font-medium text-sm">Show Item Code</p>
                       <p className="text-xs text-muted-foreground">Display the item code below the barcode</p>
                     </div>
-                    <Switch defaultChecked />
+                    <Switch
+                      checked={orgSettings.barcode_show_item_code}
+                      onCheckedChange={(v) => setOrgSettings({ ...orgSettings, barcode_show_item_code: !!v })}
+                      disabled={!canManageBarcodes || orgSettingsLoading}
+                    />
                   </div>
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-medium text-sm">Show Item Name</p>
                       <p className="text-xs text-muted-foreground">Display the item name on the label</p>
                     </div>
-                    <Switch defaultChecked />
+                    <Switch
+                      checked={orgSettings.barcode_show_item_name}
+                      onCheckedChange={(v) => setOrgSettings({ ...orgSettings, barcode_show_item_name: !!v })}
+                      disabled={!canManageBarcodes || orgSettingsLoading}
+                    />
                   </div>
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-medium text-sm">Show Location</p>
                       <p className="text-xs text-muted-foreground">Include storage location on the label</p>
                     </div>
-                    <Switch />
+                    <Switch
+                      checked={orgSettings.barcode_show_location}
+                      onCheckedChange={(v) => setOrgSettings({ ...orgSettings, barcode_show_location: !!v })}
+                      disabled={!canManageBarcodes || orgSettingsLoading}
+                    />
                   </div>
                 </div>
 
-                <Button>Save Format Settings</Button>
+                <Button onClick={handleSaveBarcodeFormat} disabled={!canManageBarcodes || savingBarcodeFormat || orgSettingsLoading}>
+                  {savingBarcodeFormat ? "Saving..." : "Save Format Settings"}
+                </Button>
               </CardContent>
             </Card>
 
@@ -3080,22 +2991,48 @@ const Settings = () => {
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="barcode-prefix">Barcode Prefix</Label>
-                    <Input id="barcode-prefix" defaultValue="INV" placeholder="e.g., INV, SKU, PRD" />
+                    <Input
+                      id="barcode-prefix"
+                      value={orgSettings.barcode_prefix}
+                      onChange={(e) => setOrgSettings({ ...orgSettings, barcode_prefix: e.target.value })}
+                      placeholder="e.g., INV, SKU, PRD"
+                      disabled={!canManageBarcodes || orgSettingsLoading}
+                    />
                     <p className="text-xs text-muted-foreground">
                       Prefix added to all generated barcodes
                     </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="barcode-suffix">Barcode Suffix</Label>
-                    <Input id="barcode-suffix" placeholder="Optional suffix" />
+                    <Input
+                      id="barcode-suffix"
+                      value={orgSettings.barcode_suffix}
+                      onChange={(e) => setOrgSettings({ ...orgSettings, barcode_suffix: e.target.value })}
+                      placeholder="Optional suffix"
+                      disabled={!canManageBarcodes || orgSettingsLoading}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="starting-number">Starting Number</Label>
-                    <Input id="starting-number" type="number" defaultValue="1001" />
+                    <Input
+                      id="starting-number"
+                      type="number"
+                      value={orgSettings.barcode_starting_number}
+                      onChange={(e) => setOrgSettings({ ...orgSettings, barcode_starting_number: e.target.value })}
+                      disabled={!canManageBarcodes || orgSettingsLoading}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="number-length">Number Length (digits)</Label>
-                    <Input id="number-length" type="number" defaultValue="6" min={4} max={12} />
+                    <Input
+                      id="number-length"
+                      type="number"
+                      value={orgSettings.barcode_number_length}
+                      onChange={(e) => setOrgSettings({ ...orgSettings, barcode_number_length: e.target.value })}
+                      min={4}
+                      max={12}
+                      disabled={!canManageBarcodes || orgSettingsLoading}
+                    />
                     <p className="text-xs text-muted-foreground">
                       Numbers will be zero-padded to this length
                     </p>
@@ -3105,12 +3042,16 @@ const Settings = () => {
                 <div className="bg-muted/50 rounded-lg p-4">
                   <p className="text-sm text-muted-foreground mb-2">Preview:</p>
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-base font-mono">INV-001001</Badge>
+                    <Badge variant="outline" className="text-base font-mono">
+                      {[orgSettings.barcode_prefix, barcodePreviewNumber, orgSettings.barcode_suffix].filter(Boolean).join('-')}
+                    </Badge>
                     <span className="text-xs text-muted-foreground">(Next barcode)</span>
                   </div>
                 </div>
 
-                <Button>Save Numbering Settings</Button>
+                <Button onClick={handleSaveBarcodeNumbering} disabled={!canManageBarcodes || savingBarcodeNumbering || orgSettingsLoading}>
+                  {savingBarcodeNumbering ? "Saving..." : "Save Numbering Settings"}
+                </Button>
               </CardContent>
             </Card>
 
@@ -3123,7 +3064,11 @@ const Settings = () => {
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="printer-type">Printer Type</Label>
-                    <Select defaultValue="thermal">
+                    <Select
+                      value={orgSettings.barcode_printer_type}
+                      onValueChange={(value) => setOrgSettings({ ...orgSettings, barcode_printer_type: value })}
+                      disabled={!canManageBarcodes || orgSettingsLoading}
+                    >
                       <SelectTrigger id="printer-type">
                         <SelectValue placeholder="Select printer type" />
                       </SelectTrigger>
@@ -3136,11 +3081,23 @@ const Settings = () => {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="labels-per-row">Labels Per Row</Label>
-                    <Input id="labels-per-row" type="number" defaultValue="3" min={1} max={5} />
+                    <Input
+                      id="labels-per-row"
+                      type="number"
+                      value={orgSettings.barcode_labels_per_row}
+                      onChange={(e) => setOrgSettings({ ...orgSettings, barcode_labels_per_row: e.target.value })}
+                      min={1}
+                      max={5}
+                      disabled={!canManageBarcodes || orgSettingsLoading}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="page-size">Page Size</Label>
-                    <Select defaultValue="a4">
+                    <Select
+                      value={orgSettings.barcode_page_size}
+                      onValueChange={(value) => setOrgSettings({ ...orgSettings, barcode_page_size: value })}
+                      disabled={!canManageBarcodes || orgSettingsLoading}
+                    >
                       <SelectTrigger id="page-size">
                         <SelectValue placeholder="Select page size" />
                       </SelectTrigger>
@@ -3153,7 +3110,13 @@ const Settings = () => {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="margin">Margin (mm)</Label>
-                    <Input id="margin" type="number" defaultValue="5" />
+                    <Input
+                      id="margin"
+                      type="number"
+                      value={orgSettings.barcode_margin}
+                      onChange={(e) => setOrgSettings({ ...orgSettings, barcode_margin: e.target.value })}
+                      disabled={!canManageBarcodes || orgSettingsLoading}
+                    />
                   </div>
                 </div>
 
@@ -3162,10 +3125,16 @@ const Settings = () => {
                     <p className="font-medium text-sm">Auto-print on Item Creation</p>
                     <p className="text-xs text-muted-foreground">Automatically print barcode label when new item is added</p>
                   </div>
-                  <Switch />
+                  <Switch
+                    checked={orgSettings.barcode_auto_print_on_creation}
+                    onCheckedChange={(v) => setOrgSettings({ ...orgSettings, barcode_auto_print_on_creation: !!v })}
+                    disabled={!canManageBarcodes || orgSettingsLoading}
+                  />
                 </div>
 
-                <Button>Save Print Settings</Button>
+                <Button onClick={handleSavePrintSettings} disabled={!canManageBarcodes || savingPrintSettings || orgSettingsLoading}>
+                  {savingPrintSettings ? "Saving..." : "Save Print Settings"}
+                </Button>
               </CardContent>
             </Card>
 
@@ -3180,35 +3149,54 @@ const Settings = () => {
                     <p className="font-medium text-sm">Enable Camera Scanning</p>
                     <p className="text-xs text-muted-foreground">Allow scanning barcodes using device camera</p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch
+                    checked={orgSettings.barcode_camera_scanning_enabled}
+                    onCheckedChange={(v) => setOrgSettings({ ...orgSettings, barcode_camera_scanning_enabled: !!v })}
+                    disabled={!canManageBarcodes || orgSettingsLoading}
+                  />
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-medium text-sm">Beep on Successful Scan</p>
                     <p className="text-xs text-muted-foreground">Play a sound when barcode is scanned successfully</p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch
+                    checked={orgSettings.barcode_beep_on_scan}
+                    onCheckedChange={(v) => setOrgSettings({ ...orgSettings, barcode_beep_on_scan: !!v })}
+                    disabled={!canManageBarcodes || orgSettingsLoading}
+                  />
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-medium text-sm">Vibrate on Scan</p>
                     <p className="text-xs text-muted-foreground">Vibrate device on successful scan (mobile only)</p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch
+                    checked={orgSettings.barcode_vibrate_on_scan}
+                    onCheckedChange={(v) => setOrgSettings({ ...orgSettings, barcode_vibrate_on_scan: !!v })}
+                    disabled={!canManageBarcodes || orgSettingsLoading}
+                  />
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-medium text-sm">Auto-redirect after Scan</p>
                     <p className="text-xs text-muted-foreground">Automatically navigate to item details after scanning</p>
                   </div>
-                  <Switch />
+                  <Switch
+                    checked={orgSettings.barcode_auto_redirect_on_scan}
+                    onCheckedChange={(v) => setOrgSettings({ ...orgSettings, barcode_auto_redirect_on_scan: !!v })}
+                    disabled={!canManageBarcodes || orgSettingsLoading}
+                  />
                 </div>
 
-                <Button>Save Scanning Settings</Button>
+                <Button onClick={handleSaveScanningSettings} disabled={!canManageBarcodes || savingScanningSettings || orgSettingsLoading}>
+                  {savingScanningSettings ? "Saving..." : "Save Scanning Settings"}
+                </Button>
               </CardContent>
             </Card>
           </div>
         );
+      }
 
       case "profile":
         return (
