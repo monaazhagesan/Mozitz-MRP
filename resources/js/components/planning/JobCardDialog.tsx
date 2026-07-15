@@ -1,6 +1,16 @@
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -255,8 +265,15 @@ export const JobCardDialog = ({
   // Product lines on the looked-up Sales Order, each flagged with whether a
   // Job already exists for that item under this same order number.
   const [salesOrderProductLines, setSalesOrderProductLines] = useState<
-    Array<{ item_code: string; item_name: string; quantity: number; hasJob: boolean }>
+    Array<{ item_code: string; item_name: string; quantity: number; hasJob: boolean; existingJobNumber?: string }>
   >([]);
+
+  // Set when "Use this item" is clicked for a line that already has a Job —
+  // holds the line so the "Job Already Exists" warning can reference it,
+  // instead of silently letting a duplicate Job get created.
+  const [duplicateJobLine, setDuplicateJobLine] = useState<
+    { item_code: string; item_name: string; existingJobNumber?: string } | null
+  >(null);
 
   // Looks up the Customer for the entered Sales Order, and — since one order
   // can contain several manufactured products — surfaces every Product line
@@ -318,12 +335,16 @@ export const JobCardDialog = ({
         params: { sales_order_number: order.order_no || orderNo },
       });
       const existingJobs = jobsRes.data?.data ?? jobsRes.data ?? [];
-      const jobbedItemCodes = new Set(
-        (Array.isArray(existingJobs) ? existingJobs : []).map((j: any) => j.assembly)
+      const jobNumberByItemCode = new Map<string, string>(
+        (Array.isArray(existingJobs) ? existingJobs : []).map((j: any) => [j.assembly, j.jobNumber || j.job_number])
       );
 
       setSalesOrderProductLines(
-        lines.map((line: any) => ({ ...line, hasJob: jobbedItemCodes.has(line.item_code) }))
+        lines.map((line: any) => ({
+          ...line,
+          hasJob: jobNumberByItemCode.has(line.item_code),
+          existingJobNumber: jobNumberByItemCode.get(line.item_code),
+        }))
       );
     } catch (err) {
       console.error("Failed to check existing jobs for order:", err);
@@ -775,6 +796,7 @@ const checkAndLoadBom = async (code: string) => {
 };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl p-0 gap-0 overflow-hidden bg-background rounded-lg shadow-xl border">
         {/* Header */}
@@ -796,6 +818,33 @@ const checkAndLoadBom = async (code: string) => {
                   onChange={(e) => setJobData({ ...jobData, jobNumber: e.target.value })}
                   className="col-span-2"
                 />
+              </div>
+
+              <div className="grid grid-cols-3 items-center gap-3">
+                <Label className="text-sm font-medium text-right">Sales Order</Label>
+                <div className="col-span-2 space-y-1">
+                  <Input
+                    value={jobData.salesOrderNum}
+                    onChange={(e) => {
+                      setJobData({ ...jobData, salesOrderNum: e.target.value });
+                      setSalesOrderLookupStatus("idle");
+                    }}
+                    onBlur={(e) => handleSalesOrderLookup(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleSalesOrderLookup(jobData.salesOrderNum);
+                      }
+                    }}
+                    placeholder="Sales Order Number (e.g. SO-2026-00004)"
+                  />
+                  {salesOrderLookupStatus === "found" && (
+                    <p className="text-xs text-green-600">Order found — customer auto-filled below.</p>
+                  )}
+                  {salesOrderLookupStatus === "not-found" && (
+                    <p className="text-xs text-muted-foreground">No matching order found — you can still create this job manually.</p>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-3 items-center gap-3">
@@ -889,33 +938,6 @@ const checkAndLoadBom = async (code: string) => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 items-center gap-3">
-                <Label className="text-sm font-medium text-right">Sales Order</Label>
-                <div className="col-span-2 space-y-1">
-                  <Input
-                    value={jobData.salesOrderNum}
-                    onChange={(e) => {
-                      setJobData({ ...jobData, salesOrderNum: e.target.value });
-                      setSalesOrderLookupStatus("idle");
-                    }}
-                    onBlur={(e) => handleSalesOrderLookup(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleSalesOrderLookup(jobData.salesOrderNum);
-                      }
-                    }}
-                    placeholder="Sales Order Number (e.g. SO-2026-00004)"
-                  />
-                  {salesOrderLookupStatus === "found" && (
-                    <p className="text-xs text-green-600">Order found — customer auto-filled below.</p>
-                  )}
-                  {salesOrderLookupStatus === "not-found" && (
-                    <p className="text-xs text-muted-foreground">No matching order found — you can still create this job manually.</p>
-                  )}
-                </div>
-              </div>
-
               {initialData ? (
                 <div className="grid grid-cols-3 items-start gap-3">
                   <Label className="text-sm font-medium text-right pt-2">Rejected Details</Label>
@@ -964,7 +986,15 @@ const checkAndLoadBom = async (code: string) => {
                             size="sm"
                             variant={jobData.itemCode === line.item_code ? "secondary" : "outline"}
                             className="h-7 text-xs shrink-0"
-                            onClick={() => selectAssemblyItem(line.item_code, line.item_name)}
+                            onClick={() =>
+                              line.hasJob
+                                ? setDuplicateJobLine({
+                                    item_code: line.item_code,
+                                    item_name: line.item_name,
+                                    existingJobNumber: line.existingJobNumber,
+                                  })
+                                : selectAssemblyItem(line.item_code, line.item_name)
+                            }
                           >
                             {jobData.itemCode === line.item_code ? "Selected" : "Use this item"}
                           </Button>
@@ -1550,11 +1580,17 @@ const checkAndLoadBom = async (code: string) => {
                       </div>
                     </div>
 
+                    {operations.length === 0 ? (
+                      <div className="border rounded-lg py-8 text-center text-sm text-muted-foreground">
+                        No routing operations defined for this assembly — add operations to its BOM before creating move transactions.
+                      </div>
+                    ) : (
                     <div className="border rounded-lg overflow-auto">
                       <Table>
                         <TableHeader>
                           <TableRow className="bg-muted">
                             <TableHead className="text-xs w-16">Seq</TableHead>
+                            <TableHead className="text-xs">Operation</TableHead>
                             <TableHead className="text-xs">In Queue</TableHead>
                             <TableHead className="text-xs">Running</TableHead>
                             <TableHead className="text-xs bg-accent/10">To Move</TableHead>
@@ -1565,13 +1601,14 @@ const checkAndLoadBom = async (code: string) => {
                         </TableHeader>
                         <TableBody>
                           {(() => {
-                            const sequences = operations.length > 0
-                              ? operations.map((op, idx) => ({ seq: op.sequence || (idx + 1) * 10, op }))
-                              : [10, 20, 30].map(seq => ({ seq, op: null }));
+                            const sequences = operations.map((op, idx) => ({ seq: op.sequence || (idx + 1) * 10, op }));
 
-                            return sequences.map(({ seq }) => (
+                            return sequences.map(({ seq, op }) => (
                               <TableRow key={seq}>
                                 <TableCell className="text-sm font-medium">{seq}</TableCell>
+                                <TableCell className="text-sm">
+                                  {op.name || op.operationCode || "-"}
+                                </TableCell>
                                 <TableCell>
                                   <Input
                                     type="number"
@@ -1626,6 +1663,7 @@ const checkAndLoadBom = async (code: string) => {
                         </TableBody>
                       </Table>
                     </div>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -1718,6 +1756,45 @@ const checkAndLoadBom = async (code: string) => {
         </div>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={!!duplicateJobLine} onOpenChange={(v) => !v && setDuplicateJobLine(null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Job Already Exists</AlertDialogTitle>
+          <AlertDialogDescription>
+            A job has already been created for this Sales Order item
+            {duplicateJobLine?.existingJobNumber ? ` (${duplicateJobLine.existingJobNumber})` : ""}.
+            Do you want to create an additional job for extra quantity or continue with the existing job?
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel
+            onClick={() => {
+              if (duplicateJobLine?.existingJobNumber) {
+                toast({
+                  title: "Existing Job",
+                  description: `Find ${duplicateJobLine.existingJobNumber} in the Jobs list to continue with it.`,
+                });
+              }
+              setDuplicateJobLine(null);
+            }}
+          >
+            Continue with Existing Job
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              if (duplicateJobLine) {
+                selectAssemblyItem(duplicateJobLine.item_code, duplicateJobLine.item_name);
+              }
+              setDuplicateJobLine(null);
+            }}
+          >
+            Create Additional Job
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 };
 
