@@ -197,6 +197,34 @@ const [insights, setInsights] = useState<any[]>([]);
   const [itemCode, setItemCode] = useState("");
   const [barcode, setBarcode] = useState("");
 
+  interface BarcodeSettings {
+    barcode_prefix: string;
+    barcode_suffix: string;
+    barcode_starting_number: number;
+    barcode_number_length: number;
+  }
+
+  const [barcodeSettings, setBarcodeSettings] = useState<BarcodeSettings>({
+    barcode_prefix: "INV",
+    barcode_suffix: "",
+    barcode_starting_number: 1001,
+    barcode_number_length: 6,
+  });
+
+  const loadBarcodeSettings = async () => {
+    try {
+      const res = await axios.get("/api/organization-settings");
+      setBarcodeSettings({
+        barcode_prefix: res.data.barcode_prefix || "",
+        barcode_suffix: res.data.barcode_suffix || "",
+        barcode_starting_number: Number(res.data.barcode_starting_number ?? 1001),
+        barcode_number_length: Number(res.data.barcode_number_length ?? 6),
+      });
+    } catch (error) {
+      // Fall back to the defaults above if settings can't be loaded.
+    }
+  };
+
   const generateItemCode = (type: string) => {
     const prefixMap: { [key: string]: string } = {
       Product: "PRD",
@@ -209,15 +237,15 @@ const [insights, setInsights] = useState<any[]>([]);
     return `${prefix}-${String(nextNumber).padStart(4, "0")}`;
   };
 
-  const generateBarcode = (itemCode: string) => {
-    // Generate a 13-digit EAN-13 style barcode
-    const timestamp = Date.now().toString().slice(-6);
-    const codeHash = itemCode
-      .split("")
-      .reduce((acc, char) => acc + char.charCodeAt(0), 0)
-      .toString()
-      .slice(-6);
-    return `${timestamp}${codeHash}`.padStart(13, "0");
+  // Builds the barcode from Settings > Barcodes' numbering configuration
+  // (prefix, starting number, digit length, suffix), matching the same
+  // format shown in that page's live preview.
+  const generateBarcode = (_itemCode: string) => {
+    const nextNumber = barcodeSettings.barcode_starting_number + items.length;
+    const paddedNumber = String(nextNumber).padStart(barcodeSettings.barcode_number_length || 4, "0");
+    return [barcodeSettings.barcode_prefix, paddedNumber, barcodeSettings.barcode_suffix]
+      .filter(Boolean)
+      .join("-");
   };
 
   const handleTypeChange = (type: string) => {
@@ -924,6 +952,7 @@ useEffect(() => {
 
   loadItems();
   loadCategories();
+  loadBarcodeSettings();
 
   const handleStorageChange = (e: StorageEvent) => {
     if (e.key === "orders") {

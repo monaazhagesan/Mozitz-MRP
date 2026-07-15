@@ -87,7 +87,21 @@ type MRPItem = {
   lead_time_days: number | null;
   unit_cost: number | null;
   uom: string | null;
+  barcode?: string | null;
 };
+
+type BarcodeSettings = {
+  barcode_prefix: string;
+  barcode_suffix: string;
+  barcode_starting_number: number;
+  barcode_number_length: number;
+};
+
+function generateBarcode(settings: BarcodeSettings, items: MRPItem[]) {
+  const nextNumber = settings.barcode_starting_number + items.length;
+  const paddedNumber = String(nextNumber).padStart(settings.barcode_number_length || 4, "0");
+  return [settings.barcode_prefix, paddedNumber, settings.barcode_suffix].filter(Boolean).join("-");
+}
 
 type Suggestion = "Sufficient" | "Below Reorder" | "Deficit";
 
@@ -350,6 +364,7 @@ const emptyItem: Omit<MRPItem, "id"> = {
   location: null,
   location_id: null,
   uom: "Nos",
+  barcode: "",
 };
 
 const ACTIVE_JOB_STATUSES = new Set(["Pending", "In Progress"]);
@@ -675,6 +690,20 @@ const netRequirement = Math.max(
                     placeholder="e.g. Pump Assembly Unit"
                     onChange={(e) =>
                       setEditing({ ...editing, item_name: e.target.value })
+                    }
+                  />
+                </div>
+
+                {/* Barcode (auto-generated from Settings > Barcodes, editable) */}
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Barcode
+                  </Label>
+                  <Input
+                    value={editing.barcode ?? ""}
+                    placeholder="Auto-generated"
+                    onChange={(e) =>
+                      setEditing({ ...editing, barcode: e.target.value })
                     }
                   />
                 </div>
@@ -1506,6 +1535,12 @@ const total = Number(row.qty || 0) * productionQty;
 
 export default function MRPPlannerTab() {
   const [items, setItems] = useState<MRPItem[]>([]);
+  const [barcodeSettings, setBarcodeSettings] = useState<BarcodeSettings>({
+    barcode_prefix: "INV",
+    barcode_suffix: "",
+    barcode_starting_number: 1001,
+    barcode_number_length: 6,
+  });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -1790,6 +1825,7 @@ const syncAllocatedFromActiveJobs = async () => {
         lead_time_days: Number(r.leadTimeDays ?? r.lead_time_days ?? 0),
         unit_cost: Number(r.unit_cost ?? r.unitCost ?? 0),
         uom: r.uom ?? r.unitOfMeasure ?? r.unit_of_measure ?? "Nos", // ✅ ADD THIS
+        barcode: r.barcode ?? "",
       }));
       setItems(mapped);
     } catch (error) {
@@ -1801,6 +1837,23 @@ const syncAllocatedFromActiveJobs = async () => {
 
   useEffect(() => {
     fetchData();
+  }, []);
+
+  useEffect(() => {
+    const loadBarcodeSettings = async () => {
+      try {
+        const res = await axios.get("/api/organization-settings");
+        setBarcodeSettings({
+          barcode_prefix: res.data.barcode_prefix || "",
+          barcode_suffix: res.data.barcode_suffix || "",
+          barcode_starting_number: Number(res.data.barcode_starting_number ?? 1001),
+          barcode_number_length: Number(res.data.barcode_number_length ?? 6),
+        });
+      } catch (error) {
+        // Fall back to the defaults above if settings can't be loaded.
+      }
+    };
+    loadBarcodeSettings();
   }, []);
 
 
@@ -2049,6 +2102,7 @@ const ensureBomAndUpdate = async (itemCode: string, rows: any[], opRows: BomOper
       ...emptyItem,
       item_type: defaultType,
       item_code: generateItemCode(defaultType, items),
+      barcode: generateBarcode(barcodeSettings, items),
     });
     setIsNew(true);
     setEditOpen(true);
@@ -2085,6 +2139,7 @@ const ensureBomAndUpdate = async (itemCode: string, rows: any[], opRows: BomOper
     item_type: editing.item_type || "Product",
     location: editing.location?.trim() || "Default",
     location_id: editing.location_id,
+    barcode: editing.barcode?.trim() || null,
 
     uom: stockUom || editing.uom || "Nos",
     qty_to_add: Number(addQty ?? 0),
