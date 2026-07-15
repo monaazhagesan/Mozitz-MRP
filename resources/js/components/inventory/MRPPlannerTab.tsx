@@ -52,23 +52,10 @@ import {
   Info,
 } from "lucide-react";
 import ItemTransactionsTab from "@/components/inventory/ItemTransactionsTab";
-import { ClipboardList } from "lucide-react";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-
-import { ChevronsUpDown } from "lucide-react";
+import { ClipboardList, Lock } from "lucide-react";
+import { BomMaterialsEditor } from "@/components/bom/BomMaterialsEditor";
+import { BomOperationsEditor } from "@/components/bom/BomOperationsEditor";
+import type { NewMaterialRow, NewOperationRow } from "@/components/bom/types";
 
 
 type MRPItem = {
@@ -113,28 +100,6 @@ interface ComputedRow extends MRPItem {
   flags: string[];
 }
 
-type BomRow = {
-  id: number;
-  component: string;   // item_code
-  item_name: string;   // NEW
-  description?: string; // optional editable
-   qty: number;              // unit per assembly
-  production_qty: number;   // NEW
-  total_qty?: number;
-  uom: string;
-};
-
-// Production routing row for BOM Step 3 — mirrors `bom_operations` columns.
-type BomOperationRow = {
-  id: number;
-  operationName: string;       // -> operation_code + description
-  operationType: "Setup" | "Process"; // -> operation_type
-  department: string;          // -> department (auto-filled from Operations master)
-  resource: string;            // -> work_center (Resource machine_name)
-  costPerHour: number;         // -> cost_per_hour
-  timeMinutes: number;         // -> run_time
-};
-
 type OperationMaster = {
   id: string;
   department: string;
@@ -142,15 +107,6 @@ type OperationMaster = {
   machine: string | null;
   per_hr_cost: string | number;
 };
-
-type ResourceMaster = {
-  id: string;
-  machine_name: string;
-  machine_type: string | null;
-  is_active: boolean;
-};
-
-const OPERATION_TYPES: Array<"Setup" | "Process"> = ["Setup", "Process"];
 
 const NUMERIC_FIELDS: Array<keyof MRPItem> = [
   "on_hand",
@@ -183,8 +139,6 @@ const SAMPLE_COMPONENTS = [
   "Impeller Casting",
   "Housing Cap",
 ];
-
-const UOM_OPTIONS = ["Nos", "Kg", "Ltr", "Mtr", "Set", "Box", "Pcs"];
 
 // ─────────────────────────────────────────────
 // HELPERS
@@ -395,16 +349,19 @@ type AddItemDialogProps = {
   locations: { id: string; location_name: string }[];
   receiptType: string;
 
-  simQty: number;
-setSimQty: React.Dispatch<React.SetStateAction<number>>;
+  materialRows: NewMaterialRow[];
+setMaterialRows: React.Dispatch<React.SetStateAction<NewMaterialRow[]>>;
 
-  bomRows: BomRow[];
-setBomRows: React.Dispatch<React.SetStateAction<BomRow[]>>;
-
-  bomOperationRows: BomOperationRow[];
-setBomOperationRows: React.Dispatch<React.SetStateAction<BomOperationRow[]>>;
+  operationRows: NewOperationRow[];
+setOperationRows: React.Dispatch<React.SetStateAction<NewOperationRow[]>>;
   operationsMaster: OperationMaster[];
-  resourcesMaster: ResourceMaster[];
+
+  // Status of the Product's existing BOM (if any) as of when the dialog was
+  // opened for edit — null for a new item or one with no BOM yet. Active
+  // BOMs are immutable; Steps 2/3 render read-only in that case.
+  editingBomStatus: "Draft" | "Active" | null;
+  activateBomNow: boolean;
+  setActivateBomNow: React.Dispatch<React.SetStateAction<boolean>>;
 
 setReceiptType: React.Dispatch<React.SetStateAction<string>>;
 
@@ -433,12 +390,14 @@ function AddItemDialog({
   items,
   locations,
   receiptType,
-  bomRows,
-setBomRows,
-bomOperationRows,
-setBomOperationRows,
+  materialRows,
+setMaterialRows,
+operationRows,
+setOperationRows,
 operationsMaster,
-resourcesMaster,
+editingBomStatus,
+activateBomNow,
+setActivateBomNow,
 setReceiptType,
 
 receiptDate,
@@ -452,8 +411,6 @@ setStockUom,
 
 addQty,
 setAddQty,
-simQty,        // ✅ ADD THIS
-  setSimQty,
 
 }: AddItemDialogProps) {
   // Which top-level tab: "new" | "stock"
@@ -464,9 +421,7 @@ simQty,        // ✅ ADD THIS
   // Add-stock panel state
   const [stockItem, setStockItem] = useState<{ cur: number; uom: string } | null>(null);
   const isProduct = editing?.item_type === "Product";
-
-  const [componentOpen, setComponentOpen] = useState<number | null>(null);
-
+  const bomIsActive = editingBomStatus === "Active";
 
   // Reset when dialog opens/closes
  useEffect(() => {
@@ -477,21 +432,11 @@ simQty,        // ✅ ADD THIS
     setAddQty(0);
 
     if (isNew) {
-      setBomRows([]);
-      setBomOperationRows([]);
-      setSimQty(1); // ✅ reset for new items
+      setMaterialRows([]);
+      setOperationRows([]);
     }
   }
 }, [open, isNew]);
-
-useEffect(() => {
-  setBomRows((prev) =>
-    prev.map((r) => ({
-      ...r,
-      production_qty: simQty,
-    }))
-  );
-}, [simQty, setBomRows]);
 
   // Live preview calculations
   const onHand = Number(editing?.on_hand ?? 0);
@@ -511,42 +456,6 @@ const netRequirement = Math.max(
   0,
   bomReq + safety - projectedAvailable
 );
-  // ── helpers ──────────────────────────────────
-
-  const addBomRow = () => {
-    setBomRows((prev) => [
-      ...prev,
-      { id: Date.now(), component: "", item_name: "",  description: "", qty: 1, production_qty: simQty, uom: "Nos" },
-    ]);
-  };
-
-  const updateBomRow = (id: number, field: keyof BomRow, value: string | number) => {
-    setBomRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, [field]: value } : r))
-    );
-  };
-
-  const removeBomRow = (id: number) => {
-    setBomRows((prev) => prev.filter((r) => r.id !== id));
-  };
-
-  // ── production operation (Step 3) helpers ──────
-  const addOperationRow = () => {
-    setBomOperationRows((prev) => [
-      ...prev,
-      { id: Date.now(), operationName: "", operationType: "Process", department: "", resource: "", costPerHour: 0, timeMinutes: 0 },
-    ]);
-  };
-
-  const updateOperationRow = (id: number, field: keyof BomOperationRow, value: string | number) => {
-    setBomOperationRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, [field]: value } : r))
-    );
-  };
-
-  const removeOperationRow = (id: number) => {
-    setBomOperationRows((prev) => prev.filter((r) => r.id !== id));
-  };
 
   const handleSubmit = async () => {
     if (mainTab === "stock") {
@@ -901,227 +810,39 @@ const netRequirement = Math.max(
                 <span>
                   Enter how many of each component is needed to make{" "}
                   <strong>1 unit</strong> of{" "}
-                  <strong>{editing.item_name || "Product"}</strong>.{" "}
-                  <span className="opacity-70">
-                    e.g. Gearbox → Gear ×2, Bolt ×20, Bearing ×4, Shaft ×1
-                  </span>
+                  <strong>{editing.item_name || "Product"}</strong>.
                 </span>
               </div>
 
-              {/* Production qty simulator */}
-              <div className="flex items-center justify-between flex-wrap gap-3 bg-muted/40 border border-border rounded-lg px-4 py-2.5 mb-4">
-                <div className="flex items-center gap-2 flex-wrap text-sm">
-                  <Calculator className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">
-                    Simulate production of
-                  </span>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={simQty}
-                    onChange={(e) =>
-                      setSimQty(Math.max(1, Number(e.target.value) || 1))
-                    }
-                    className="w-16 h-8 text-center font-bold text-green-800 bg-green-50 border-green-400 text-sm"
-                  />
-                  <span className="text-muted-foreground">
-                    unit(s) of{" "}
-                    <strong>{editing.item_name || "Product"}</strong>
+              {bomIsActive && (
+                <div className="flex items-start gap-2.5 bg-muted border border-border rounded-lg px-4 py-3 mb-4 text-[12px]">
+                  <Lock className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  <span>
+                    This BOM is Active and read-only. To change materials, create a revision from{" "}
+                    <a href="/bom" className="underline font-medium">the BOM module</a>.
                   </span>
                 </div>
-                <span className="text-[11px] text-muted-foreground italic">
-                  ↑ change to preview total material needed
-                </span>
-              </div>
+              )}
 
-              {/* BOM Section label */}
+              {/* Section label */}
               <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">
                 <ClipboardList className="h-3 w-3" /> Components
               </div>
 
-              {/* BOM table header */}
-              <div className="grid gap-2 px-3 py-2 bg-muted/40 border border-border rounded-t-lg border-b-0 text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
-                style={{ gridTemplateColumns: "1fr 96px 70px 88px 34px" }}>
-                <span>Component / Material</span>
-                <span className="text-center leading-tight">
-                  Qty per assy<br />
-                  <span className="text-[9px] font-normal normal-case tracking-normal text-muted-foreground">
-                    e.g. Gear=2, Bolt=20
-                  </span>
-                </span>
-                <span>UOM</span>
-                <span className="text-center">Total (×{simQty})</span>
-                <span />
-              </div>
-
-              {/* BOM rows */}
-              <div className="border border-border rounded-b-lg overflow-hidden">
-                {bomRows.length === 0 ? (
-                  <div className="py-8 text-center text-muted-foreground text-sm border-t border-border">
-                    <GitBranch className="h-6 w-6 mx-auto mb-2 opacity-30" />
-                    No components yet. Click <strong>Add component</strong> below to start building the BOM.
-                  </div>
-                ) : (
-                  bomRows.map((row) => {
-                   const qty = Number(row.qty ?? 0);
-const productionQty = Number(row.production_qty || simQty || 1);
-const total = Number(row.qty || 0) * productionQty;
-                    const fmt = Number.isInteger(total)
-                      ? String(total)
-                      : total.toFixed(3).replace(/\.?0+$/, "");
-                    return (
-                      <div
-                        key={row.id}
-                        className="grid items-center gap-2 px-3 py-2 border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors"
-                        style={{ gridTemplateColumns: "1fr 96px 70px 88px 34px" }}
-                      >
-                        {/* Component select */}
-                      <Popover
-  open={componentOpen === row.id}
-  onOpenChange={(open) =>
-    setComponentOpen(open ? row.id : null)
-  }
->
-  <PopoverTrigger asChild>
-    <Button
-      variant="outline"
-      role="combobox"
-      className="h-8 w-full justify-between text-sm font-normal"
-    >
-      {row.component
-        ? (() => {
-            const selected = items.find(
-              (i) => i.item_code === row.component
-            );
-
-            return selected
-              ? `${selected.item_code} — ${selected.item_name}`
-              : row.component;
-          })()
-        : "Select component..."}
-
-      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-    </Button>
-  </PopoverTrigger>
-
-  <PopoverContent className="w-[350px] p-0">
-    <Command>
-      <CommandInput placeholder="Search item code or item name..." />
-
-      <CommandList>
-        <CommandEmpty>
-          No material found.
-        </CommandEmpty>
-
-        <CommandGroup>
-          {items
-            .filter((i) => i.item_type === "Material")
-            .map((m) => (
-              <CommandItem
-                key={m.id}
-                value={`${m.item_code} ${m.item_name}`}
-               onSelect={() => {
-  const selectedItem = items.find((i) => i.item_code === m.item_code);
-
-  updateBomRow(row.id, "component", m.item_code);
-  updateBomRow(row.id, "item_name", selectedItem?.item_name || "");
-  updateBomRow(row.id, "description", selectedItem?.item_name || "");
-
-  setComponentOpen(null);
-}}
-              >
-                {m.item_code} — {m.item_name}
-              </CommandItem>
-            ))}
-        </CommandGroup>
-      </CommandList>
-    </Command>
-  </PopoverContent>
-</Popover>
-
-                        {/* Qty per assy */}
-                        <Input
-                          type="number"
-                          min={0.001}
-                          step={1}
-                          value={row.qty}
-                          onChange={(e) =>
-                            updateBomRow(
-                              row.id,
-                              "qty",
-                              Number(e.target.value) || 0
-                            )
-                          }
-                          className="h-8 text-center font-bold text-green-800 bg-green-50 border-green-300 text-sm"
-                        />
-
-                        {/* UOM */}
-                        <Select
-                          value={row.uom}
-                          onValueChange={(v) => updateBomRow(row.id, "uom", v)}
-                        >
-                          <SelectTrigger className="h-8 text-sm">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {UOM_OPTIONS.map((u) => (
-                              <SelectItem key={u} value={u}>
-                                {u}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-
-                        {/* Total */}
-                        <div className="text-[12px] font-bold text-green-800 bg-green-50 border border-green-200 rounded px-2 py-1 text-center whitespace-nowrap overflow-hidden text-ellipsis">
-                          {fmt} {row.uom}
-                        </div>
-
-                        {/* Delete */}
-                        <button
-                          onClick={() => removeBomRow(row.id)}
-                          className="w-7 h-7 flex items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-red-50 hover:border-red-200 hover:text-destructive transition-all"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* Add component btn */}
-              <button
-                onClick={addBomRow}
-                className="inline-flex items-center gap-1.5 px-3 h-8 mt-3 rounded-lg border border-dashed border-border bg-muted/20 text-muted-foreground text-xs font-medium hover:border-green-500 hover:text-green-700 hover:bg-green-50 transition-all"
-              >
-                <Plus className="h-3.5 w-3.5" /> Add component
-              </button>
-
-              {/* BOM summary */}
-              {bomRows.length > 0 && (
-                <div className="flex items-center gap-4 mt-4 bg-muted/40 border border-border rounded-lg px-4 py-3 text-sm">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Components
-                    </span>
-                    <span className="text-base font-bold">{bomRows.length}</span>
-                  </div>
-                  <div className="w-px h-8 bg-border" />
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Producing
-                    </span>
-                    <span className="text-base font-bold">{simQty} unit(s)</span>
-                  </div>
-                  <div className="w-px h-8 bg-border" />
-                  <p className="text-[12px] text-muted-foreground leading-relaxed flex-1">
-                    Total column = qty per assy × production qty.
-                    <br />
-                    BOM can be edited later from <strong>Item Settings → BOM.</strong>
-                  </p>
-                </div>
-              )}
+              <BomMaterialsEditor
+                rows={materialRows}
+                onRowsChange={setMaterialRows}
+                inventoryItems={items
+                  .filter((i) => i.item_type === "Material" || i.item_type === "Component")
+                  .map((i) => ({
+                    item_code: i.item_code,
+                    item_name: i.item_name,
+                    item_type: i.item_type,
+                    quantity_on_hand: Number(i.on_hand ?? 0),
+                  }))}
+                stock={Object.fromEntries(items.map((i) => [i.item_code, Number(i.on_hand ?? 0)]))}
+                readOnly={bomIsActive}
+              />
             </div>
           )}
 
@@ -1136,20 +857,25 @@ const total = Number(row.qty || 0) * productionQty;
                 <span>
                   Define the manufacturing routing for{" "}
                   <strong>{editing.item_name || "Product"}</strong> by selecting Operations
-                  and Resources already configured in{" "}
-                  <strong>Settings → Operations</strong> and{" "}
-                  <strong>Settings → Resources</strong>.
+                  already configured in <strong>Settings → Operations</strong>. Machine/Resource
+                  is assigned later, at Job / Shop Floor execution.
                 </span>
               </div>
 
-              {(operationsMaster.length === 0 || resourcesMaster.length === 0) && (
+              {bomIsActive && (
+                <div className="flex items-start gap-2.5 bg-muted border border-border rounded-lg px-4 py-3 mb-4 text-[12px]">
+                  <Lock className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  <span>
+                    This BOM is Active and read-only. To change operations, create a revision from{" "}
+                    <a href="/bom" className="underline font-medium">the BOM module</a>.
+                  </span>
+                </div>
+              )}
+
+              {operationsMaster.length === 0 && (
                 <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4 text-[12px] text-amber-900">
                   <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                  <span>
-                    {operationsMaster.length === 0 && "No Operations configured yet. "}
-                    {resourcesMaster.length === 0 && "No active Resources configured yet. "}
-                    Go to Settings to add them, then reopen this dialog.
-                  </span>
+                  <span>No Operations configured yet. Go to Settings to add them, then reopen this dialog.</span>
                 </div>
               )}
 
@@ -1158,162 +884,27 @@ const total = Number(row.qty || 0) * productionQty;
                 <ClipboardList className="h-3 w-3" /> Operation steps
               </div>
 
-              {/* Table header */}
-              <div className="grid gap-2 px-3 py-2 bg-muted/40 border border-border rounded-t-lg border-b-0 text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
-                style={{ gridTemplateColumns: "1.4fr 90px 1.2fr 90px 80px 90px 34px" }}>
-                <span>Operation</span>
-                <span>Type</span>
-                <span>Resource</span>
-                <span className="text-center">Cost / hr</span>
-                <span className="text-center">Time (min)</span>
-                <span className="text-center">Cost</span>
-                <span />
-              </div>
+              <BomOperationsEditor
+                rows={operationRows}
+                onRowsChange={setOperationRows}
+                operationsMaster={operationsMaster.map((o) => ({ operation_name: o.operation_name, department: o.department }))}
+                readOnly={bomIsActive}
+              />
 
-              {/* Rows */}
-              <div className="border border-border rounded-b-lg overflow-hidden">
-                {bomOperationRows.length === 0 ? (
-                  <div className="py-8 text-center text-muted-foreground text-sm border-t border-border">
-                    <ClipboardList className="h-6 w-6 mx-auto mb-2 opacity-30" />
-                    No operations yet. Click <strong>Add row</strong> below — production routing is optional.
-                  </div>
-                ) : (
-                  bomOperationRows.map((row) => {
-                    const cost = (Number(row.costPerHour) || 0) * (Number(row.timeMinutes) || 0) / 60;
-                    return (
-                      <div
-                        key={row.id}
-                        className="grid items-center gap-2 px-3 py-2 border-b border-border last:border-b-0 hover:bg-muted/20 transition-colors"
-                        style={{ gridTemplateColumns: "1.4fr 90px 1.2fr 90px 80px 90px 34px" }}
-                      >
-                        {/* Operation */}
-                        <Select
-                          value={row.operationName}
-                          onValueChange={(v) => {
-                            const op = operationsMaster.find((o) => o.operation_name === v);
-                            updateOperationRow(row.id, "operationName", v);
-                            if (op) {
-                              updateOperationRow(row.id, "department", op.department);
-                              updateOperationRow(row.id, "costPerHour", Number(op.per_hr_cost) || 0);
-                            }
-                          }}
-                        >
-                          <SelectTrigger className="h-8 text-sm">
-                            <SelectValue placeholder="Select operation" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {operationsMaster.length === 0 ? (
-                              <SelectItem value="none" disabled>No operations in Settings</SelectItem>
-                            ) : (
-                              operationsMaster.map((op) => (
-                                <SelectItem key={op.id} value={op.operation_name}>
-                                  {op.department} — {op.operation_name}
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-
-                        {/* Type */}
-                        <Select
-                          value={row.operationType}
-                          onValueChange={(v) => updateOperationRow(row.id, "operationType", v)}
-                        >
-                          <SelectTrigger className="h-8 text-sm">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {OPERATION_TYPES.map((t) => (
-                              <SelectItem key={t} value={t}>{t}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-
-                        {/* Resource */}
-                        <Select
-                          value={row.resource}
-                          onValueChange={(v) => updateOperationRow(row.id, "resource", v)}
-                        >
-                          <SelectTrigger className="h-8 text-sm">
-                            <SelectValue placeholder="Select resource" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {resourcesMaster.length === 0 ? (
-                              <SelectItem value="none" disabled>No resources in Settings</SelectItem>
-                            ) : (
-                              resourcesMaster.map((r) => (
-                                <SelectItem key={r.id} value={r.machine_name}>{r.machine_name}</SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-
-                        {/* Cost per hour */}
-                        <Input
-                          type="number"
-                          min={0}
-                          value={row.costPerHour}
-                          onChange={(e) => updateOperationRow(row.id, "costPerHour", Number(e.target.value) || 0)}
-                          className="h-8 text-center text-sm"
-                        />
-
-                        {/* Time (minutes) */}
-                        <Input
-                          type="number"
-                          min={0}
-                          value={row.timeMinutes}
-                          onChange={(e) => updateOperationRow(row.id, "timeMinutes", Number(e.target.value) || 0)}
-                          className="h-8 text-center text-sm"
-                        />
-
-                        {/* Computed cost */}
-                        <div className="text-[12px] font-bold text-green-800 bg-green-50 border border-green-200 rounded px-2 py-1 text-center whitespace-nowrap overflow-hidden text-ellipsis">
-                          ₹{cost.toFixed(2)}
-                        </div>
-
-                        {/* Delete */}
-                        <button
-                          onClick={() => removeOperationRow(row.id)}
-                          className="w-7 h-7 flex items-center justify-center rounded border border-border bg-card text-muted-foreground hover:bg-red-50 hover:border-red-200 hover:text-destructive transition-all"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* Add row */}
-              <button
-                onClick={addOperationRow}
-                className="inline-flex items-center gap-1.5 px-3 h-8 mt-3 rounded-lg border border-dashed border-border bg-muted/20 text-muted-foreground text-xs font-medium hover:border-green-500 hover:text-green-700 hover:bg-green-50 transition-all"
-              >
-                <Plus className="h-3.5 w-3.5" /> Add row
-              </button>
-
-              {bomOperationRows.length > 0 && (
-                <div className="flex items-center gap-4 mt-4 bg-muted/40 border border-border rounded-lg px-4 py-3 text-sm">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Operations
-                    </span>
-                    <span className="text-base font-bold">{bomOperationRows.length}</span>
-                  </div>
-                  <div className="w-px h-8 bg-border" />
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Total routing cost
-                    </span>
-                    <span className="text-base font-bold">
-                      ₹{bomOperationRows.reduce((sum, r) => sum + (Number(r.costPerHour) || 0) * (Number(r.timeMinutes) || 0) / 60, 0).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="w-px h-8 bg-border" />
-                  <p className="text-[12px] text-muted-foreground leading-relaxed flex-1">
-                    Routing can be edited later from <strong>Item Settings → BOM.</strong>
-                  </p>
-                </div>
+              {!bomIsActive && materialRows.length > 0 && (
+                <label className="flex items-center gap-2 mt-4 text-sm">
+                  <Checkbox
+                    checked={activateBomNow}
+                    onCheckedChange={(v) => setActivateBomNow(!!v)}
+                    disabled={operationRows.length === 0}
+                  />
+                  <span>
+                    Activate this BOM now
+                    {operationRows.length === 0 && (
+                      <span className="text-muted-foreground"> (add at least one operation first)</span>
+                    )}
+                  </span>
+                </label>
               )}
             </div>
           )}
@@ -1562,23 +1153,17 @@ const [addQty, setAddQty] = useState(0);
 const [viewDetailsOpen, setViewDetailsOpen] = useState(false);
 const [selectedItem, setSelectedItem] = useState<any | null>(null);
 
-const [bomRows, setBomRows] = useState<BomRow[]>([]);
-
-const [simQty, setSimQty] = useState<number>(1);
-
-const [bomOperationRows, setBomOperationRows] = useState<BomOperationRow[]>([]);
+const [materialRows, setMaterialRows] = useState<NewMaterialRow[]>([]);
+const [operationRows, setOperationRows] = useState<NewOperationRow[]>([]);
 const [operationsMaster, setOperationsMaster] = useState<OperationMaster[]>([]);
-const [resourcesMaster, setResourcesMaster] = useState<ResourceMaster[]>([]);
+const [editingBomId, setEditingBomId] = useState<string | null>(null);
+const [editingBomStatus, setEditingBomStatus] = useState<"Draft" | "Active" | null>(null);
+const [activateBomNow, setActivateBomNow] = useState(true);
 
 useEffect(() => {
   axios.get("/api/operations").then((res) => {
     setOperationsMaster(Array.isArray(res.data) ? res.data : []);
   }).catch(() => setOperationsMaster([]));
-
-  axios.get("/api/resources").then((res) => {
-    const list: ResourceMaster[] = Array.isArray(res.data) ? res.data : [];
-    setResourcesMaster(list.filter((r) => r.is_active));
-  }).catch(() => setResourcesMaster([]));
 }, []);
 
 const [saving, setSaving] = useState(false);
@@ -1905,8 +1490,11 @@ const syncAllocatedFromActiveJobs = async () => {
 
 const openEdit = async (row: ComputedRow) => {
   setIsNew(false);
-  setBomRows([]);
-  setBomOperationRows([]);
+  setMaterialRows([]);
+  setOperationRows([]);
+  setEditingBomId(null);
+  setEditingBomStatus(null);
+  setActivateBomNow(true);
   setEditOpen(false); // prevent UI glitch
 
   setEditing({
@@ -1950,6 +1538,8 @@ const openEdit = async (row: ComputedRow) => {
     }
 
     const bomHeader = headers[0];
+    setEditingBomId(bomHeader.id);
+    setEditingBomStatus(bomHeader.status === "Active" ? "Active" : "Draft");
 
     const compRes = await axios.get(
       `/api/bom-components`,
@@ -1959,73 +1549,62 @@ const openEdit = async (row: ComputedRow) => {
       }
     );
 
-    const rows = (compRes.data || []).map((c: any) => ({
-  id: c.id,
-  component: c.component,
-  item_name: c.description || c.item_name || c.component,
-  description: c.description || c.item_name || c.component,
-  production_qty: Number(
-    c.production_qty ??
-    c.productionQty ??
-    c.production_quantity ??
-    1
-  ) || 1,
-  qty: Number(c.quantity ?? 0),
-  uom: c.uom ?? "Nos",
-}));
+    const rows: NewMaterialRow[] = (compRes.data || []).map((c: any) => ({
+      tempId: crypto.randomUUID(),
+      component: c.component,
+      description: c.description || c.item_name || c.component,
+      uom: c.uom ?? "",
+      quantity: Number(c.quantity ?? 0),
+      scrap_percent: Number(c.scrap_percent ?? 0),
+      stock: Number(row.on_hand ?? 0),
+    }));
 
-setBomRows(rows);
-
-// 🔥 THIS IS WHAT YOU NEED
-const defaultProductionQty =
-  rows.find(r => r.production_qty != null && r.production_qty > 0)?.production_qty || 1;
-
-setSimQty(defaultProductionQty);
-
-console.log("🔥 SET simQty TO11:", defaultProductionQty);
+    setMaterialRows(rows);
 
     const opsRes = await axios.get("/api/bom-operations", {
       params: { bom_id: bomHeader.id },
       validateStatus: () => true,
     });
 
-    const opRows: BomOperationRow[] = (Array.isArray(opsRes.data) ? opsRes.data : []).map((op: any) => ({
-      id: op.id,
-      operationName: op.operation_code || op.description || "",
-      operationType: op.operation_type === "Setup" ? "Setup" : "Process",
+    const opRows: NewOperationRow[] = (Array.isArray(opsRes.data) ? opsRes.data : []).map((op: any) => ({
+      tempId: crypto.randomUUID(),
+      operation_seq: Number(op.operation_seq ?? 0),
+      operation_code: op.operation_code || op.description || "",
       department: op.department || "",
-      resource: op.work_center || "",
-      costPerHour: Number(op.cost_per_hour ?? 0),
-      timeMinutes: Number(op.run_time ?? 0),
+      work_center: op.work_center || op.department || "",
+      setup_time: Number(op.setup_time ?? 0),
+      run_time: Number(op.run_time ?? 0),
+      labor_cost: Number(op.labor_cost ?? 0),
+      qc_required: !!op.qc_required,
     }));
 
-    setBomOperationRows(opRows);
+    setOperationRows(opRows);
 
   } catch (err) {
     console.error("BOM load error:", err);
-    setBomRows([]);
-    setBomOperationRows([]);
+    setMaterialRows([]);
+    setOperationRows([]);
   } finally {
     setEditOpen(true);
   }
 };
 
-const buildBomOperationPayload = (bomId: string, row: BomOperationRow, index: number) => ({
+const buildBomOperationPayload = (bomId: string, row: NewOperationRow, index: number) => ({
   bom_id: bomId,
   operation_seq: (index + 1) * 10,
-  operation_code: row.operationName,
-  operation_type: row.operationType,
-  description: row.operationName,
+  operation_code: row.operation_code,
   department: row.department || null,
-  work_center: row.resource || null,
-  cost_per_hour: Number(row.costPerHour ?? 0),
-  run_time: Number(row.timeMinutes ?? 0),
+  work_center: row.work_center || null,
+  setup_time: Number(row.setup_time ?? 0),
+  run_time: Number(row.run_time ?? 0),
+  labor_cost: Number(row.labor_cost ?? 0),
+  qc_required: !!row.qc_required,
 });
 
-const saveBomOperations = async (bomId: string, opRows: BomOperationRow[]) => {
+const saveBomOperations = async (bomId: string, opRows: NewOperationRow[]) => {
   await axios.post("/api/bom-operations/delete-by-bom", { bom_id: bomId });
 
-  const validRows = opRows.filter((r) => r.operationName.trim());
+  const validRows = opRows.filter((r) => r.operation_code.trim());
   if (validRows.length === 0) return;
 
   await axios.post(
@@ -2034,68 +1613,57 @@ const saveBomOperations = async (bomId: string, opRows: BomOperationRow[]) => {
   );
 };
 
-const ensureBomAndUpdate = async (itemCode: string, rows: any[], opRows: BomOperationRow[] = []) => {
-  // 1. Check BOM header exists
+// Only ever called when the BOM is Draft (or doesn't exist yet) — Step 2/3
+// render read-only for an Active BOM, so this path never runs against one.
+// The backend's Active-BOM immutability guard is defense in depth on top.
+const ensureBomAndUpdate = async (itemCode: string, itemName: string, uom: string, rows: NewMaterialRow[], opRows: NewOperationRow[] = []) => {
   const headerRes = await axios.get("/api/bom-headers/by-item-code", {
     params: { item_code: itemCode },
   });
 
   let bomHeader = headerRes.data?.data?.[0];
 
-  // 2. If NOT exists → create it
   if (!bomHeader) {
     const createRes = await axios.post("/api/bom-headers", {
       item_type: "Product",
       item_code: itemCode,
-      item_name: itemCode,
-      description: itemCode,
-      uom: "Nos",
+      item_name: itemName,
+      uom,
       revision: "A",
-      status: "Active",
     });
 
     bomHeader = createRes.data?.data || createRes.data;
   }
 
-  if (!bomHeader?.id) return;
+  if (!bomHeader?.id) return null;
 
-  // 3. delete old components
- await axios.post("/api/bom-components/delete-by-bom", {
-  bom_id: bomHeader.id,
-});
+  await axios.post("/api/bom-components/delete-by-bom", { bom_id: bomHeader.id });
 
-  // 4. create new components
-  await Promise.all(
-    rows.map((row, index) =>
-      axios.post("/api/bom-components", {
+  if (rows.length > 0) {
+    await axios.post(
+      "/api/bom-components/bulk",
+      rows.map((row) => ({
         bom_id: bomHeader.id,
-        item_seq: index + 1,
         component: row.component,
-        item_name: row.item_name,
-        quantity: Number(row.qty ?? 0),
-        production_qty: Number(row.production_qty ?? 1),
-        total_quantity:
-          Number(row.qty ?? 0) * Number(row.production_qty ?? 1),
+        description: row.description || row.component,
+        quantity: row.quantity,
         uom: row.uom,
-        type: "Material",
-        basis: "Standard",
-        operation_seq: 10,
-        description:
-          row.description ||
-          row.item_name ||
-          row.component ||
-          "No description",
-      })
-    )
-  );
+        scrap_percent: row.scrap_percent,
+      }))
+    );
+  }
 
-  // 5. sync production operations
   await saveBomOperations(String(bomHeader.id), opRows);
+
+  return String(bomHeader.id);
 };
 
   const openAdd = () => {
-     setBomRows([]);
-    setBomOperationRows([]);
+     setMaterialRows([]);
+    setOperationRows([]);
+    setEditingBomId(null);
+    setEditingBomStatus(null);
+    setActivateBomNow(true);
     const defaultType = "Material";
     setEditing({
       id: "",
@@ -2158,82 +1726,47 @@ const ensureBomAndUpdate = async (itemCode: string, rows: any[], opRows: BomOper
   };
 
   try {
+    let bomIdToMaybeActivate: string | null = null;
+
     // =========================
     // CREATE NEW ITEM FLOW
     // =========================
     if (isNew) {
-       console.log("🔥 ENTERED CREATE NEW ITEM FLOW");
       const itemRes = await axios.post("/api/inventory-stock", payload);
       const createdItem = itemRes.data?.data || itemRes.data;
 
-      console.log("STEP 2 - createdItem:", createdItem);
-
-      let bomHeaderId: string | null = null;
-
       const itemType = editing.item_type || payload.item_type;
 
-      console.log("STEP 1 - itemType:", itemType);
-console.log("STEP 1 - bomRows:", bomRows);
-
-      // =========================
-      // CREATE BOM HEADER
-      // =========================
-      if (itemType === "Product" && bomRows.length > 0) {
+      if (itemType === "Product" && materialRows.length > 0) {
         const bomHeaderRes = await axios.post("/api/bom-headers", {
-           item_type: "Product",
+          item_type: "Product",
           item_code: createdItem.item_code,
           item_name: createdItem.item_name,
-          description: createdItem.item_name,
-           uom: stockUom || editing.uom || "Nos",  // ✅ PRODUCT UOM
-  revision: "A",
-  status: "Active",
+          uom: stockUom || editing.uom || "Nos",
+          revision: "A",
         });
 
-        bomHeaderId =
-          bomHeaderRes.data?.id ||
-          bomHeaderRes.data?.data?.id;
-
-          console.log("STEP 3 - BOM HEADER RESPONSE:", bomHeaderRes.data);
-console.log("STEP 3 - BOM HEADER ID:", bomHeaderId);
+        const bomHeaderId = bomHeaderRes.data?.id || bomHeaderRes.data?.data?.id;
 
         if (!bomHeaderId) {
           toast.error("BOM Header creation failed");
           return;
         }
 
-        console.log("STEP 4 - sending components");
-console.log("STEP 4 - bomHeaderId:", bomHeaderId);
-console.log("STEP 4 - bomRows:", bomRows);
-
-        // =========================
-        // CREATE BOM COMPONENTS
-        // =========================
-        await Promise.all(
-          bomRows.map((row, index) =>
-            axios.post("/api/bom-components", {
-              bom_id: String(bomHeaderId),
-
-              item_seq: index + 1,
-              component: row.component,
-                item_name: row.item_name,        // ✅ ADD THIS
-              quantity: Number(row.qty ?? 0),
-               production_qty: Number(row.production_qty),
-                total_quantity: Number(row.qty * row.production_qty),
-              uom: row.uom,
-
-              type: "Material",
-              basis: "Standard",
-              operation_seq: 10,
-                description: row.description || row.item_name, // ✅ FIXED
-
-            })
-          )
+        await axios.post(
+          "/api/bom-components/bulk",
+          materialRows.map((row) => ({
+            bom_id: String(bomHeaderId),
+            component: row.component,
+            description: row.description || row.component,
+            quantity: row.quantity,
+            uom: row.uom,
+            scrap_percent: row.scrap_percent,
+          }))
         );
 
-        // =========================
-        // CREATE PRODUCTION OPERATIONS
-        // =========================
-        await saveBomOperations(String(bomHeaderId), bomOperationRows);
+        await saveBomOperations(String(bomHeaderId), operationRows);
+        bomIdToMaybeActivate = String(bomHeaderId);
       }
 
       toast.success("Item added successfully");
@@ -2250,11 +1783,30 @@ console.log("STEP 4 - bomRows:", bomRows);
 
   toast.success("Item updated successfully");
 
-  // 🔥 ADD THIS (BOM UPDATE ON EDIT)
- if (editing.item_type === "Product") {
-  await ensureBomAndUpdate(editing.item_code, bomRows, bomOperationRows);
+  if (editing.item_type === "Product" && editingBomStatus !== "Active") {
+    bomIdToMaybeActivate = await ensureBomAndUpdate(
+      editing.item_code,
+      editing.item_name || editing.item_code,
+      stockUom || editing.uom || "Nos",
+      materialRows,
+      operationRows
+    );
+  }
 }
-}
+
+    // =========================
+    // ACTIVATE BOM (if requested and possible)
+    // =========================
+    if (bomIdToMaybeActivate && activateBomNow && operationRows.length > 0) {
+      try {
+        await axios.post(`/api/bom-headers/${bomIdToMaybeActivate}/activate`);
+      } catch (activateError: any) {
+        toast.error(
+          activateError?.response?.data?.message ||
+            "Item and BOM saved, but the BOM could not be activated — it remains a Draft."
+        );
+      }
+    }
 
     // =========================
     // STOCK RECEIPT
@@ -2273,8 +1825,10 @@ console.log("STEP 4 - bomRows:", bomRows);
     // =========================
     // CLEANUP
     // =========================
-    setBomRows([]);
-    setBomOperationRows([]);
+    setMaterialRows([]);
+    setOperationRows([]);
+    setEditingBomId(null);
+    setEditingBomStatus(null);
     setEditOpen(false);
     fetchData();
   }
@@ -2658,15 +2212,15 @@ console.log("STEP 4 - bomRows:", bomRows);
   addQty={addQty}
   setAddQty={setAddQty}
 
-  bomRows={bomRows}
-setBomRows={setBomRows}
-bomOperationRows={bomOperationRows}
-setBomOperationRows={setBomOperationRows}
+  materialRows={materialRows}
+setMaterialRows={setMaterialRows}
+operationRows={operationRows}
+setOperationRows={setOperationRows}
 operationsMaster={operationsMaster}
-resourcesMaster={resourcesMaster}
+editingBomStatus={editingBomStatus}
+activateBomNow={activateBomNow}
+setActivateBomNow={setActivateBomNow}
 saving={saving}
-simQty={simQty}
-  setSimQty={setSimQty}
       />
 
       <Dialog open={viewDetailsOpen} onOpenChange={setViewDetailsOpen}>

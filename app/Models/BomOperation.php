@@ -30,6 +30,7 @@ class BomOperation extends Model
         'cost_per_hour',
         'setup_time',
         'run_time',
+        'qc_required',
         'created_at'
     ];
     protected $casts = [
@@ -40,6 +41,7 @@ class BomOperation extends Model
         'cost_per_hour' => 'decimal:2',
         'setup_time' => 'decimal:2',
         'run_time' => 'decimal:2',
+        'qc_required' => 'boolean',
     ];
 
      protected $attributes = [

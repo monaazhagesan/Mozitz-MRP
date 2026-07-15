@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\BomOperation;
+use App\Models\BomHeader;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
@@ -10,6 +11,24 @@ use Illuminate\Support\Facades\Validator;
 
 class BomOperationController extends Controller
 {
+    /**
+     * Active BOMs are immutable — changes require creating a new Draft
+     * revision instead. Returns a 403 response if the given BOM is Active,
+     * or null if the write should proceed.
+     */
+    private function blockIfBomActive(string $bomId)
+    {
+        $bom = BomHeader::where('user_id', auth()->id())->find($bomId);
+
+        if ($bom && $bom->status === 'Active') {
+            return response()->json([
+                'message' => 'This BOM is Active and cannot be edited directly. Create a new revision instead.',
+            ], 403);
+        }
+
+        return null;
+    }
+
    public function index(Request $request)
 {
     $request->validate([
@@ -33,6 +52,11 @@ class BomOperationController extends Controller
         $operations = $request->all();
         $inserted = [];
 
+        $firstBomId = $operations[0]['bom_id'] ?? null;
+        if ($firstBomId && ($blocked = $this->blockIfBomActive($firstBomId))) {
+            return $blocked;
+        }
+
         foreach ($operations as $opData) {
             $validator = Validator::make($opData, [
                 'bom_id' => 'required|string',
@@ -49,6 +73,7 @@ class BomOperationController extends Controller
                 'cost_per_hour' => 'nullable|numeric|min:0',
                 'setup_time' => 'nullable|numeric',
                 'run_time' => 'nullable|numeric',
+                'qc_required' => 'nullable|boolean',
             ]);
 
             if ($validator->fails()) {
@@ -61,6 +86,8 @@ class BomOperationController extends Controller
             $validData = $validator->validated();
             $validData['id'] = Str::uuid()->toString();
             $validData['user_id'] = auth()->id();
+            $validData['operation_seq'] = $validData['operation_seq'] ?? 0;
+            $validData['qc_required'] = $validData['qc_required'] ?? false;
             $inserted[] = BomOperation::create($validData);
         }
 
@@ -86,6 +113,10 @@ public function deleteByBomId(Request $request)
         'bom_id' => 'required|string',
     ]);
 
+    if ($blocked = $this->blockIfBomActive($request->bom_id)) {
+        return $blocked;
+    }
+
     $deletedOperations = \App\Models\BomOperation::where('bom_id', $request->bom_id)->delete();
     $deletedComponents = \App\Models\BomComponent::where('bom_id', $request->bom_id)->delete();
 
@@ -101,6 +132,10 @@ public function deleteOperationsByBomId(Request $request)
     $request->validate([
         'bom_id' => 'required|string',
     ]);
+
+    if ($blocked = $this->blockIfBomActive($request->bom_id)) {
+        return $blocked;
+    }
 
     $deleted = BomOperation::where('bom_id', $request->bom_id)
         ->delete();
@@ -122,6 +157,7 @@ public function update(Request $request, $id)
     $requestData['cost_per_hour'] = isset($requestData['cost_per_hour']) ? (float)$requestData['cost_per_hour'] : null;
     $requestData['setup_time'] = isset($requestData['setup_time']) ? (float)$requestData['setup_time'] : null;
     $requestData['run_time'] = isset($requestData['run_time']) ? (float)$requestData['run_time'] : null;
+    $requestData['qc_required'] = isset($requestData['qc_required']) ? filter_var($requestData['qc_required'], FILTER_VALIDATE_BOOLEAN) : null;
 
     $validator = Validator::make($requestData, [
         'routing_enabled' => 'nullable|boolean',
@@ -136,6 +172,7 @@ public function update(Request $request, $id)
         'cost_per_hour' => 'nullable|numeric|min:0',
         'setup_time' => 'nullable|numeric',
         'run_time' => 'nullable|numeric',
+        'qc_required' => 'nullable|boolean',
     ]);
 
     if ($validator->fails()) {
@@ -146,6 +183,11 @@ public function update(Request $request, $id)
     }
 
     $operation = \App\Models\BomOperation::findOrFail($id);
+
+    if ($blocked = $this->blockIfBomActive($operation->bom_id)) {
+        return $blocked;
+    }
+
     $operation->update($validator->validated());
 
     return response()->json([

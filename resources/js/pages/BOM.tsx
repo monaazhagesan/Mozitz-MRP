@@ -11,22 +11,30 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Search, Plus, ChevronRight, ChevronDown, Trash2, Package,
   Boxes, Layers, Component as CompIcon, AlertTriangle, CheckCircle2, X,
+  ShieldCheck, Lock,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import axios from "axios";
+import { BomMaterialsEditor } from "@/components/bom/BomMaterialsEditor";
+import { BomOperationsEditor } from "@/components/bom/BomOperationsEditor";
+import type { NewMaterialRow, NewOperationRow, OperationMasterRow } from "@/components/bom/types";
 
 // ─────────────────── types ───────────────────
 type BomHeader = {
   id: string;
+  bom_number?: string;
   item_code: string;
   item_name: string;
   item_type: string;
   uom: string;
   revision: string;
   status: string;
+  effective_date?: string;
+  remarks?: string;
 };
 type BomComponentRow = {
   id: string;
@@ -37,6 +45,7 @@ type BomComponentRow = {
   uom: string;
   type: string;
   item_seq: number;
+  scrap_percent?: number;
 };
 type StockMap = Record<string, number>;
 type TreeNode = {
@@ -71,13 +80,18 @@ const stockColor = (stock: number, need: number) => {
   if (stock < need * 2) return "text-amber-600";
   return "text-emerald-600";
 };
+const statusBadge = (status: string) => {
+  if (status === "Active") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (status === "Draft") return "bg-amber-50 text-amber-700 border-amber-200";
+  return "bg-muted text-muted-foreground border-border"; // Inactive
+};
 
 export default function BOM() {
   const { toast } = useToast();
   const [headers, setHeaders] = useState<BomHeader[]>([]);
   const [allComponents, setAllComponents] = useState<BomComponentRow[]>([]);
   const [stock, setStock] = useState<StockMap>({});
-  const [inventoryItems, setInventoryItems] = useState<{ item_code: string; item_name: string; item_type: string | null; quantity_on_hand: number | null }[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<{ item_code: string; item_name: string; item_type: string | null; quantity_on_hand: number | null; uom: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [selectedProductCode, setSelectedProductCode] = useState<string | null>(null);
@@ -100,19 +114,49 @@ export default function BOM() {
   const [compModalOpen, setCompModalOpen] = useState(false);
   const [addParentBomId, setAddParentBomId] = useState<string | null>(null);
 
-  const [bomForm, setBomForm] = useState({ code: "", name: "", type: "Product", uom: "Ea", revision: "A" });
+  const [bomForm, setBomForm] = useState({
+    code: "", name: "", type: "Product", uom: "", revision: "A",
+    effective_date: "", remarks: "",
+  });
   const [compForm, setCompForm] = useState({ code: "", name: "", type: "Material", qty: 1, unit: "pcs" });
+
+  // ── New BOM dialog: Header / Materials / Operations tabs ──
+  const [newBomTab, setNewBomTab] = useState<"header" | "materials" | "operations">("header");
+  const [revisingFromId, setRevisingFromId] = useState<string | null>(null);
+  // "existing" = pick an already-created Product from Inventory (the only
+  // option this dialog originally supported). "new" = create the Product
+  // item itself as part of building its BOM, so a brand-new product doesn't
+  // require a separate trip to Inventory first.
+  const [productMode, setProductMode] = useState<"existing" | "new">("existing");
+
+  const generateProductCode = () => {
+    const numbers = inventoryItems
+      .filter((i) => i.item_code?.startsWith("PRD"))
+      .map((i) => Number(i.item_code.split("-")[1]))
+      .filter((n) => !isNaN(n));
+    const next = (numbers.length ? Math.max(...numbers) : 0) + 1;
+    return `PRD-${String(next).padStart(4, "0")}`;
+  };
+
+  const [materialRows, setMaterialRows] = useState<NewMaterialRow[]>([]);
+  const [operationRows, setOperationRows] = useState<NewOperationRow[]>([]);
+  const [operationsMaster, setOperationsMaster] = useState<OperationMasterRow[]>([]);
+  const [activating, setActivating] = useState(false);
 
   // ─────────────────── load ───────────────────
   const loadAll = async () => {
     try {
       setLoading(true);
 
-      const [h, c, inv] = await Promise.all([
-        axios.get("/api/bom-headers?status=Active"),
+      const [h, c, inv, ops] = await Promise.all([
+        axios.get("/api/bom-headers"),
         axios.get("/api/bom-components"),
         axios.get("/api/inventory-stock"),
+        axios.get("/api/operations"),
       ]);
+
+      const opsData = Array.isArray(ops.data) ? ops.data : ops.data?.data ?? [];
+      setOperationsMaster(opsData.map((o: any) => ({ operation_name: o.operation_name, department: o.department })));
 
       // ✅ Normalize all responses safely
       const headersData = Array.isArray(h.data)
@@ -137,6 +181,7 @@ export default function BOM() {
         item_name: r.item_name ?? r.itemName,
         item_type: r.item_type ?? r.itemType,
         quantity_on_hand: r.quantity_on_hand ?? r.quantityOnHand,
+        uom: r.uom ?? null,
       }));
 
       setInventoryItems(normalized);
@@ -298,17 +343,23 @@ export default function BOM() {
             [{node.stock}]
           </span>
           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            {(node.parentBomId || headerByCode[node.code]) && (
-              <Button size="icon" variant="ghost" className="h-6 w-6"
-                onClick={() => openAddComp(headerByCode[node.code]?.id || node.parentBomId!)}>
-                <Plus className="h-3 w-3" />
-              </Button>
-            )}
-            {node.bomId && (
-              <Button size="icon" variant="ghost" className="h-6 w-6 text-red-600 hover:text-red-700"
-                onClick={() => deleteComponent(node.bomId!)}>
-                <X className="h-3 w-3" />
-              </Button>
+            {selectedHeader?.status === "Draft" ? (
+              <>
+                {(node.parentBomId || headerByCode[node.code]) && (
+                  <Button size="icon" variant="ghost" className="h-6 w-6"
+                    onClick={() => openAddComp(headerByCode[node.code]?.id || node.parentBomId!)}>
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                )}
+                {node.bomId && (
+                  <Button size="icon" variant="ghost" className="h-6 w-6 text-red-600 hover:text-red-700"
+                    onClick={() => deleteComponent(node.bomId!)}>
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </>
+            ) : (
+              <Lock className="h-3 w-3 text-muted-foreground" />
             )}
           </div>
         </div>
@@ -350,48 +401,170 @@ export default function BOM() {
     }
   };
 
+  const resetNewBomDialog = () => {
+    setBomForm({ code: "", name: "", type: "Product", uom: "", revision: "A", effective_date: "", remarks: "" });
+    setMaterialRows([]);
+    setOperationRows([]);
+    setNewBomTab("header");
+    setRevisingFromId(null);
+    setProductMode("existing");
+  };
+
+  const openNewBomDialog = () => {
+    resetNewBomDialog();
+    setBomModalOpen(true);
+  };
+
   const saveBOM = async () => {
-    if (!bomForm.code || !bomForm.name) {
-      toast({ title: "Code and name required", variant: "destructive" });
+    if (productMode === "existing" && !bomForm.code) {
+      toast({ title: "Select a Product Code", variant: "destructive" });
+      setNewBomTab("header");
       return;
     }
-
-    const exists = headers.find(
-      (h) => h.item_code.toLowerCase() === bomForm.code.toLowerCase()
-    );
-
-    if (exists) {
-      toast({ title: "BOM already exists", variant: "destructive" });
+    if (productMode === "new" && (!bomForm.code.trim() || !bomForm.name.trim())) {
+      toast({ title: "Enter a Product Code and Name", variant: "destructive" });
+      setNewBomTab("header");
+      return;
+    }
+    if (materialRows.length === 0) {
+      toast({ title: "Add at least one material before creating the BOM", variant: "destructive" });
+      setNewBomTab("materials");
+      return;
+    }
+    if (operationRows.length === 0) {
+      toast({ title: "Add at least one operation before creating the BOM", variant: "destructive" });
+      setNewBomTab("operations");
       return;
     }
 
     try {
-      const res = await axios.post("/api/bom-headers", {
+      // In "new product" mode the Product doesn't exist in Inventory yet —
+      // create it first, then build its BOM against the resulting item_code.
+      if (productMode === "new") {
+        await axios.post("/api/inventory-stock", {
+          item_code: bomForm.code.trim(),
+          item_name: bomForm.name.trim(),
+          item_type: "Product",
+          uom: bomForm.uom || "Nos",
+          location: "Default",
+          quantity_on_hand: 0,
+          allocated_quantity: 0,
+          available_quantity: 0,
+        });
+      }
+
+      const headerRes = await axios.post("/api/bom-headers", {
         item_code: bomForm.code,
         item_name: bomForm.name,
         item_type: bomForm.type,
         uom: bomForm.uom,
         revision: bomForm.revision,
-        status: "Active",
+        effective_date: bomForm.effective_date || null,
+        remarks: bomForm.remarks || null,
       });
+      const bomId = headerRes.data.id;
 
-      toast({ title: "BOM created" });
+      await axios.post("/api/bom-components/bulk", materialRows.map(r => ({
+        bom_id: bomId,
+        component: r.component,
+        description: r.description,
+        quantity: r.quantity,
+        uom: r.uom,
+        scrap_percent: r.scrap_percent,
+      })));
+
+      await axios.post("/api/bom-operations", operationRows.map(r => ({
+        bom_id: bomId,
+        operation_seq: r.operation_seq,
+        operation_code: r.operation_code,
+        department: r.department,
+        work_center: r.work_center,
+        setup_time: r.setup_time,
+        run_time: r.run_time,
+        labor_cost: r.labor_cost,
+        qc_required: r.qc_required,
+      })));
+
+      toast({ title: revisingFromId ? "Revision created as Draft" : "BOM created as Draft" });
 
       setBomModalOpen(false);
-      setBomForm({
-        code: "",
-        name: "",
-        type: "Product",
-        uom: "Ea",
-        revision: "A",
-      });
+      resetNewBomDialog();
 
       await loadAll();
-      setSelectedHeaderId(res.data.id);
+      setSelectedHeaderId(bomId);
     } catch (error: any) {
       toast({
         title: "Failed",
-        description: error.message,
+        description: error.response?.data?.message || error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const activateBom = async (id: string) => {
+    setActivating(true);
+    try {
+      await axios.post(`/api/bom-headers/${id}/activate`);
+      toast({ title: "BOM activated" });
+      await loadAll();
+    } catch (error: any) {
+      toast({
+        title: "Cannot activate",
+        description: error.response?.data?.message || error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setActivating(false);
+    }
+  };
+
+  const nextRevisionLabel = (revision: string) => {
+    if (/^[A-Y]$/.test(revision)) return String.fromCharCode(revision.charCodeAt(0) + 1);
+    return `${revision}-2`;
+  };
+
+  const createRevision = async (header: BomHeader) => {
+    try {
+      const opsRes = await axios.get("/api/bom-operations", { params: { bom_id: header.id } });
+      const ops = Array.isArray(opsRes.data) ? opsRes.data : opsRes.data?.data ?? [];
+      const comps = componentsByBomId[header.id] ?? [];
+
+      resetNewBomDialog();
+      setBomForm({
+        code: header.item_code,
+        name: header.item_name,
+        type: header.item_type,
+        uom: header.uom,
+        revision: nextRevisionLabel(header.revision),
+        effective_date: "",
+        remarks: header.remarks || "",
+      });
+      setMaterialRows(comps.map(c => ({
+        tempId: crypto.randomUUID(),
+        component: c.component,
+        description: c.description,
+        uom: c.uom,
+        quantity: Number(c.quantity) || 0,
+        scrap_percent: Number(c.scrap_percent) || 0,
+        stock: stock[c.component] ?? 0,
+      })));
+      setOperationRows(ops.map((o: any) => ({
+        tempId: crypto.randomUUID(),
+        operation_seq: o.operation_seq,
+        operation_code: o.operation_code || "",
+        department: o.department || "",
+        work_center: o.work_center || "",
+        setup_time: Number(o.setup_time) || 0,
+        run_time: Number(o.run_time) || 0,
+        labor_cost: Number(o.labor_cost) || 0,
+        qc_required: !!o.qc_required,
+      })));
+      setRevisingFromId(header.id);
+      setBomModalOpen(true);
+    } catch (error: any) {
+      toast({
+        title: "Failed to load BOM for revision",
+        description: error.response?.data?.message || error.message,
         variant: "destructive",
       });
     }
@@ -520,7 +693,7 @@ export default function BOM() {
               <h1 className="text-2xl font-bold tracking-tight">BOM Manager</h1>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">Bill of Materials · MRP</p>
             </div>
-            <Button onClick={() => { setBomForm({ code: "", name: "", type: "Product", uom: "Ea", revision: "A" }); setBomModalOpen(true); }}>
+            <Button onClick={openNewBomDialog}>
               <Plus className="h-4 w-4 mr-1" /> New BOM
             </Button>
           </div>
@@ -587,6 +760,7 @@ export default function BOM() {
                           <div className="flex gap-1 mt-0.5">
                             <Badge variant="outline" className={`text-[9px] ${typeBadge(h.item_type)}`}>{h.item_type}</Badge>
                             <Badge variant="outline" className="text-[9px]">Rev {h.revision}</Badge>
+                            <Badge variant="outline" className={`text-[9px] ${statusBadge(h.status)}`}>{h.status}</Badge>
                           </div>
                         </div>
                       </button>
@@ -610,12 +784,26 @@ export default function BOM() {
                         )}
                       </CardTitle>
                       {selectedHeader && (
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 items-center">
+                          <Badge variant="outline" className={`text-[10px] ${statusBadge(selectedHeader.status)}`}>{selectedHeader.status}</Badge>
                           <Button size="sm" variant="outline" onClick={expandAll}>Expand All</Button>
                           <Button size="sm" variant="outline" onClick={collapseAll}>Collapse</Button>
-                          <Button size="sm" onClick={() => openAddComp(selectedHeader.id)}>
-                            <Plus className="h-3.5 w-3.5 mr-1" /> Component
-                          </Button>
+                          {selectedHeader.status === "Draft" && (
+                            <>
+                              <Button size="sm" onClick={() => openAddComp(selectedHeader.id)}>
+                                <Plus className="h-3.5 w-3.5 mr-1" /> Component
+                              </Button>
+                              <Button size="sm" variant="outline" className="text-emerald-700 border-emerald-300"
+                                disabled={activating} onClick={() => activateBom(selectedHeader.id)}>
+                                <ShieldCheck className="h-3.5 w-3.5 mr-1" /> {activating ? "Activating…" : "Activate"}
+                              </Button>
+                            </>
+                          )}
+                          {selectedHeader.status === "Active" && (
+                            <Button size="sm" variant="outline" onClick={() => createRevision(selectedHeader)}>
+                              <Layers className="h-3.5 w-3.5 mr-1" /> Create Revision
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -628,7 +816,9 @@ export default function BOM() {
                       </div>
                     ) : tree.children.length === 0 ? (
                       <div className="text-center py-12 text-muted-foreground text-sm">
-                        No components yet. Click <strong>+ Component</strong> to add one.
+                        {selectedHeader?.status === "Draft"
+                          ? <>No components yet. Click <strong>+ Component</strong> to add one.</>
+                          : "No components on this BOM."}
                       </div>
                     ) : (
                       <div className="space-y-0.5">
@@ -777,72 +967,158 @@ export default function BOM() {
         </div>
       </div>
 
-      {/* ── New BOM modal ── */}
-      <Dialog open={bomModalOpen} onOpenChange={setBomModalOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>New BOM</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="text-xs">Product Code *</Label>
+      {/* ── New BOM modal (Header / Materials / Operations) ── */}
+      <Dialog open={bomModalOpen} onOpenChange={(o) => { setBomModalOpen(o); if (!o) resetNewBomDialog(); }}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{revisingFromId ? "Create Revision" : "New BOM"}</DialogTitle>
+          </DialogHeader>
 
-              <Select
-                value={bomForm.code || ""}
-                onValueChange={(value) => {
-                  const item = inventoryItems.find(i => i.item_code === value);
+          <Tabs value={newBomTab} onValueChange={(v) => setNewBomTab(v as any)}>
+            <TabsList>
+              <TabsTrigger value="header">Header</TabsTrigger>
+              <TabsTrigger value="materials">
+                Materials {materialRows.length > 0 && <Badge variant="outline" className="ml-1.5 text-[10px]">{materialRows.length}</Badge>}
+              </TabsTrigger>
+              <TabsTrigger value="operations">
+                Operations {operationRows.length > 0 && <Badge variant="outline" className="ml-1.5 text-[10px]">{operationRows.length}</Badge>}
+              </TabsTrigger>
+            </TabsList>
 
-                  setBomForm(prev => ({
-                    ...prev,
-                    code: value,
-                    name: item?.item_name || "",
-                    type: item?.item_type || prev.type,
-                  }));
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select product code" />
-                </SelectTrigger>
+            {/* ── Header tab ── */}
+            <TabsContent value="header" className="mt-4 space-y-3">
+              {!revisingFromId && (
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={productMode === "existing" ? "default" : "outline"}
+                    onClick={() => setProductMode("existing")}
+                  >
+                    Existing Product
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={productMode === "new" ? "default" : "outline"}
+                    onClick={() => {
+                      setProductMode("new");
+                      setBomForm(prev => ({ ...prev, code: generateProductCode(), name: "", uom: prev.uom || "Nos" }));
+                    }}
+                  >
+                    New Product
+                  </Button>
+                </div>
+              )}
 
-                <SelectContent>
-                  {inventoryItems
-                    .filter(item => item.item_code?.startsWith("PRD"))
-                    .map((item) => (
-                      <SelectItem
-                        key={item.item_code}
-                        value={item.item_code}
-                      >
-                        {item.item_code}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs">Product Name *</Label>
-              <Input value={bomForm.name} onChange={(e) => setBomForm({ ...bomForm, name: e.target.value })} placeholder="T1 Shaft Assembly" />
-            </div>
-            <div>
-              <Label className="text-xs">Type</Label>
-              <Select value={bomForm.type} onValueChange={(v) => setBomForm({ ...bomForm, type: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Product">Product</SelectItem>
-                  <SelectItem value="Assembly">Assembly</SelectItem>
-                  <SelectItem value="Component">Component</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs">Revision</Label>
-              <Input value={bomForm.revision} onChange={(e) => setBomForm({ ...bomForm, revision: e.target.value })} />
-            </div>
-            <div>
-              <Label className="text-xs">UoM</Label>
-              <Input value={bomForm.uom} onChange={(e) => setBomForm({ ...bomForm, uom: e.target.value })} />
-            </div>
-          </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Product Code *</Label>
+                  {productMode === "existing" ? (
+                    <Select
+                      value={bomForm.code || ""}
+                      disabled={!!revisingFromId}
+                      onValueChange={(value) => {
+                        const item = inventoryItems.find(i => i.item_code === value);
+                        setBomForm(prev => ({
+                          ...prev,
+                          code: value,
+                          name: item?.item_name || "",
+                          uom: item?.uom || prev.uom,
+                          type: item?.item_type || prev.type,
+                        }));
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select product code" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {inventoryItems
+                          .filter(item => item.item_code?.startsWith("PRD"))
+                          .map((item) => (
+                            <SelectItem key={item.item_code} value={item.item_code}>
+                              {item.item_code}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={bomForm.code}
+                      onChange={(e) => setBomForm({ ...bomForm, code: e.target.value })}
+                      placeholder="e.g. PRD-0008"
+                    />
+                  )}
+                </div>
+                <div>
+                  <Label className="text-xs">Status</Label>
+                  <div className="h-10 flex items-center">
+                    <Badge variant="outline" className={`text-[10px] ${statusBadge("Draft")}`}>Draft</Badge>
+                    <span className="text-[10px] text-muted-foreground ml-2">Activate once materials & operations are added</span>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">Product Name{productMode === "new" ? " *" : ""}</Label>
+                  {productMode === "new" ? (
+                    <Input
+                      value={bomForm.name}
+                      onChange={(e) => setBomForm({ ...bomForm, name: e.target.value })}
+                      placeholder="e.g. Gearbox Assembly"
+                    />
+                  ) : (
+                    <div className="h-10 flex items-center px-3 rounded-md border bg-muted text-sm">
+                      {bomForm.name || <span className="text-muted-foreground">— select a product code —</span>}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <Label className="text-xs">UoM</Label>
+                  {productMode === "new" ? (
+                    <Input value={bomForm.uom} onChange={(e) => setBomForm({ ...bomForm, uom: e.target.value })} placeholder="Nos" />
+                  ) : (
+                    <div className="h-10 flex items-center px-3 rounded-md border bg-muted text-sm">
+                      {bomForm.uom || <span className="text-muted-foreground">—</span>}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <Label className="text-xs">Revision</Label>
+                  <Input value={bomForm.revision} onChange={(e) => setBomForm({ ...bomForm, revision: e.target.value })} />
+                </div>
+                <div>
+                  <Label className="text-xs">Effective Date</Label>
+                  <Input type="date" value={bomForm.effective_date} onChange={(e) => setBomForm({ ...bomForm, effective_date: e.target.value })} />
+                </div>
+                <div className="col-span-2">
+                  <Label className="text-xs">Remarks</Label>
+                  <Textarea rows={2} value={bomForm.remarks} onChange={(e) => setBomForm({ ...bomForm, remarks: e.target.value })} placeholder="Optional notes about this BOM…" />
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* ── Materials tab ── */}
+            <TabsContent value="materials" className="mt-4">
+              <BomMaterialsEditor
+                rows={materialRows}
+                onRowsChange={setMaterialRows}
+                inventoryItems={inventoryItems}
+                stock={stock}
+              />
+            </TabsContent>
+
+            {/* ── Operations tab ── */}
+            <TabsContent value="operations" className="mt-4">
+              <BomOperationsEditor
+                rows={operationRows}
+                onRowsChange={setOperationRows}
+                operationsMaster={operationsMaster}
+              />
+            </TabsContent>
+          </Tabs>
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setBomModalOpen(false)}>Cancel</Button>
-            <Button onClick={saveBOM}>Create BOM</Button>
+            <Button variant="outline" onClick={() => { setBomModalOpen(false); resetNewBomDialog(); }}>Cancel</Button>
+            <Button onClick={saveBOM}>{revisingFromId ? "Create Revision" : "Create BOM"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

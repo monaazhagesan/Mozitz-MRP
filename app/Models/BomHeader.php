@@ -18,6 +18,7 @@ class BomHeader extends Model
     protected $fillable = [
         'id',
         'user_id',
+        'bom_number',
         'item_type',
         'item_code',
         'item_name',
@@ -27,6 +28,8 @@ class BomHeader extends Model
         'uom',
         'implemented_only',
         'status',
+        'effective_date',
+        'remarks',
         'created_at',
         'updated_at',
         'created_by',

@@ -129,6 +129,7 @@ Route::get('/bom-components', [BomComponentController::class, 'index']);
 Route::get('/bom-component', [BomComponentController::class, 'Detail']);
 Route::get('/bom-components/{id}', [BomComponentController::class, 'show']);
 Route::post('/bom-components', [BomComponentController::class, 'store']);
+Route::post('/bom-components/bulk', [BomComponentController::class, 'storeMany']);
 Route::delete('/bom-components', [BomComponentController::class, 'deleteByBomId']);
 Route::put('/bom-components/{id}', [BomComponentController::class, 'update']);
 Route::delete('/bom-components/{id}', [BomComponentController::class, 'destroy']);
@@ -142,6 +143,7 @@ Route::get('/bom-headers', [BomHeaderController::class, 'index']);
 Route::get('/bom-headers/by-item-code', [BomHeaderController::class, 'getByItemCode']);
 Route::get('/bom-headers/{id}', [BomHeaderController::class, 'show']);
 Route::post('/bom-headers', [BomHeaderController::class, 'store']);
+Route::post('/bom-headers/{id}/activate', [BomHeaderController::class, 'activate']);
 Route::delete('/bom-headers/{id}', [BomHeaderController::class, 'destroy']); // Delete BOM header by ID
 Route::put('/bom-headers/{id}', [BomHeaderController::class, 'update']);
 

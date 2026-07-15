@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\DB;
 use App\Models\BomComponent;
 use App\Models\BomOperation;
 use App\Models\BomDeletionLog;
+use App\Models\InventoryStock;
+use App\Models\Department;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Auth;
 
@@ -24,8 +26,11 @@ class BomHeaderController extends Controller
 
    public function index(Request $request)
 {
-    $query = BomHeader::where('user_id', auth()->id())
-            ->where('status', 'Active');
+    $query = BomHeader::where('user_id', auth()->id());
+
+    if ($request->filled('status')) {
+        $query->where('status', $request->query('status'));
+    }
 
     if ($request->filled('item_code')) {
         $query->where('item_code', $request->query('item_code'));
@@ -59,7 +64,8 @@ class BomHeaderController extends Controller
             'revision' => 'nullable|string',
             'uom' => 'nullable|string',
             'implemented_only' => 'boolean',
-            'status' => 'nullable|string',
+            'effective_date' => 'nullable|date',
+            'remarks' => 'nullable|string',
             'created_at' => 'nullable|date',
             'updated_at' => 'nullable|date',
             'created_by' => 'nullable|string',
@@ -69,11 +75,98 @@ class BomHeaderController extends Controller
             'document' => 'nullable|string',
         ]);
 
-         $data['id'] = Str::uuid()->toString();
-
-           $data['user_id'] = auth()->id();
+        $data['id'] = Str::uuid()->toString();
+        $data['user_id'] = auth()->id();
+        $data['item_type'] = $data['item_type'] ?? '';
+        $data['bom_number'] = $this->generateBomNumber();
+        // A BOM is never Active on create — it must pass activate()'s
+        // validation first (see activate() below). Any 'status' the client
+        // sent is intentionally ignored here.
+        $data['status'] = 'Draft';
 
         return BomHeader::create($data);
+    }
+
+    private function generateBomNumber(): string
+    {
+        $count = BomHeader::where('organization_id', auth()->user()->organization_id)->count();
+        return 'BOM-' . str_pad((string) ($count + 1), 6, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Activates a Draft BOM after validating it's actually usable for
+     * production, then retires any other Active BOM for the same product
+     * (only one Active BOM per product is allowed).
+     */
+    public function activate($id)
+    {
+        $bom = BomHeader::with(['components', 'operations'])
+            ->where('user_id', auth()->id())
+            ->findOrFail($id);
+
+        if ($bom->components->isEmpty()) {
+            return response()->json(['message' => 'This BOM has no materials. Add at least one material before activating.'], 422);
+        }
+
+        if ($bom->operations->isEmpty()) {
+            return response()->json(['message' => 'This BOM has no operations. Add at least one operation before activating.'], 422);
+        }
+
+        $itemCodes = $bom->components->pluck('component')->filter();
+        $existingItemCodes = InventoryStock::whereIn('item_code', $itemCodes)->pluck('item_code');
+        $missingItemCodes = $itemCodes->diff($existingItemCodes);
+        if ($missingItemCodes->isNotEmpty()) {
+            return response()->json([
+                'message' => 'Cannot activate: material(s) no longer exist in the Item Master: ' . $missingItemCodes->implode(', '),
+            ], 422);
+        }
+
+        $departmentNames = $bom->operations->pluck('department')->filter();
+        if ($departmentNames->isNotEmpty()) {
+            $activeDepartmentNames = Department::where('organization_id', auth()->user()->organization_id)
+                ->where('is_active', true)
+                ->whereIn('name', $departmentNames)
+                ->pluck('name');
+            $inactiveDepartments = $departmentNames->unique()->diff($activeDepartmentNames);
+            if ($inactiveDepartments->isNotEmpty()) {
+                return response()->json([
+                    'message' => 'Cannot activate: operation department(s) are missing or inactive: ' . $inactiveDepartments->implode(', '),
+                ], 422);
+            }
+        }
+
+        if ($bom->components->contains(fn ($c) => (float) $c->quantity <= 0)) {
+            return response()->json(['message' => 'Cannot activate: every material must have a quantity greater than zero.'], 422);
+        }
+
+        if ($bom->operations->contains(fn ($o) => (float) $o->run_time <= 0)) {
+            return response()->json(['message' => 'Cannot activate: every operation must have a cycle time greater than zero.'], 422);
+        }
+
+        $duplicateItemCodes = $bom->components->pluck('component')->duplicates();
+        if ($duplicateItemCodes->isNotEmpty()) {
+            return response()->json(['message' => 'Cannot activate: duplicate material(s) found: ' . $duplicateItemCodes->unique()->implode(', ')], 422);
+        }
+
+        $duplicateSeqs = $bom->operations->pluck('operation_seq')->duplicates();
+        if ($duplicateSeqs->isNotEmpty()) {
+            return response()->json(['message' => 'Cannot activate: duplicate operation sequence number(s) found: ' . $duplicateSeqs->unique()->implode(', ')], 422);
+        }
+
+        DB::transaction(function () use ($bom) {
+            BomHeader::where('organization_id', auth()->user()->organization_id)
+                ->where('item_code', $bom->item_code)
+                ->where('status', 'Active')
+                ->where('id', '!=', $bom->id)
+                ->update(['status' => 'Inactive']);
+
+            $bom->update(['status' => 'Active']);
+        });
+
+        return response()->json([
+            'message' => 'BOM activated',
+            'bom' => $bom->fresh(['components', 'operations']),
+        ]);
     }
 
     public function destroy($id)
@@ -120,7 +213,8 @@ public function update(Request $request, $id)
         'revision' => 'nullable|string',
         'uom' => 'nullable|string',
         'implemented_only' => 'nullable|boolean',
-        'status' => 'nullable|string',
+        'effective_date' => 'nullable|date',
+        'remarks' => 'nullable|string',
         'updated_at' => 'nullable|date',
         'created_by' => 'nullable|string',
         'revision_reason' => 'nullable|string',

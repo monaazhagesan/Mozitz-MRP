@@ -30,6 +30,7 @@ class BomComponent extends Model
         'status',
         'planning_percent',
         'yield_percent',
+        'scrap_percent',
         'include_in_cost_rollup',
         'unit_cost',
         'total_cost',
