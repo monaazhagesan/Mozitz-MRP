@@ -463,61 +463,21 @@ const handleCreateStocktake = async () => {
     }
 
     try {
-      console.log("🔄 Processing stock updates...");
+      console.log("🔄 Completing stocktake...");
 
+      // Posting counted quantities to real InventoryStock rows (and
+      // logging the StockTransaction for each variance) now happens
+      // server-side, atomically, keyed by item_code — see
+      // StocktakeController::update(). This used to be a non-atomic loop
+      // of GET/PUT calls from here, keyed on a client-side item id that
+      // was fake for items added mid-count, so those silently failed to
+      // post; a single PUT below is all that's needed now.
       for (const item of countItems) {
-        const stockId = item.id;
-
-        if (!stockId) continue;
-
         const systemQty = item.systemQty ?? 0;
         const countedQty = item.countedQty ?? systemQty;
-
         const variance = countedQty - systemQty;
         const varianceValue = variance * (item.unitCost || 0);
 
-        // -------------------------------
-        // 🔥 UPDATE INVENTORY STOCK
-        // -------------------------------
-        if (variance !== 0) {
-          const stockItemRes = await axios.get(
-            `/api/inventory-stock/${stockId}`
-          );
-
-          const stockItem = stockItemRes.data;
-
-          const newQty = countedQty;
-
-          const availableQty = Math.max(
-            0,
-            newQty -
-            (stockItem.allocated_quantity || 0) -
-            (stockItem.committed_quantity || 0)
-          );
-
-          await axios.put(`/api/inventory-stock/${stockId}`, {
-            quantity_on_hand: newQty,
-            available_quantity: availableQty,
-            updated_at: new Date().toISOString(),
-          });
-
-          // -------------------------------
-          // 🔥 TRANSACTION LOG
-          // -------------------------------
-          await axios.post("/api/stock-transactions", {
-            item_code: item.itemCode,
-            transaction_type: "Adjustment",
-            quantity: variance,
-            reference_type: "Stocktake",
-            reference_number: selectedStocktake.stocktakeNo,
-            notes: `Stocktake adjustment: ${selectedStocktake.name}`,
-            unit_cost: item.unitCost,
-          });
-        }
-
-        // -------------------------------
-        // 🔥 UPDATE ITEM STATE (IMPORTANT FOR BACKEND SAVE)
-        // -------------------------------
         item.countedQty = countedQty;
         item.variance = variance;
         item.varianceValue = varianceValue;

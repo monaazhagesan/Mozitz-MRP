@@ -29,6 +29,7 @@ use App\Http\Controllers\LocationController;
 use App\Http\Controllers\StorageBinController;
 use App\Http\Controllers\DefaultLocationController;
 use App\Http\Controllers\WarehouseStockController;
+use App\Http\Controllers\StockTransferController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CompanyDetailController;
 use App\Http\Controllers\UploadController;
@@ -226,6 +227,10 @@ Route::get('/warehouse-stock/unallocated', [WarehouseStockController::class, 'un
 Route::post('/warehouse-stock', [WarehouseStockController::class, 'store']);
 Route::put('/warehouse-stock/{id}', [WarehouseStockController::class, 'update']);
 Route::delete('/warehouse-stock/{id}', [WarehouseStockController::class, 'destroy']);
+
+Route::get('/stock-transfers', [StockTransferController::class, 'index']);
+Route::post('/stock-transfers', [StockTransferController::class, 'store']);
+Route::delete('/stock-transfers/{id}', [StockTransferController::class, 'destroy']);
 
 Route::get('/default-location', [DefaultLocationController::class, 'show']);
 Route::post('/default-location', [DefaultLocationController::class, 'storeOrUpdate']);

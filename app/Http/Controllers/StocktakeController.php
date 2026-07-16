@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Stocktake;
+use App\Models\InventoryStock;
+use App\Models\StockTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
@@ -175,14 +177,73 @@ class StocktakeController extends Controller
         ];
     })->toArray();
 
-    $stocktake->update([
-        'status' => $data['status'] ?? $stocktake->status,
-        'counted_items' => $data['countedItems'] ?? $stocktake->counted_items,
-        'variance_value' => $data['varianceValue'] ?? $stocktake->variance_value,
-        'variance' => $data['variance'] ?? $stocktake->variance,
-        'completed_at' => $data['completedAt'] ?? null,
-        'items' => $items,
-    ]);
+    $isCompleting = ($data['status'] ?? null) === 'Completed';
+
+    DB::beginTransaction();
+
+    try {
+        // Posting the counted variance to real InventoryStock rows used to
+        // happen via a non-atomic loop of GET/PUT calls from the browser,
+        // keyed on a client-side item id (which is fake for items added
+        // mid-count, so those silently failed to post). Doing it here,
+        // keyed on item_code, inside one transaction, fixes both: a failed
+        // item now rolls back the whole completion instead of leaving a
+        // half-posted stocktake, and mid-count items post correctly.
+        if ($isCompleting) {
+            foreach ($items as $item) {
+                if ($item['item_code'] === null || $item['countedQty'] === null) {
+                    continue;
+                }
+
+                $variance = (float) $item['variance'];
+                if (abs($variance) < 0.0001) {
+                    continue;
+                }
+
+                $inventory = InventoryStock::where('item_code', $item['item_code'])->first();
+                if (!$inventory) {
+                    continue;
+                }
+
+                $newQty = (float) $item['countedQty'];
+                $availableQty = max(0, $newQty - (float) ($inventory->allocated_quantity ?? 0) - (float) ($inventory->committed_quantity ?? 0));
+
+                $inventory->update([
+                    'quantity_on_hand' => $newQty,
+                    'available_quantity' => $availableQty,
+                    'last_transaction_date' => now(),
+                ]);
+
+                StockTransaction::create([
+                    'item_code' => $item['item_code'],
+                    'transaction_type' => 'Adjustment',
+                    'quantity' => $variance,
+                    'unit_cost' => $item['unitCost'] ?? 0,
+                    'reference_type' => 'Stocktake',
+                    'reference_number' => $stocktake->stocktake_no,
+                    'notes' => "Stocktake adjustment: {$stocktake->name}",
+                ]);
+            }
+        }
+
+        $stocktake->update([
+            'status' => $data['status'] ?? $stocktake->status,
+            'counted_items' => $data['countedItems'] ?? $stocktake->counted_items,
+            'variance_value' => $data['varianceValue'] ?? $stocktake->variance_value,
+            'variance' => $data['variance'] ?? $stocktake->variance,
+            'completed_at' => $data['completedAt'] ?? null,
+            'items' => $items,
+        ]);
+
+        DB::commit();
+    } catch (\Exception $e) {
+        DB::rollBack();
+
+        return response()->json([
+            'message' => 'Failed to complete stocktake',
+            'error' => $e->getMessage(),
+        ], 500);
+    }
 
     return response()->json($stocktake);
 }

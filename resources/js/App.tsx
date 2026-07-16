@@ -26,8 +26,8 @@ import Settings from "./pages/Settings";
 import Ledger from "./pages/Ledger";
 import TaxConfiguration from "./pages/TaxConfiguration";
 import InventoryLocation from "./pages/InventoryLocation";
-/*import StockTransfer from "./pages/StockTransfer";
-import StockTransferApproval from "./pages/StockTransferApproval";
+import StockTransfer from "./pages/StockTransfer";
+/*import StockTransferApproval from "./pages/StockTransferApproval";
 import Barcode from "./pages/Barcode";
 import InventoryApprovals from "./pages/InventoryApprovals";
 import ImportTally from "./pages/ImportTally";*/
@@ -83,7 +83,7 @@ const App = () => (
             <Route path="/approvals/inventory-approvals" element={<ProtectedRoute><InventoryApprovals /></ProtectedRoute>} />
             <Route path="/approvals/stock-transfer" element={<ProtectedRoute><StockTransferApproval /></ProtectedRoute>} />  */}
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-        {/*     <Route path="/stock-transfer" element={<ProtectedRoute><StockTransfer /></ProtectedRoute>} />*/}
+            <Route path="/stock-transfer" element={<ProtectedRoute><StockTransfer /></ProtectedRoute>} />
             <Route path="/tax-configuration" element={<ProtectedRoute><TaxConfiguration /></ProtectedRoute>} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/pitch-deck" element={<PitchDeck />} />
