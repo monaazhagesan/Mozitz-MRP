@@ -18,6 +18,7 @@ class InventoryStock extends Model
         'item_name',
         'description',
         'item_type',
+        'item_mode',
         'quantity_on_hand',
         'allocated_quantity',
         'committed_quantity',

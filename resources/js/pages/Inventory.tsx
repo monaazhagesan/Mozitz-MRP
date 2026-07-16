@@ -49,6 +49,7 @@ import JobMaterialIssueTab from "@/components/inventory/JobMaterialIssueTab";
 import StocktakesTab from "@/components/inventory/StocktakesTab";
 import StockAdjustmentsTab from "@/components/inventory/StockAdjustmentsTab";
 import MRPPlannerTab from "@/components/inventory/MRPPlannerTab";
+import BatchesTab from "@/components/inventory/BatchesTab";
 
 
 interface Item {
@@ -1521,136 +1522,7 @@ const handleBulkDeallocate = async () => {
 
           {/* Batches Tab */}
           <TabsContent value="batches" className="mt-4">
-            <div className="mb-6 grid gap-4 md:grid-cols-4">
-              <StatCard title="Total Batches" value="1" icon={PackageIcon} />
-              <StatCard title="Active Batches" value="1" icon={PackageIcon} />
-              <StatCard title="Expiring Soon" value="0" icon={AlertTriangle} />
-              <StatCard title="Total Stock" value="1055 kg" icon={TrendingDown} />
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Button variant={filterTab === "all" ? "default" : "outline"} onClick={() => setFilterTab("all")}>
-                    All
-                  </Button>
-                  <Button
-                    variant={filterTab === "products" ? "default" : "outline"}
-                    onClick={() => setFilterTab("products")}
-                  >
-                    Products
-                  </Button>
-                  <Button
-                    variant={filterTab === "Component" ? "default" : "outline"}
-                    onClick={() => setFilterTab("Component")}
-                  >
-                    Component
-                  </Button>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <Switch id="show-empty" />
-                    <Label htmlFor="show-empty" className="text-sm">
-                      Show empty batches
-                    </Label>
-                  </div>
-                  <Select defaultValue="main">
-                    <SelectTrigger className="w-40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="main">Main location</SelectItem>
-                      <SelectItem value="warehouse1">Warehouse 1</SelectItem>
-                      <SelectItem value="warehouse2">Warehouse 2</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button variant="ghost" size="icon">
-                    <Download className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon">
-                    <FileText className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-              <div className="border rounded-lg">
-                <div className="flex items-center justify-between p-3 border-b bg-muted/30">
-                  <span className="text-sm font-medium">1 batch</span>
-                </div>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-muted/50">
-                        <TableHead>
-                          <Checkbox />
-                        </TableHead>
-                        <TableHead>
-                          <div className="flex items-center justify-between">
-                            <span>Name</span>
-                            <ChevronDown className="h-4 w-4" />
-                          </div>
-                          <Input placeholder="Filter" className="h-7 mt-1 text-xs" />
-                        </TableHead>
-                        <TableHead>
-                          <div className="flex items-center justify-between">
-                            <span>Item code</span>
-                            <ChevronDown className="h-4 w-4" />
-                          </div>
-                          <Input placeholder="Filter" className="h-7 mt-1 text-xs" />
-                        </TableHead>
-                        <TableHead>
-                          <div className="flex items-center justify-between">
-                            <span>Batch number</span>
-                            <ChevronDown className="h-4 w-4" />
-                          </div>
-                          <Input placeholder="Filter" className="h-7 mt-1 text-xs" />
-                        </TableHead>
-                        <TableHead className="text-right">
-                          <div className="flex items-center justify-between">
-                            <span>In stock</span>
-                            <ChevronDown className="h-4 w-4" />
-                          </div>
-                          <Input placeholder="Filter" className="h-7 mt-1 text-xs" />
-                        </TableHead>
-                        <TableHead>
-                          <div className="flex items-center justify-between">
-                            <span>Expiration date</span>
-                            <ChevronDown className="h-4 w-4" />
-                          </div>
-                          <Input placeholder="All dates" type="date" className="h-7 mt-1 text-xs" />
-                        </TableHead>
-                        <TableHead>
-                          <div className="flex items-center justify-between">
-                            <span>Created date</span>
-                            <ChevronDown className="h-4 w-4" />
-                          </div>
-                          <Input placeholder="All dates" type="date" className="h-7 mt-1 text-xs" />
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      <TableRow>
-                        <TableCell>
-                          <Checkbox />
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-primary hover:underline cursor-pointer">Spur gear 75T</span>
-                        </TableCell>
-                        <TableCell>W</TableCell>
-                        <TableCell>
-                          <Badge variant="secondary">Unbatched</Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <span className="text-primary hover:underline cursor-pointer">1055 kg</span>
-                        </TableCell>
-                        <TableCell>-</TableCell>
-                        <TableCell>-</TableCell>
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            </div>
+            <BatchesTab />
           </TabsContent>
 
           <TabsContent value="serial-numbers" className="mt-4">

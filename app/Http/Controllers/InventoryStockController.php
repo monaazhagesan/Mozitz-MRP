@@ -58,6 +58,7 @@ class InventoryStockController extends Controller
             'itemName' => $item->item_name,
             'sku' => $item->sku,
             'item_type' => $item->item_type ?? 'Product',
+            'itemMode' => $item->item_mode,
 
             'uom' => $item->uom ?? '',
             'defaultSupplier' => $item->default_supplier ?? '-',
@@ -309,6 +310,18 @@ if (!empty($data['location_id'])) {
 
         $item->allocated_quantity = (float) $data['allocated_quantity'];
         $item->available_quantity = (float) $item->quantity_on_hand - $item->allocated_quantity;
+        $item->save();
+
+        return response()->json($item, 200);
+    }
+
+    // Narrow update — flips only item_mode (used by the Batch Tracking
+    // onboarding flow), without touching any other field the way the full
+    // update() endpoint does.
+    public function enableBatchTracking($id)
+    {
+        $item = InventoryStock::where('user_id', auth()->id())->findOrFail($id);
+        $item->item_mode = 'batch';
         $item->save();
 
         return response()->json($item, 200);

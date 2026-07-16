@@ -30,6 +30,7 @@ use App\Http\Controllers\StorageBinController;
 use App\Http\Controllers\DefaultLocationController;
 use App\Http\Controllers\WarehouseStockController;
 use App\Http\Controllers\StockTransferController;
+use App\Http\Controllers\ItemBatchController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CompanyDetailController;
 use App\Http\Controllers\UploadController;
@@ -123,6 +124,7 @@ Route::put('/inventory-stock/{id}', [InventoryStockController::class, 'update'])
 Route::delete('/inventory-stock/{id}', [InventoryStockController::class, 'destroy']);
 Route::post('/inventory-stock/allocate', [InventoryStockController::class, 'allocate']);
 Route::patch('/inventory-stock/by-code/{code}', [InventoryStockController::class, 'updateByCode']);
+Route::patch('/inventory-stock/{id}/enable-batch-tracking', [InventoryStockController::class, 'enableBatchTracking']);
 Route::get('/stock/check', [InventoryStockController::class, 'checkStock']);
 
 Route::post('/inventory-insights', [InventoryInsightsController::class, 'generateInsights']);
@@ -231,6 +233,12 @@ Route::delete('/warehouse-stock/{id}', [WarehouseStockController::class, 'destro
 Route::get('/stock-transfers', [StockTransferController::class, 'index']);
 Route::post('/stock-transfers', [StockTransferController::class, 'store']);
 Route::delete('/stock-transfers/{id}', [StockTransferController::class, 'destroy']);
+
+Route::get('/batches', [ItemBatchController::class, 'index']);
+Route::post('/batches', [ItemBatchController::class, 'store']);
+Route::put('/batches/by-number/{batchNumber}', [ItemBatchController::class, 'updateGroup']);
+Route::delete('/batches/by-number/{batchNumber}', [ItemBatchController::class, 'destroyGroup']);
+Route::delete('/batches/{id}', [ItemBatchController::class, 'destroy']);
 
 Route::get('/default-location', [DefaultLocationController::class, 'show']);
 Route::post('/default-location', [DefaultLocationController::class, 'storeOrUpdate']);
