@@ -9,10 +9,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Search, Eye, Edit, Trash2, FileText, ChevronDown, X, Save } from "lucide-react";
+import { Plus, Search, Eye, Edit, Trash2, FileText, ChevronDown, X, Save, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import axios from "axios";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 interface AdjustmentItem {
   id: string;
@@ -42,6 +45,9 @@ const StockAdjustmentsTab = () => {
   const [adjustments, setAdjustments] = useState<StockAdjustment[]>([]);
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "draft" | "completed">("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isViewMode, setIsViewMode] = useState(false);
   const [editingAdjustment, setEditingAdjustment] = useState<StockAdjustment | null>(null);
@@ -391,8 +397,74 @@ const filteredAdjustments = (Array.isArray(adjustments) ? adjustments : []).filt
   const number = (adj?.adjustmentNumber ?? "").toString().toLowerCase();
   const reason = (adj?.reason ?? "").toString().toLowerCase();
 
-  return number.includes(search) || reason.includes(search);
+  if (!(number.includes(search) || reason.includes(search))) return false;
+  if (statusFilter !== "all" && adj?.status !== statusFilter) return false;
+
+  if (dateFrom || dateTo) {
+    const d = adj?.adjustmentDate ? new Date(adj.adjustmentDate) : null;
+    if (!d || isNaN(d.getTime())) return false;
+    if (dateFrom) {
+      const from = new Date(dateFrom);
+      from.setHours(0, 0, 0, 0);
+      if (d < from) return false;
+    }
+    if (dateTo) {
+      const to = new Date(dateTo);
+      to.setHours(23, 59, 59, 999);
+      if (d > to) return false;
+    }
+  }
+
+  return true;
 });
+
+  const hasActiveFilters = !!searchTerm || statusFilter !== "all" || !!dateFrom || !!dateTo;
+
+  const clearFilters = () => {
+    setSearchTerm("");
+    setStatusFilter("all");
+    setDateFrom("");
+    setDateTo("");
+  };
+
+  const exportRows = () =>
+    filteredAdjustments.map((adj) => ({
+      "Adjustment #": adj.adjustmentNumber,
+      Date: adj.adjustmentDate ? format(new Date(adj.adjustmentDate), "dd MMM yyyy HH:mm") : "-",
+      Reason: adj.reason ?? "",
+      Items: Array.isArray(adj.items) ? adj.items.length : 0,
+      "Total Value": Number(adj.totalValue ?? 0),
+      Status: adj.status === "completed" ? "Completed" : "Draft",
+    }));
+
+  const exportXLSX = () => {
+    const rows = exportRows();
+    if (!rows.length) {
+      toast({ title: "No data", description: "Nothing to export for this filter.", variant: "destructive" });
+      return;
+    }
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Stock Adjustments");
+    XLSX.writeFile(workbook, `stock_adjustments_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    toast({ title: "Exported", description: "Stock adjustments exported to XLSX." });
+  };
+
+  const exportPDF = () => {
+    const rows = exportRows();
+    if (!rows.length) {
+      toast({ title: "No data", description: "Nothing to export for this filter.", variant: "destructive" });
+      return;
+    }
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(14);
+    doc.text("Stock Adjustments", 14, 15);
+    const head = [Object.keys(rows[0])];
+    const body = rows.map((r) => Object.values(r).map((v) => String(v ?? "")));
+    autoTable(doc, { head, body, startY: 22, styles: { fontSize: 8, cellPadding: 2 }, headStyles: { fillColor: [37, 99, 235] } });
+    doc.save(`stock_adjustments_${new Date().toISOString().slice(0, 10)}.pdf`);
+    toast({ title: "Exported", description: "Stock adjustments exported to PDF." });
+  };
 
   const safeAdjustments = Array.isArray(adjustments) ? adjustments : [];
 
@@ -430,14 +502,22 @@ const stats = {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle>Stock Adjustments</CardTitle>
-          <Button onClick={openCreateForm}>
-            <Plus className="h-4 w-4 mr-2" />
-            New Adjustment
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" title="Export XLSX" onClick={exportXLSX}>
+              <Download className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" title="Export PDF" onClick={exportPDF}>
+              <FileText className="h-4 w-4" />
+            </Button>
+            <Button onClick={openCreateForm}>
+              <Plus className="h-4 w-4 mr-2" />
+              New Adjustment
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-4 mb-4">
-            <div className="relative flex-1">
+          <div className="flex items-center gap-4 mb-4 flex-wrap">
+            <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search adjustments..."
@@ -446,6 +526,26 @@ const stats = {
                 className="pl-9"
               />
             </div>
+            <div className="flex items-center gap-1">
+              <Button size="sm" variant={statusFilter === "all" ? "default" : "outline"} onClick={() => setStatusFilter("all")}>All</Button>
+              <Button size="sm" variant={statusFilter === "draft" ? "default" : "outline"} onClick={() => setStatusFilter("draft")}>Draft</Button>
+              <Button size="sm" variant={statusFilter === "completed" ? "default" : "outline"} onClick={() => setStatusFilter("completed")}>Completed</Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <div>
+                <Label className="text-[10px] text-muted-foreground">From</Label>
+                <Input type="date" className="h-8 w-36" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+              </div>
+              <div>
+                <Label className="text-[10px] text-muted-foreground">To</Label>
+                <Input type="date" className="h-8 w-36" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+              </div>
+            </div>
+            {hasActiveFilters && (
+              <Button size="sm" variant="ghost" onClick={clearFilters}>
+                <X className="h-3.5 w-3.5 mr-1" /> Clear
+              </Button>
+            )}
           </div>
 
           <div className="border rounded-lg">
@@ -468,7 +568,9 @@ const stats = {
         colSpan={7}
         className="text-center py-8 text-muted-foreground"
       >
-        No adjustments found. Click "New Adjustment" to create one.
+        {hasActiveFilters
+          ? "No adjustments match the selected filters."
+          : 'No adjustments found. Click "New Adjustment" to create one.'}
       </TableCell>
     </TableRow>
   ) : (

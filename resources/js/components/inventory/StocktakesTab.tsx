@@ -10,10 +10,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Search, ClipboardList, Package, CheckCircle, AlertTriangle, BarChart3, ScanLine, FileText, Trash2, Play, Eye } from "lucide-react";
+import { Plus, Search, ClipboardList, Package, CheckCircle, AlertTriangle, BarChart3, ScanLine, FileText, Trash2, Play, Eye, Download, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import axios from "axios";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 interface Stocktake {
   id: string;
@@ -58,6 +61,9 @@ const StocktakesTab = () => {
   const [locations, setLocations] = useState<{ id: string; location_name: string }[]>([]);
   const [inventoryItems, setInventoryItems] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "Draft" | "In Progress" | "Completed" | "Cancelled">("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [barcodeInput, setBarcodeInput] = useState("");
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
@@ -639,6 +645,76 @@ const matchingInventoryItems = normalizedSearchTerm
     });
   };
 
+  const filteredStocktakes = stocktakes.filter((s) => {
+    const search = searchTerm.toLowerCase();
+    if (search && !(s.stocktakeNo?.toLowerCase().includes(search) || s.name?.toLowerCase().includes(search))) return false;
+    if (statusFilter !== "all" && s.status !== statusFilter) return false;
+    if (dateFrom || dateTo) {
+      const d = s.createdAt ? new Date(s.createdAt) : null;
+      if (!d || isNaN(d.getTime())) return false;
+      if (dateFrom) {
+        const from = new Date(dateFrom);
+        from.setHours(0, 0, 0, 0);
+        if (d < from) return false;
+      }
+      if (dateTo) {
+        const to = new Date(dateTo);
+        to.setHours(23, 59, 59, 999);
+        if (d > to) return false;
+      }
+    }
+    return true;
+  });
+
+  const hasActiveFilters = !!searchTerm || statusFilter !== "all" || !!dateFrom || !!dateTo;
+
+  const clearFilters = () => {
+    setSearchTerm("");
+    setStatusFilter("all");
+    setDateFrom("");
+    setDateTo("");
+  };
+
+  const exportRows = () =>
+    filteredStocktakes.map((s) => ({
+      "Stocktake No": s.stocktakeNo,
+      Name: s.name,
+      Location: s.location,
+      Status: s.status,
+      Progress: `${s.countedItems}/${s.totalItems}`,
+      Variance: Number(s.varianceValue ?? 0),
+      Created: s.createdAt ? format(new Date(s.createdAt), "MMM dd, yyyy") : "-",
+    }));
+
+  const exportXLSX = () => {
+    const rows = exportRows();
+    if (!rows.length) {
+      toast({ title: "No data", description: "Nothing to export for this filter.", variant: "destructive" });
+      return;
+    }
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Stocktakes");
+    XLSX.writeFile(workbook, `stocktakes_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    toast({ title: "Exported", description: "Stocktakes exported to XLSX." });
+  };
+
+  const exportPDF = () => {
+    const rows = exportRows();
+    if (!rows.length) {
+      toast({ title: "No data", description: "Nothing to export for this filter.", variant: "destructive" });
+      return;
+    }
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(14);
+    doc.text("Stocktakes", 14, 15);
+    const head = [Object.keys(rows[0])];
+    const body = rows.map((r) => Object.values(r).map((v) => String(v ?? "")));
+    autoTable(doc, { head, body, startY: 22, styles: { fontSize: 8, cellPadding: 2 }, headStyles: { fillColor: [37, 99, 235] } });
+    doc.save(`stocktakes_${new Date().toISOString().slice(0, 10)}.pdf`);
+    toast({ title: "Exported", description: "Stocktakes exported to PDF." });
+  };
+
   const stats = {
     total: stocktakes.length,
     inProgress: stocktakes.filter((s) => s.status === "In Progress").length,
@@ -701,15 +777,58 @@ const matchingInventoryItems = normalizedSearchTerm
       </div>
 
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h3 className="text-lg font-semibold">Stocktakes</h3>
           <p className="text-sm text-muted-foreground">Physical inventory counts and adjustments</p>
         </div>
-        <Button onClick={() => setIsCreateDialogOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          New Stocktake
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" title="Export XLSX" onClick={exportXLSX}>
+            <Download className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" title="Export PDF" onClick={exportPDF}>
+            <FileText className="h-4 w-4" />
+          </Button>
+          <Button onClick={() => setIsCreateDialogOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            New Stocktake
+          </Button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search stocktakes..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <div className="flex items-center gap-1 flex-wrap">
+          {(["all", "Draft", "In Progress", "Completed", "Cancelled"] as const).map((s) => (
+            <Button key={s} size="sm" variant={statusFilter === s ? "default" : "outline"} onClick={() => setStatusFilter(s)}>
+              {s === "all" ? "All" : s}
+            </Button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <div>
+            <Label className="text-[10px] text-muted-foreground">From</Label>
+            <Input type="date" className="h-8 w-36" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          </div>
+          <div>
+            <Label className="text-[10px] text-muted-foreground">To</Label>
+            <Input type="date" className="h-8 w-36" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          </div>
+        </div>
+        {hasActiveFilters && (
+          <Button size="sm" variant="ghost" onClick={clearFilters}>
+            <X className="h-3.5 w-3.5 mr-1" /> Clear
+          </Button>
+        )}
       </div>
 
       {/* Stocktakes List */}
@@ -729,14 +848,16 @@ const matchingInventoryItems = normalizedSearchTerm
               </TableRow>
             </TableHeader>
             <TableBody>
-              {stocktakes.length === 0 ? (
+              {filteredStocktakes.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                    No stocktakes found. Click "New Stocktake" to create one.
+                    {hasActiveFilters
+                      ? "No stocktakes match the selected filters."
+                      : 'No stocktakes found. Click "New Stocktake" to create one.'}
                   </TableCell>
                 </TableRow>
               ) : (
-                stocktakes.map((stocktake) => (
+                filteredStocktakes.map((stocktake) => (
                   <TableRow key={stocktake.id}>
                     <TableCell className="font-mono">{stocktake.stocktakeNo}</TableCell>
                     <TableCell>{stocktake.name}</TableCell>
