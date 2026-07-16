@@ -25,8 +25,8 @@ import Invoices from "./pages/Invoices";
 import Settings from "./pages/Settings";
 import Ledger from "./pages/Ledger";
 import TaxConfiguration from "./pages/TaxConfiguration";
-/*import InventoryLocation from "./pages/InventoryLocation";
-import StockTransfer from "./pages/StockTransfer";
+import InventoryLocation from "./pages/InventoryLocation";
+/*import StockTransfer from "./pages/StockTransfer";
 import StockTransferApproval from "./pages/StockTransferApproval";
 import Barcode from "./pages/Barcode";
 import InventoryApprovals from "./pages/InventoryApprovals";
@@ -77,7 +77,7 @@ const App = () => (
             <Route path="/purchase/grn" element={<ProtectedRoute><GRN /></ProtectedRoute>} />
             <Route path="/purchase/debit-note" element={<ProtectedRoute><POReturn /></ProtectedRoute>} />
             <Route path="/purchase/e-auction" element={<ProtectedRoute><EAuction /></ProtectedRoute>} />
-       {/*     <Route path="/inventory-location" element={<ProtectedRoute><InventoryLocation /></ProtectedRoute>} />  */}
+            <Route path="/inventory-location" element={<ProtectedRoute><InventoryLocation /></ProtectedRoute>} />
             <Route path="/approvals/po-approval" element={<ProtectedRoute><POApproval /></ProtectedRoute>} />
        {/*      <Route path="/approvals/invoice-approval" element={<ProtectedRoute><InvoiceApproval /></ProtectedRoute>} />
             <Route path="/approvals/inventory-approvals" element={<ProtectedRoute><InventoryApprovals /></ProtectedRoute>} />
