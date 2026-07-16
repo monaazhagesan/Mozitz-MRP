@@ -31,6 +31,7 @@ use App\Http\Controllers\DefaultLocationController;
 use App\Http\Controllers\WarehouseStockController;
 use App\Http\Controllers\StockTransferController;
 use App\Http\Controllers\ItemBatchController;
+use App\Http\Controllers\ItemSerialController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\CompanyDetailController;
 use App\Http\Controllers\UploadController;
@@ -125,6 +126,7 @@ Route::delete('/inventory-stock/{id}', [InventoryStockController::class, 'destro
 Route::post('/inventory-stock/allocate', [InventoryStockController::class, 'allocate']);
 Route::patch('/inventory-stock/by-code/{code}', [InventoryStockController::class, 'updateByCode']);
 Route::patch('/inventory-stock/{id}/enable-batch-tracking', [InventoryStockController::class, 'enableBatchTracking']);
+Route::patch('/inventory-stock/{id}/enable-serial-tracking', [InventoryStockController::class, 'enableSerialTracking']);
 Route::get('/stock/check', [InventoryStockController::class, 'checkStock']);
 
 Route::post('/inventory-insights', [InventoryInsightsController::class, 'generateInsights']);
@@ -239,6 +241,10 @@ Route::post('/batches', [ItemBatchController::class, 'store']);
 Route::put('/batches/by-number/{batchNumber}', [ItemBatchController::class, 'updateGroup']);
 Route::delete('/batches/by-number/{batchNumber}', [ItemBatchController::class, 'destroyGroup']);
 Route::delete('/batches/{id}', [ItemBatchController::class, 'destroy']);
+
+Route::get('/serial-numbers', [ItemSerialController::class, 'index']);
+Route::post('/serial-numbers', [ItemSerialController::class, 'store']);
+Route::delete('/serial-numbers/{id}', [ItemSerialController::class, 'destroy']);
 
 Route::get('/default-location', [DefaultLocationController::class, 'show']);
 Route::post('/default-location', [DefaultLocationController::class, 'storeOrUpdate']);

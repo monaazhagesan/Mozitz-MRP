@@ -19,6 +19,7 @@ class InventoryStock extends Model
         'description',
         'item_type',
         'item_mode',
+        'auto_generate_serial',
         'quantity_on_hand',
         'allocated_quantity',
         'committed_quantity',
@@ -54,6 +55,7 @@ class InventoryStock extends Model
         'variant_attributes' => 'array',
         'qty_to_add' => 'integer',
 'receipt_date' => 'date',
+        'auto_generate_serial' => 'boolean',
     ];
 
     public function location()

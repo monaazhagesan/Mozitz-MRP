@@ -374,6 +374,35 @@ const BatchesTab = () => {
 
   const totalRowCount = filteredRows.length;
 
+  const enableTrackingDialog = (
+    <Dialog open={enablePickerOpen} onOpenChange={(o) => { setEnablePickerOpen(o); if (!o) setEnablePickItemCode(""); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>Choose an item for batch tracking</DialogTitle></DialogHeader>
+        <div>
+          <Label className="text-xs">Item</Label>
+          <Select value={enablePickItemCode} onValueChange={setEnablePickItemCode}>
+            <SelectTrigger><SelectValue placeholder="Select item…" /></SelectTrigger>
+            <SelectContent>
+              {trackingCandidates.length === 0 ? (
+                <SelectItem value="none" disabled>All items already have batch tracking enabled</SelectItem>
+              ) : (
+                trackingCandidates.map(i => (
+                  <SelectItem key={i.item_code} value={i.item_code}>
+                    {i.item_code} — {i.item_name} ({i.item_type})
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setEnablePickerOpen(false)} disabled={enabling}>Cancel</Button>
+          <Button onClick={confirmEnableTracking} disabled={enabling}>{enabling ? "Enabling…" : "Enable Batch Tracking"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (loading) {
     return <div className="p-6 text-center text-sm text-muted-foreground">Loading…</div>;
   }
@@ -433,33 +462,7 @@ const BatchesTab = () => {
           </div>
         </div>
 
-        {/* Choose an item for batch tracking */}
-        <Dialog open={enablePickerOpen} onOpenChange={(o) => { setEnablePickerOpen(o); if (!o) setEnablePickItemCode(""); }}>
-          <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle>Choose an item for batch tracking</DialogTitle></DialogHeader>
-            <div>
-              <Label className="text-xs">Item</Label>
-              <Select value={enablePickItemCode} onValueChange={setEnablePickItemCode}>
-                <SelectTrigger><SelectValue placeholder="Select item…" /></SelectTrigger>
-                <SelectContent>
-                  {trackingCandidates.length === 0 ? (
-                    <SelectItem value="none" disabled>No items available</SelectItem>
-                  ) : (
-                    trackingCandidates.map(i => (
-                      <SelectItem key={i.item_code} value={i.item_code}>
-                        {i.item_code} — {i.item_name} ({i.item_type})
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setEnablePickerOpen(false)} disabled={enabling}>Cancel</Button>
-              <Button onClick={confirmEnableTracking} disabled={enabling}>{enabling ? "Enabling…" : "Enable Batch Tracking"}</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {enableTrackingDialog}
       </div>
     );
   }
@@ -497,6 +500,9 @@ const BatchesTab = () => {
             </Button>
             <Button variant="ghost" size="icon" title="Export PDF" onClick={exportPDF}>
               <FileText className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" onClick={() => setEnablePickerOpen(true)}>
+              <PackageSearch className="h-4 w-4 mr-1" /> Enable Tracking
             </Button>
             <Button onClick={openDialog}>
               <Plus className="h-4 w-4 mr-1" /> New Batch
@@ -713,6 +719,14 @@ const BatchesTab = () => {
                   <Plus className="h-4 w-4" />
                 </Button>
               </div>
+              {availableForPick.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No items with batch tracking enabled have unbatched stock.{" "}
+                  <button type="button" className="text-primary underline" onClick={() => { setDialogOpen(false); setEnablePickerOpen(true); }}>
+                    Enable tracking for an item
+                  </button>
+                </p>
+              )}
             </div>
           </div>
 
@@ -785,6 +799,8 @@ const BatchesTab = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      {enableTrackingDialog}
     </div>
   );
 };

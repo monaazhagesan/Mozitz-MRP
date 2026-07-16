@@ -327,6 +327,17 @@ if (!empty($data['location_id'])) {
         return response()->json($item, 200);
     }
 
+    // Narrow update — flips only auto_generate_serial (used by the Serial
+    // Number Tracking onboarding flow), without touching any other field.
+    public function enableSerialTracking($id)
+    {
+        $item = InventoryStock::where('user_id', auth()->id())->findOrFail($id);
+        $item->auto_generate_serial = true;
+        $item->save();
+
+        return response()->json($item, 200);
+    }
+
     // Delete inventory item
    public function destroy($id)
 {
